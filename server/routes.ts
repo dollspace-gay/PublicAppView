@@ -110,6 +110,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             // Acknowledge ONLY after successful processing
             if (success) {
+              // Update metrics for successfully processed events
+              const metricType = event.type === "commit" ? "#commit" 
+                : event.type === "identity" ? "#identity" 
+                : "#account";
+              metricsService.incrementEvent(metricType as any);
+              
               await redisQueue.ack(event.messageId);
             }
           });
