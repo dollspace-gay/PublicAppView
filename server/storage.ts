@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob } from "@shared/schema";
+import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -189,6 +189,14 @@ export interface IStorage {
   getUserVideoJobs(userDid: string, limit?: number): Promise<VideoJob[]>;
   updateVideoJob(jobId: string, data: Partial<InsertVideoJob>): Promise<VideoJob | undefined>;
   deleteVideoJob(jobId: string): Promise<void>;
+  
+  // Firehose cursor operations
+  getFirehoseCursor(service: string): Promise<FirehoseCursor | undefined>;
+  saveFirehoseCursor(service: string, cursor: string | null, lastEventTime?: Date): Promise<void>;
+  
+  // Backfill progress operations
+  getBackfillProgress(): Promise<{ currentCursor: string | null; eventsProcessed: number; lastUpdateTime: Date } | undefined>;
+  saveBackfillProgress(progress: { currentCursor: string | null; eventsProcessed: number; lastUpdateTime: Date }): Promise<void>;
   
   // Stats
   getStats(): Promise<{
@@ -1587,6 +1595,72 @@ export class DatabaseStorage implements IStorage {
 
   async deleteVideoJob(jobId: string): Promise<void> {
     await db.delete(videoJobs).where(eq(videoJobs.jobId, jobId));
+  }
+
+  async getFirehoseCursor(service: string): Promise<FirehoseCursor | undefined> {
+    const [cursor] = await db.select().from(firehoseCursor).where(eq(firehoseCursor.service, service));
+    return cursor || undefined;
+  }
+
+  async saveFirehoseCursor(service: string, cursor: string | null, lastEventTime?: Date): Promise<void> {
+    // Use upsert to handle concurrent saves atomically
+    await db
+      .insert(firehoseCursor)
+      .values({
+        service,
+        cursor,
+        lastEventTime: lastEventTime || new Date(),
+      })
+      .onConflictDoUpdate({
+        target: firehoseCursor.service,
+        set: {
+          cursor,
+          lastEventTime: lastEventTime || new Date(),
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  async getBackfillProgress(): Promise<{ currentCursor: string | null; eventsProcessed: number; lastUpdateTime: Date } | undefined> {
+    const [record] = await db.select().from(firehoseCursor).where(eq(firehoseCursor.service, "backfill"));
+    if (!record) return undefined;
+    
+    // Parse cursor field which contains both cursor and eventsProcessed encoded as "cursor|eventsProcessed"
+    let currentCursor: string | null = record.cursor;
+    let eventsProcessed = 0;
+    
+    if (record.cursor && record.cursor.includes('|')) {
+      const parts = record.cursor.split('|');
+      currentCursor = parts[0] || null;
+      eventsProcessed = parseInt(parts[1] || '0', 10);
+    }
+    
+    return {
+      currentCursor,
+      eventsProcessed,
+      lastUpdateTime: record.lastEventTime || new Date(),
+    };
+  }
+
+  async saveBackfillProgress(progress: { currentCursor: string | null; eventsProcessed: number; lastUpdateTime: Date }): Promise<void> {
+    // Encode both cursor and eventsProcessed in the cursor field as "cursor|eventsProcessed"
+    const encodedCursor = `${progress.currentCursor || ''}|${progress.eventsProcessed}`;
+    
+    await db
+      .insert(firehoseCursor)
+      .values({
+        service: "backfill",
+        cursor: encodedCursor,
+        lastEventTime: progress.lastUpdateTime,
+      })
+      .onConflictDoUpdate({
+        target: firehoseCursor.service,
+        set: {
+          cursor: encodedCursor,
+          lastEventTime: progress.lastUpdateTime,
+          updatedAt: new Date(),
+        },
+      });
   }
 
   private statsCache: { data: any, timestamp: number } | null = null;

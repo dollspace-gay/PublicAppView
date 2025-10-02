@@ -17,6 +17,11 @@ export class FirehoseClient {
   private eventCallbacks: EventCallback[] = [];
   private recentEvents: any[] = []; // Keep last 50 events for dashboard
   
+  // Cursor persistence for restart recovery
+  private currentCursor: string | null = null;
+  private lastCursorSave = 0;
+  private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
+  
   // Concurrency control to prevent overwhelming the database connection pool
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
@@ -125,7 +130,24 @@ export class FirehoseClient {
     });
   }
 
-  connect() {
+  private async saveCursor(cursor: string) {
+    // Update current cursor
+    this.currentCursor = cursor;
+    
+    // Save to database periodically (every 5 seconds) to avoid excessive writes
+    const now = Date.now();
+    if (now - this.lastCursorSave > this.CURSOR_SAVE_INTERVAL) {
+      try {
+        const { storage } = await import("../storage");
+        await storage.saveFirehoseCursor("firehose", cursor, new Date());
+        this.lastCursorSave = now;
+      } catch (error) {
+        console.error("[FIREHOSE] Error saving cursor:", error);
+      }
+    }
+  }
+
+  async connect() {
     // Close existing client before creating new one to prevent memory leaks
     if (this.client) {
       try {
@@ -140,14 +162,38 @@ export class FirehoseClient {
       this.client = null;
     }
     
+    // Load saved cursor for restart recovery
+    try {
+      const { storage } = await import("../storage");
+      const savedCursor = await storage.getFirehoseCursor("firehose");
+      if (savedCursor && savedCursor.cursor) {
+        this.currentCursor = savedCursor.cursor;
+        console.log(`[FIREHOSE] Resuming from saved cursor: ${this.currentCursor.slice(0, 20)}...`);
+        logCollector.info(`Resuming firehose from cursor: ${this.currentCursor.slice(0, 20)}...`);
+      } else {
+        console.log(`[FIREHOSE] No saved cursor found, starting from now`);
+        logCollector.info("No saved cursor - starting firehose from current position");
+      }
+    } catch (error) {
+      console.error("[FIREHOSE] Error loading cursor:", error);
+      logCollector.error("Failed to load firehose cursor", { error });
+    }
+    
     console.log(`[FIREHOSE] Connecting to ${this.url}...`);
     logCollector.info(`Connecting to firehose at ${this.url}`);
     
     try {
-      this.client = new Firehose({
+      const firehoseConfig: any = {
         service: this.url,
         ws: WebSocket as any,
-      });
+      };
+      
+      // Resume from saved cursor if available
+      if (this.currentCursor) {
+        firehoseConfig.cursor = this.currentCursor;
+      }
+      
+      this.client = new Firehose(firehoseConfig);
 
       this.client.on("open", () => {
         console.log("[FIREHOSE] Connected to relay");
@@ -159,6 +205,11 @@ export class FirehoseClient {
 
       this.client.on("commit", (commit) => {
         metricsService.incrementEvent("#commit");
+        
+        // Save cursor for restart recovery (extract from commit metadata if available)
+        if ((commit as any).seq) {
+          this.saveCursor(String((commit as any).seq));
+        }
         
         const event = {
           repo: commit.repo,
@@ -206,6 +257,11 @@ export class FirehoseClient {
       this.client.on("identity", (identity) => {
         metricsService.incrementEvent("#identity");
         
+        // Save cursor for restart recovery
+        if ((identity as any).seq) {
+          this.saveCursor(String((identity as any).seq));
+        }
+        
         // Broadcast to WebSocket clients
         this.broadcastEvent({
           type: "#identity",
@@ -232,6 +288,11 @@ export class FirehoseClient {
       this.client.on("account", (account) => {
         metricsService.incrementEvent("#account");
         
+        // Save cursor for restart recovery
+        if ((account as any).seq) {
+          this.saveCursor(String((account as any).seq));
+        }
+        
         // Broadcast to WebSocket clients
         this.broadcastEvent({
           type: "#account",
@@ -257,9 +318,23 @@ export class FirehoseClient {
 
       this.client.on("error", (error) => {
         console.error("[FIREHOSE] WebSocket error:", error);
-        logCollector.error("Firehose WebSocket error", { error: error.message });
+        
+        // Categorize errors for better monitoring
+        const errorType = this.categorizeError(error);
+        logCollector.error(`Firehose ${errorType} error`, { 
+          error: error.message,
+          type: errorType,
+          url: this.url
+        });
+        
         this.isConnected = false;
         metricsService.updateFirehoseStatus("error");
+        metricsService.incrementError();
+        
+        // Attempt reconnection for recoverable errors
+        if (errorType !== "fatal") {
+          this.reconnect();
+        }
       });
 
       this.client.start();
@@ -308,10 +383,33 @@ export class FirehoseClient {
     metricsService.updateFirehoseStatus("disconnected");
   }
 
+  private categorizeError(error: any): string {
+    const message = error?.message?.toLowerCase() || "";
+    
+    if (message.includes("econnrefused") || message.includes("enotfound")) {
+      return "network";
+    } else if (message.includes("timeout")) {
+      return "timeout";
+    } else if (message.includes("authentication") || message.includes("unauthorized")) {
+      return "auth";
+    } else if (message.includes("rate limit")) {
+      return "rate-limit";
+    } else if (message.includes("protocol") || message.includes("parse")) {
+      return "protocol";
+    }
+    
+    return "unknown";
+  }
+
   getStatus() {
     return {
+      isConnected: this.isConnected,
       connected: this.isConnected,
       url: this.url,
+      currentCursor: this.currentCursor,
+      queueDepth: this.processingQueue.length,
+      activeProcessing: this.activeProcessing,
+      reconnectDelay: this.reconnectDelay,
     };
   }
 

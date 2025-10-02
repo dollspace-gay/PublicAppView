@@ -1159,6 +1159,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
 
+  // Health and readiness endpoints for container orchestration
+  app.get("/health", (_req, res) => {
+    res.status(200).json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  app.get("/ready", async (_req, res) => {
+    try {
+      const firehoseStatus = firehoseClient.getStatus();
+      const systemHealth = await metricsService.getSystemHealth();
+      
+      const isReady = 
+        firehoseStatus.isConnected && 
+        systemHealth.database.healthy &&
+        systemHealth.memory.percentUsed < 95;
+      
+      if (!isReady) {
+        return res.status(503).json({
+          status: "not ready",
+          timestamp: new Date().toISOString(),
+          checks: {
+            firehose: firehoseStatus.isConnected ? "connected" : "disconnected",
+            database: systemHealth.database.healthy ? "healthy" : "unhealthy",
+            memory: systemHealth.memory.percentUsed < 95 ? "ok" : "critical",
+          },
+          details: {
+            firehose: firehoseStatus,
+            database: systemHealth.database,
+            memory: systemHealth.memory,
+          }
+        });
+      }
+      
+      res.status(200).json({
+        status: "ready",
+        timestamp: new Date().toISOString(),
+        checks: {
+          firehose: "connected",
+          database: "healthy",
+          memory: "ok",
+        }
+      });
+    } catch (error) {
+      res.status(503).json({
+        status: "not ready",
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // AT Protocol server metadata endpoint (required for service discovery)
+  app.get("/xrpc/com.atproto.server.describeServer", async (_req, res) => {
+    try {
+      // Use hardcoded version to avoid runtime import issues after compilation
+      const version = "1.0.0";
+      
+      res.json({
+        did: process.env.APPVIEW_DID || "did:web:appview.local",
+        availableUserDomains: [],
+        inviteCodeRequired: false,
+        phoneVerificationRequired: false,
+        links: {
+          privacyPolicy: undefined,
+          termsOfService: undefined,
+        },
+        contact: {
+          email: undefined,
+        },
+        appview: {
+          version,
+          capabilities: [
+            "app.bsky.feed.getTimeline",
+            "app.bsky.feed.getAuthorFeed",
+            "app.bsky.feed.getPostThread",
+            "app.bsky.feed.getPosts",
+            "app.bsky.feed.getLikes",
+            "app.bsky.feed.getRepostedBy",
+            "app.bsky.feed.getQuotes",
+            "app.bsky.feed.getActorLikes",
+            "app.bsky.feed.getListFeed",
+            "app.bsky.feed.searchPosts",
+            "app.bsky.feed.getFeedGenerator",
+            "app.bsky.feed.getFeedGenerators",
+            "app.bsky.feed.getActorFeeds",
+            "app.bsky.feed.getSuggestedFeeds",
+            "app.bsky.feed.describeFeedGenerator",
+            "app.bsky.feed.getFeed",
+            "app.bsky.actor.getProfile",
+            "app.bsky.actor.getProfiles",
+            "app.bsky.actor.getSuggestions",
+            "app.bsky.actor.searchActors",
+            "app.bsky.actor.searchActorsTypeahead",
+            "app.bsky.actor.getPreferences",
+            "app.bsky.actor.putPreferences",
+            "app.bsky.graph.getFollows",
+            "app.bsky.graph.getFollowers",
+            "app.bsky.graph.getBlocks",
+            "app.bsky.graph.getMutes",
+            "app.bsky.graph.muteActor",
+            "app.bsky.graph.unmuteActor",
+            "app.bsky.graph.getRelationships",
+            "app.bsky.graph.getList",
+            "app.bsky.graph.getLists",
+            "app.bsky.graph.getListMutes",
+            "app.bsky.graph.getListBlocks",
+            "app.bsky.graph.getKnownFollowers",
+            "app.bsky.graph.getSuggestedFollowsByActor",
+            "app.bsky.graph.muteActorList",
+            "app.bsky.graph.unmuteActorList",
+            "app.bsky.graph.getStarterPack",
+            "app.bsky.graph.getStarterPacks",
+            "app.bsky.graph.muteThread",
+            "app.bsky.notification.listNotifications",
+            "app.bsky.notification.getUnreadCount",
+            "app.bsky.notification.updateSeen",
+            "app.bsky.notification.registerPush",
+            "app.bsky.notification.putPreferences",
+            "app.bsky.video.getJobStatus",
+            "app.bsky.video.getUploadLimits",
+            "app.bsky.moderation.createReport",
+            "com.atproto.label.queryLabels",
+            "app.bsky.labeler.getServices",
+          ],
+          features: {
+            "oauth": true,
+            "pds-proxy": true,
+            "content-filtering": true,
+            "custom-feeds": true,
+            "feed-generators": true,
+            "full-text-search": true,
+            "cursor-persistence": true,
+          }
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to describe server" });
+    }
+  });
+
   // Dashboard API endpoints (protected by dashboard auth)
   app.get("/api/metrics", requireDashboardAuth, async (_req, res) => {
     const stats = await storage.getStats();

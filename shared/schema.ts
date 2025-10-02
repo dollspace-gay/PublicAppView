@@ -398,6 +398,17 @@ export const videoJobs = pgTable("video_jobs", {
   createdAtIdx: index("idx_video_jobs_created_at").on(table.createdAt),
 }));
 
+// Firehose cursor state table - tracks position in the firehose for restart recovery
+export const firehoseCursor = pgTable("firehose_cursor", {
+  id: serial("id").primaryKey(),
+  service: varchar("service", { length: 255 }).notNull().unique(), // "firehose" - allows multiple services in future
+  cursor: text("cursor"), // Current cursor position in the firehose
+  lastEventTime: timestamp("last_event_time"), // Timestamp of last processed event
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  serviceIdx: uniqueIndex("idx_firehose_cursor_service").on(table.service),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   posts: many(posts),
@@ -539,6 +550,7 @@ export const insertStarterPackSchema = createInsertSchema(starterPacks).omit({ i
 export const insertLabelerServiceSchema = createInsertSchema(labelerServices).omit({ indexedAt: true, likeCount: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVideoJobSchema = createInsertSchema(videoJobs).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertFirehoseCursorSchema = createInsertSchema(firehoseCursor).omit({ id: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -595,3 +607,5 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type VideoJob = typeof videoJobs.$inferSelect;
 export type InsertVideoJob = z.infer<typeof insertVideoJobSchema>;
+export type FirehoseCursor = typeof firehoseCursor.$inferSelect;
+export type InsertFirehoseCursor = z.infer<typeof insertFirehoseCursorSchema>;

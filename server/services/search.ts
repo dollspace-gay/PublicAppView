@@ -1,4 +1,4 @@
-import { pool } from "../db";
+import { pool, db } from "../db";
 import { users } from "../../shared/schema";
 import { ilike } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -41,23 +41,18 @@ class SearchService {
     cursor?: string,
     userDid?: string
   ): Promise<{ posts: PostSearchResult[]; cursor?: string }> {
-    // Sanitize query for tsquery
-    const sanitizedQuery = query
-      .trim()
-      .split(/\s+/)
-      .map(term => term.replace(/[^a-zA-Z0-9]/g, ''))
-      .filter(term => term.length > 0)
-      .join(' & ');
-
-    if (!sanitizedQuery) {
+    const trimmedQuery = query.trim();
+    
+    if (!trimmedQuery) {
       return { posts: [] };
     }
-    // Use pool directly for PostgreSQL-specific queries
-    const sqlQuery = cursor
-      ? `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, to_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ to_tsquery('english', $1) AND ts_rank(search_vector, to_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
-      : `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, to_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ to_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
     
-    const params = cursor ? [sanitizedQuery, parseFloat(cursor), limit + 1] : [sanitizedQuery, limit + 1];
+    // Use plainto_tsquery which safely handles Unicode, punctuation, and special characters
+    const sqlQuery = cursor
+      ? `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) AND ts_rank(search_vector, plainto_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
+      : `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
+    
+    const params = cursor ? [trimmedQuery, parseFloat(cursor), limit + 1] : [trimmedQuery, limit + 1];
     const queryResult = await pool.query(sqlQuery, params);
     const results = { rows: queryResult.rows as (PostSearchResult & { rank: number })[] };
 
@@ -97,48 +92,43 @@ class SearchService {
     limit = 25,
     cursor?: string
   ): Promise<{ actors: ActorSearchResult[]; cursor?: string }> {
-    // Sanitize query for tsquery
-    const sanitizedQuery = query
-      .trim()
-      .split(/\s+/)
-      .map(term => term.replace(/[^a-zA-Z0-9]/g, ''))
-      .filter(term => term.length > 0)
-      .join(' & ');
-
-    if (!sanitizedQuery) {
+    const trimmedQuery = query.trim();
+    
+    if (!trimmedQuery) {
       return { actors: [] };
     }
 
-    // Build SQL query with optional cursor
+    // Build SQL query with optional cursor - use plainto_tsquery for safe Unicode handling
     const cursorCondition = cursor 
-      ? sql`AND ts_rank(search_vector, to_tsquery('english', ${sanitizedQuery})) < ${parseFloat(cursor)}`
+      ? sql`AND ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) < ${parseFloat(cursor)}`
       : sql``;
 
     // Execute search using raw SQL
-    const results = await db.execute<ActorSearchResult>(sql`
+    const results = await db.execute(sql`
       SELECT 
         did,
         handle,
         display_name as "displayName",
         avatar_url as "avatarUrl",
         description,
-        ts_rank(search_vector, to_tsquery('english', ${sanitizedQuery})) as rank
+        ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) as rank
       FROM users
-      WHERE search_vector @@ to_tsquery('english', ${sanitizedQuery})
+      WHERE search_vector @@ plainto_tsquery('english', ${trimmedQuery})
         ${cursorCondition}
       ORDER BY rank DESC
       LIMIT ${limit + 1}
     `);
 
     // Determine pagination
-    const hasMore = results.rows.length > limit;
-    const actorsToReturn = results.rows.slice(0, limit);
+    const rows = results.rows as unknown as (ActorSearchResult & { rank: number })[];
+    const hasMore = rows.length > limit;
+    const actorsToReturn = rows.slice(0, limit);
     const nextCursor = hasMore && actorsToReturn.length > 0
       ? actorsToReturn[actorsToReturn.length - 1].rank.toString()
       : undefined;
 
     return {
-      actors: actorsToReturn as ActorSearchResult[],
+      actors: actorsToReturn,
       cursor: nextCursor,
     };
   }
