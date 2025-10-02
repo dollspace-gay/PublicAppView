@@ -43,6 +43,13 @@ COPY shared ./shared
 # Set production environment
 ENV NODE_ENV=production
 
+# Configuration defaults (can be overridden in docker-compose.yml or at runtime)
+ENV RELAY_URL=wss://bsky.network
+ENV PORT=5000
+ENV APPVIEW_DID=did:web:appview.local
+ENV ENABLE_BACKFILL=false
+ENV DB_POOL_SIZE=20
+
 # Expose port
 EXPOSE 5000
 

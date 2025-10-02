@@ -10,7 +10,6 @@ export function Sidebar() {
     { path: "/database", icon: Database, label: "Database Schema" },
     { path: "/api", icon: Terminal, label: "API Endpoints" },
     { path: "/lexicons", icon: BookOpen, label: "Lexicon Validator" },
-    { path: "/config", icon: Settings, label: "Configuration" },
     { path: "/logs", icon: FileText, label: "Logs & Analytics" },
   ];
 

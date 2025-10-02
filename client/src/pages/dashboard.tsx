@@ -7,7 +7,6 @@ import { EventStream } from "@/components/event-stream";
 import { DatabaseSchema } from "@/components/database-schema";
 import { ApiEndpoints } from "@/components/api-endpoints";
 import { LexiconValidatorPanel } from "@/components/lexicon-validator-panel";
-import { ConfigurationPanel } from "@/components/configuration-panel";
 import { LogsPanel } from "@/components/logs-panel";
 import { useLocation } from "wouter";
 
@@ -245,16 +244,6 @@ export default function Dashboard() {
               invalid={Math.floor(metrics.eventsProcessed * (metrics.errorRate / 100))}
               errorRate={metrics.errorRate}
             />
-          </section>
-        )}
-
-        {location === "/config" && (
-          <section className="p-8">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-foreground mb-2">Configuration</h2>
-              <p className="text-muted-foreground">Service settings and deployment options</p>
-            </div>
-            <ConfigurationPanel />
           </section>
         )}
 

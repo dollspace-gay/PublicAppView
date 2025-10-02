@@ -61,7 +61,6 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  // Check session expiry from database
   const { storage } = await import("../storage");
   const dbSession = await storage.getSession(payload.sessionId);
   
@@ -69,59 +68,38 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ error: "Session not found" });
   }
 
-  // Check if session has expired
   const now = new Date();
   if (now > new Date(dbSession.expiresAt)) {
-    // Try to refresh the token if refresh token exists
     if (dbSession.refreshToken) {
       console.log(`[AUTH] Access token expired for ${dbSession.userDid}, attempting refresh...`);
       
       const { pdsClient } = await import("./pds-client");
       const { didResolver } = await import("./did-resolver");
       
-      // Get user's PDS endpoint
       const pdsEndpoint = await didResolver.resolveDIDToPDS(dbSession.userDid);
-      if (!pdsEndpoint) {
-        console.error(`[AUTH] Failed to resolve PDS endpoint for ${dbSession.userDid}`);
-        await storage.deleteSession(payload.sessionId);
-        return res.status(401).json({ error: "Session expired and could not be refreshed" });
-      }
-
-      // Attempt token refresh
-      const refreshResult = await pdsClient.refreshAccessToken(
-        pdsEndpoint,
-        dbSession.refreshToken
-      );
-
-      if (refreshResult.success && refreshResult.data) {
-        // Security: Verify the refreshed DID matches the session DID
-        if (refreshResult.data.did !== dbSession.userDid) {
-          console.error(`[AUTH] DID mismatch after refresh! Expected ${dbSession.userDid}, got ${refreshResult.data.did}`);
-          await storage.deleteSession(payload.sessionId);
-          return res.status(401).json({ error: "Session security verification failed" });
+      if (pdsEndpoint) {
+        const refreshResult = await pdsClient.refreshAccessToken(
+          pdsEndpoint,
+          dbSession.refreshToken
+        );
+        
+        if (refreshResult.success && refreshResult.data) {
+          const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          await storage.updateSession(payload.sessionId, {
+            accessToken: refreshResult.data.accessJwt,
+            refreshToken: refreshResult.data.refreshJwt || dbSession.refreshToken,
+            expiresAt: newExpiresAt,
+          });
+          
+          console.log(`[AUTH] Successfully refreshed token for ${dbSession.userDid}`);
+          req.session = payload;
+          return next();
         }
-
-        // Update session with new tokens
-        const newExpiresAt = new Date();
-        newExpiresAt.setDate(newExpiresAt.getDate() + 7); // 7 days from now
-
-        await storage.updateSession(payload.sessionId, {
-          accessToken: refreshResult.data.accessJwt,
-          refreshToken: refreshResult.data.refreshJwt,
-          expiresAt: newExpiresAt,
-        });
-
-        console.log(`[AUTH] Successfully refreshed token for ${dbSession.userDid}`);
-        req.session = payload;
-        return next();
-      } else {
-        // Refresh failed, delete session
-        console.error(`[AUTH] Token refresh failed for ${dbSession.userDid}:`, refreshResult.error);
-        await storage.deleteSession(payload.sessionId);
-        return res.status(401).json({ error: "Session expired and could not be refreshed" });
       }
+      
+      await storage.deleteSession(payload.sessionId);
+      return res.status(401).json({ error: "Session expired and could not be refreshed" });
     } else {
-      // No refresh token, just delete session
       await storage.deleteSession(payload.sessionId);
       return res.status(401).json({ error: "Session expired" });
     }
