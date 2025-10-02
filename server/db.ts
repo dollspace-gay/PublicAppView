@@ -18,10 +18,11 @@ const isNeonDatabase = databaseUrl.includes('.neon.tech') ||
                         databaseUrl.includes('neon.tech') ||
                         databaseUrl.includes('pooler.supabase.com'); // Neon-based services
 
-// Pool size optimized for INSANE throughput with max_connections=20000 and 47GB RAM
-// For cluster mode (32 workers × 600 connections = 19200 total) - leaves 800 for overhead
+// Pool size optimized for distributed processing across 32 workers
+// 32 workers × 100 connections = 3,200 total connections (sustainable for PostgreSQL)
+// This provides excellent throughput while avoiding connection overhead
 // Override with DB_POOL_SIZE environment variable if needed
-const maxPoolSize = parseInt(process.env.DB_POOL_SIZE || '600');
+const maxPoolSize = parseInt(process.env.DB_POOL_SIZE || '100');
 
 console.log(`[DB] Connection pool size per process/worker: ${maxPoolSize}`);
 

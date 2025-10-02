@@ -3,7 +3,7 @@ version: '3.8'
 services:
   db:
     image: postgres:14
-    command: postgres -c max_connections=20000 -c shared_buffers=20GB -c effective_cache_size=42GB -c work_mem=256MB -c maintenance_work_mem=8GB -c max_parallel_workers=32 -c max_parallel_workers_per_gather=8 -c max_wal_size=8GB
+    command: postgres -c max_connections=5000 -c shared_buffers=20GB -c effective_cache_size=42GB -c work_mem=256MB -c maintenance_work_mem=8GB -c max_parallel_workers=32 -c max_parallel_workers_per_gather=8 -c max_wal_size=8GB
     environment:
       POSTGRES_DB: atproto
       POSTGRES_USER: postgres
