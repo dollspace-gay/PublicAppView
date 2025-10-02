@@ -5,6 +5,11 @@ import { eventProcessor } from "./event-processor";
 import { metricsService } from "./metrics";
 import { logCollector } from "./log-collector";
 
+// Make WebSocket available globally for @skyware/firehose in Node.js environment
+if (typeof globalThis.WebSocket === "undefined") {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 type EventCallback = (event: any) => void;
 
 export class FirehoseClient {
@@ -191,7 +196,7 @@ export class FirehoseClient {
         options.cursor = this.currentCursor;
       }
       
-      // Correct constructor signature: new Firehose(url, options)
+      // WebSocket is now available globally, so library will detect it automatically
       this.client = new Firehose(this.url, options);
 
       this.client.on("open", () => {
