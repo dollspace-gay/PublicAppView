@@ -14,6 +14,7 @@ import { labelService } from "./services/label";
 import { moderationService } from "./services/moderation";
 import { z } from "zod";
 import { logCollector } from "./services/log-collector";
+import { schemaIntrospectionService } from "./services/schema-introspection";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -1291,6 +1292,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Get supported lexicons
+  app.get("/api/lexicons", (_req, res) => {
+    res.json(lexiconValidator.getSupportedLexicons());
+  });
+
   // Get all API endpoints with real performance metrics - auto-discovers XRPC routes
   app.get("/api/endpoints", (_req, res) => {
     const endpointMetrics = metricsService.getEndpointMetrics();
@@ -1563,110 +1569,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(endpointsWithMetrics);
   });
 
-  // Get database schema with cached row counts
+  // Get database schema dynamically from information_schema
   app.get("/api/database/schema", async (_req, res) => {
-    // getStats now handles caching and timeouts internally
-    const stats = await storage.getStats();
-    
-    const tables = [
-      {
-        name: "users",
-        description: "Profile and identity data",
-        rows: stats.totalUsers.toLocaleString(),
-        color: "primary",
-        fields: [
-          { name: "did", type: "VARCHAR(255)", description: "Primary key, unique identifier" },
-          { name: "handle", type: "VARCHAR(255)", description: "User's current handle" },
-          { name: "display_name", type: "VARCHAR(255)", description: "User's display name" },
-          { name: "avatar_url", type: "TEXT", description: "Profile image URL" },
-          { name: "description", type: "TEXT", description: "Profile bio" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-          { name: "search_vector", type: "TSVECTOR", description: "Full-text search index" },
-        ],
-        indexes: ["idx_users_handle", "idx_users_indexed_at", "idx_users_search_vector (GIN)"],
-      },
-      {
-        name: "posts",
-        description: "Feed posts and content",
-        rows: stats.totalPosts.toLocaleString(),
-        color: "accent",
-        fields: [
-          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
-          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
-          { name: "author_did", type: "VARCHAR(255)", description: "Foreign key to users" },
-          { name: "text", type: "TEXT", description: "Post content" },
-          { name: "embed", type: "JSONB", description: "Embedded media/links" },
-          { name: "parent_uri", type: "VARCHAR(512)", description: "Reply parent reference" },
-          { name: "root_uri", type: "VARCHAR(512)", description: "Thread root reference" },
-          { name: "created_at", type: "TIMESTAMP", description: "Post creation timestamp" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-          { name: "search_vector", type: "TSVECTOR", description: "Full-text search index" },
-        ],
-        indexes: ["idx_posts_author_did", "idx_posts_indexed_at", "idx_posts_parent_uri", "idx_posts_search_vector (GIN)"],
-      },
-      {
-        name: "follows",
-        description: "Social graph relationships",
-        rows: stats.totalFollows.toLocaleString(),
-        color: "success",
-        fields: [
-          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
-          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
-          { name: "follower_did", type: "VARCHAR(255)", description: "User who follows" },
-          { name: "following_did", type: "VARCHAR(255)", description: "User being followed" },
-          { name: "created_at", type: "TIMESTAMP", description: "Follow timestamp" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-        ],
-        indexes: ["idx_follows_follower", "idx_follows_following"],
-      },
-      {
-        name: "likes",
-        description: "Post like interactions",
-        rows: stats.totalLikes.toLocaleString(),
-        color: "warning",
-        fields: [
-          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
-          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
-          { name: "user_did", type: "VARCHAR(255)", description: "User who liked" },
-          { name: "post_uri", type: "VARCHAR(512)", description: "Post being liked" },
-          { name: "created_at", type: "TIMESTAMP", description: "Like timestamp" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-        ],
-        indexes: ["idx_likes_user_did", "idx_likes_post_uri"],
-      },
-      {
-        name: "reposts",
-        description: "Post repost/retweet interactions",
-        rows: stats.totalReposts.toLocaleString(),
-        color: "info",
-        fields: [
-          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
-          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
-          { name: "user_did", type: "VARCHAR(255)", description: "User who reposted" },
-          { name: "post_uri", type: "VARCHAR(512)", description: "Post being reposted" },
-          { name: "created_at", type: "TIMESTAMP", description: "Repost timestamp" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-        ],
-        indexes: ["idx_reposts_user_did", "idx_reposts_post_uri"],
-      },
-      {
-        name: "blocks",
-        description: "User block relationships",
-        rows: stats.totalBlocks.toLocaleString(),
-        color: "destructive",
-        fields: [
-          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
-          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
-          { name: "blocker_did", type: "VARCHAR(255)", description: "User who blocked" },
-          { name: "blocked_did", type: "VARCHAR(255)", description: "User being blocked" },
-          { name: "created_at", type: "TIMESTAMP", description: "Block timestamp" },
-          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
-        ],
-        indexes: ["idx_blocks_blocker", "idx_blocks_blocked"],
-      },
-    ];
-
-    res.json(tables);
+    try {
+      const schema = await schemaIntrospectionService.getSchema();
+      res.json(schema);
+    } catch (error) {
+      console.error("[SCHEMA] Failed to introspect database schema:", error);
+      res.status(500).json({ error: "Failed to retrieve database schema" });
+    }
   });
 
   app.get("/api/lexicon/stats", (_req, res) => {

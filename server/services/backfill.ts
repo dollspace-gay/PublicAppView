@@ -139,8 +139,12 @@ export class BackfillService {
             await this.stop();
             resolve();
           }
-        } catch (error) {
-          console.error("[BACKFILL] Error processing commit:", error);
+        } catch (error: any) {
+          if (error?.code === '23505') {
+            console.log(`[BACKFILL] Skipped duplicate event`);
+          } else {
+            console.error("[BACKFILL] Error processing commit:", error);
+          }
         }
       });
 
@@ -154,8 +158,12 @@ export class BackfillService {
             did: identity.did,
             handle: identity.handle || identity.did,
           });
-        } catch (error) {
-          console.error("[BACKFILL] Error processing identity:", error);
+        } catch (error: any) {
+          if (error?.code === '23505') {
+            console.log(`[BACKFILL] Skipped duplicate identity`);
+          } else {
+            console.error("[BACKFILL] Error processing identity:", error);
+          }
         }
       });
 
@@ -169,8 +177,12 @@ export class BackfillService {
             did: account.did,
             active: account.active,
           });
-        } catch (error) {
-          console.error("[BACKFILL] Error processing account:", error);
+        } catch (error: any) {
+          if (error?.code === '23505') {
+            console.log(`[BACKFILL] Skipped duplicate account`);
+          } else {
+            console.error("[BACKFILL] Error processing account:", error);
+          }
         }
       });
 

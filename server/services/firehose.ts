@@ -240,9 +240,13 @@ export class FirehoseClient {
         this.queueEventProcessing(async () => {
           try {
             await eventProcessor.processCommit(event);
-          } catch (error) {
-            console.error("[FIREHOSE] Error processing commit:", error);
-            metricsService.incrementError();
+          } catch (error: any) {
+            if (error?.code === '23505') {
+              console.log("[FIREHOSE] Skipped duplicate commit event");
+            } else {
+              console.error("[FIREHOSE] Error processing commit:", error);
+              metricsService.incrementError();
+            }
           }
         });
       });
@@ -271,9 +275,13 @@ export class FirehoseClient {
               did: identity.did,
               handle: identity.handle || identity.did,
             });
-          } catch (error) {
-            console.error("[FIREHOSE] Error processing identity:", error);
-            metricsService.incrementError();
+          } catch (error: any) {
+            if (error?.code === '23505') {
+              console.log("[FIREHOSE] Skipped duplicate identity event");
+            } else {
+              console.error("[FIREHOSE] Error processing identity:", error);
+              metricsService.incrementError();
+            }
           }
         });
       });
@@ -302,9 +310,13 @@ export class FirehoseClient {
               did: account.did,
               active: account.active,
             });
-          } catch (error) {
-            console.error("[FIREHOSE] Error processing account:", error);
-            metricsService.incrementError();
+          } catch (error: any) {
+            if (error?.code === '23505') {
+              console.log("[FIREHOSE] Skipped duplicate account event");
+            } else {
+              console.error("[FIREHOSE] Error processing account:", error);
+              metricsService.incrementError();
+            }
           }
         });
       });

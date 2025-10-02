@@ -156,6 +156,19 @@ export class LexiconValidator {
     this.unknownCount = 0;
     this.errorLog = [];
   }
+
+  getSupportedLexicons() {
+    return [
+      { name: "app.bsky.feed.post", version: "v1.0.0" },
+      { name: "app.bsky.feed.like", version: "v1.0.0" },
+      { name: "app.bsky.feed.repost", version: "v1.0.0" },
+      { name: "app.bsky.feed.generator", version: "v1.0.0" },
+      { name: "app.bsky.actor.profile", version: "v1.0.0" },
+      { name: "app.bsky.graph.follow", version: "v1.0.0" },
+      { name: "app.bsky.graph.block", version: "v1.0.0" },
+      { name: "app.bsky.graph.starterpack", version: "v1.0.0" },
+    ];
+  }
 }
 
 export const lexiconValidator = new LexiconValidator();

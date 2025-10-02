@@ -329,8 +329,13 @@ export class EventProcessor {
         } else if (action === "delete") {
           await this.processDelete(uri, collection);
         }
-      } catch (error) {
-        console.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
+      } catch (error: any) {
+        // Handle duplicate key errors gracefully (common during firehose reconnections)
+        if (error?.code === '23505') {
+          console.log(`[EVENT_PROCESSOR] Skipped duplicate ${action} ${uri}`);
+        } else {
+          console.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
+        }
       }
     }
   }
@@ -344,8 +349,12 @@ export class EventProcessor {
         await storage.updateUser(did, { handle });
         console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
       }
-    } catch (error) {
-      console.error(`[EVENT_PROCESSOR] Error processing identity:`, error);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        console.log(`[EVENT_PROCESSOR] Skipped duplicate identity update for ${did}`);
+      } else {
+        console.error(`[EVENT_PROCESSOR] Error processing identity:`, error);
+      }
     }
   }
 
@@ -650,8 +659,12 @@ export class EventProcessor {
         createdAt: new Date(record.cid ? record.createdAt : Date.now()),
       });
       console.log(`[LABEL] Applied label ${record.val} to ${record.uri || record.did} from ${src}`);
-    } catch (error) {
-      console.error(`[EVENT_PROCESSOR] Error processing label:`, error);
+    } catch (error: any) {
+      if (error?.code === '23505') {
+        console.log(`[EVENT_PROCESSOR] Skipped duplicate label ${record.val} for ${record.uri || record.did}`);
+      } else {
+        console.error(`[EVENT_PROCESSOR] Error processing label:`, error);
+      }
     }
   }
 

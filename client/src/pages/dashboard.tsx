@@ -106,15 +106,14 @@ export default function Dashboard() {
       <Sidebar />
       
       <main className="flex-1 overflow-y-auto">
-        <header className="bg-card border-b border-border sticky top-0 z-10">
-          <div className="px-8 py-4 flex items-center justify-between">
-            <div>
+        <header className="bg-card/95 backdrop-blur-xl border-b border-border sticky top-0 z-10 shadow-sm h-[73px]">
+          <div className="px-8 h-full flex items-center justify-between">
+            <div className="flex items-center">
               <h2 className="text-2xl font-bold text-foreground">App View Dashboard</h2>
-              <p className="text-sm text-muted-foreground mt-1">Monitor and manage your AT Protocol App View service</p>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2 px-4 py-2 bg-muted rounded-lg">
-                <div className={`w-2 h-2 rounded-full ${metrics.firehoseStatus.connected ? "bg-success animate-pulse" : "bg-destructive"}`} />
+              <div className="flex items-center space-x-2 px-4 py-2 bg-muted/50 rounded-lg border border-border/50 backdrop-blur-sm">
+                <div className={`w-2 h-2 rounded-full ${metrics.firehoseStatus.connected ? "bg-success animate-pulse shadow-sm" : "bg-destructive"}`} />
                 <span className="text-sm font-medium font-mono">
                   Relay: {metrics.firehoseStatus.connected ? "Connected" : "Disconnected"}
                 </span>

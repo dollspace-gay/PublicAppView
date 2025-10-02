@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 interface LexiconValidatorProps {
   total: number;
@@ -9,35 +10,41 @@ interface LexiconValidatorProps {
   errorRate: number;
 }
 
-const lexicons = [
-  { name: "app.bsky.feed.post", version: "v1.0.0" },
-  { name: "app.bsky.feed.like", version: "v1.0.0" },
-  { name: "app.bsky.feed.repost", version: "v1.0.0" },
-  { name: "app.bsky.actor.profile", version: "v1.0.0" },
-  { name: "app.bsky.graph.follow", version: "v1.0.0" },
-  { name: "app.bsky.graph.block", version: "v1.0.0" },
-];
+interface Lexicon {
+  name: string;
+  version: string;
+}
 
 export function LexiconValidatorPanel({ total, valid, invalid, errorRate }: LexiconValidatorProps) {
+  const { data: lexicons = [], isLoading } = useQuery<Lexicon[]>({
+    queryKey: ["/api/lexicons"],
+  });
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <Card className="border-border" data-testid="card-supported-lexicons">
         <CardHeader className="border-b border-border">
           <CardTitle className="text-lg">Supported Lexicons</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">Core app.bsky.* schemas</p>
+          <p className="text-xs text-muted-foreground mt-1">Core app.bsky.* schemas ({lexicons.length} total)</p>
         </CardHeader>
         <CardContent className="p-6">
-          <div className="space-y-3">
-            {lexicons.map((lexicon) => (
-              <div key={lexicon.name} className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <CheckCircle2 className="w-4 h-4 text-success" />
-                  <span className="text-sm font-semibold font-mono text-foreground">{lexicon.name}</span>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {lexicons.map((lexicon) => (
+                <div key={lexicon.name} className="flex items-center justify-between p-4 bg-muted rounded-lg transition-colors hover:bg-muted/80">
+                  <div className="flex items-center space-x-3">
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                    <span className="text-sm font-semibold font-mono text-foreground">{lexicon.name}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{lexicon.version}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{lexicon.version}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

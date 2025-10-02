@@ -14,15 +14,15 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-card border-r border-border flex flex-col">
-      <div className="p-6 border-b border-border">
+    <aside className="w-64 bg-card border-r border-border flex flex-col shadow-xl">
+      <div className="px-8 py-4 border-b border-border h-[73px] flex items-center">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
             <Zap className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-foreground">AT App View</h1>
-            <p className="text-xs text-muted-foreground font-mono">v1.0.0</p>
+            <h1 className="text-lg font-semibold text-foreground leading-tight">App View</h1>
+            <p className="text-xs text-muted-foreground font-mono leading-tight">Dashboard</p>
           </div>
         </div>
       </div>
@@ -35,9 +35,9 @@ export function Sidebar() {
           return (
             <Link key={item.path} href={item.path}>
               <div
-                className={`flex items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                className={`flex items-center space-x-3 px-4 py-3 rounded-lg font-medium transition-all duration-200 cursor-pointer ${
                   isActive
-                    ? "bg-muted text-foreground"
+                    ? "bg-primary/10 text-primary border border-primary/20"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
                 data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
@@ -50,12 +50,12 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border bg-muted/30">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="font-mono">Status: Active</span>
           <div className="flex items-center space-x-1">
-            <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-            <span>Connected</span>
+            <div className="w-2 h-2 bg-success rounded-full animate-pulse shadow-sm"></div>
+            <span>Live</span>
           </div>
         </div>
       </div>
