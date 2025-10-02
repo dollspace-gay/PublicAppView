@@ -183,6 +183,86 @@ const getListBlocksSchema = z.object({
   cursor: z.string().optional(),
 });
 
+const getKnownFollowersSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getSuggestedFollowsByActorSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(25),
+});
+
+const muteActorListSchema = z.object({
+  list: z.string(),
+});
+
+const unmuteActorListSchema = z.object({
+  list: z.string(),
+});
+
+const getFeedGeneratorSchema = z.object({
+  feed: z.string(),
+});
+
+const getFeedGeneratorsSchema = z.object({
+  feeds: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ),
+});
+
+const getActorFeedsSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getSuggestedFeedsSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const describeFeedGeneratorSchema = z.object({
+  // No required params
+});
+
+const getStarterPackSchema = z.object({
+  starterPack: z.string(),
+});
+
+const getStarterPacksSchema = z.object({
+  uris: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ),
+});
+
+const getLabelerServicesSchema = z.object({
+  dids: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ),
+  detailed: z.coerce.boolean().default(false).optional(),
+});
+
+const registerPushSchema = z.object({
+  serviceDid: z.string(),
+  token: z.string(),
+  platform: z.enum(['ios', 'android', 'web']),
+  appId: z.string().optional(),
+});
+
+const putNotificationPreferencesSchema = z.object({
+  priority: z.boolean().optional(),
+});
+
+const getJobStatusSchema = z.object({
+  jobId: z.string(),
+});
+
+const getUploadLimitsSchema = z.object({
+  // No required params - authenticated endpoint
+});
+
 export class XRPCApi {
   // Helper method to serialize posts with all required AT Protocol fields
   private async serializePost(post: any, viewerDid?: string) {
@@ -1242,6 +1322,592 @@ export class XRPCApi {
       });
     } catch (error) {
       console.error("[XRPC] Error getting list blocks:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getKnownFollowers(req: Request, res: Response) {
+    try {
+      const params = getKnownFollowersSchema.parse(req.query);
+      const viewerDid = (req as any).user?.did || "did:plc:demo"; // TODO: Get from auth session
+      
+      let actorDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        actorDid = user.did;
+      }
+      
+      const { followers, cursor } = await storage.getKnownFollowers(actorDid, viewerDid, params.limit, params.cursor);
+      
+      res.json({
+        subject: params.actor,
+        cursor,
+        followers: followers.map(user => ({
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName,
+          avatar: user.avatarUrl,
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting known followers:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getSuggestedFollowsByActor(req: Request, res: Response) {
+    try {
+      const params = getSuggestedFollowsByActorSchema.parse(req.query);
+      
+      let actorDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        actorDid = user.did;
+      }
+      
+      const suggestions = await storage.getSuggestedFollowsByActor(actorDid, params.limit);
+      
+      res.json({
+        suggestions: suggestions.map(user => ({
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName,
+          description: user.description,
+          avatar: user.avatarUrl,
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting suggested follows:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async muteActorList(req: Request, res: Response) {
+    try {
+      const params = muteActorListSchema.parse(req.body);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      // Verify list exists
+      const list = await storage.getList(params.list);
+      if (!list) {
+        return res.status(404).json({ error: "List not found" });
+      }
+      
+      await storage.createListMute({
+        uri: `at://${userDid}/app.bsky.graph.listMute/${Date.now()}`,
+        muterDid: userDid,
+        listUri: params.list,
+        createdAt: new Date(),
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error muting actor list:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async unmuteActorList(req: Request, res: Response) {
+    try {
+      const params = unmuteActorListSchema.parse(req.body);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const { mutes } = await storage.getListMutes(userDid, 1000);
+      const mute = mutes.find(m => m.listUri === params.list);
+      
+      if (mute) {
+        await storage.deleteListMute(mute.uri);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error unmuting actor list:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // Feed Generator endpoints
+  async getFeedGenerator(req: Request, res: Response) {
+    try {
+      const params = getFeedGeneratorSchema.parse(req.query);
+      
+      const generator = await storage.getFeedGenerator(params.feed);
+      if (!generator) {
+        return res.status(404).json({ error: "Feed generator not found" });
+      }
+      
+      const creator = await storage.getUser(generator.creatorDid);
+      
+      const creatorView: any = {
+        did: generator.creatorDid,
+        handle: creator?.handle || `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+      };
+      if (creator?.displayName) creatorView.displayName = creator.displayName;
+      if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+      
+      const view: any = {
+        uri: generator.uri,
+        cid: generator.cid,
+        did: generator.did,
+        creator: creatorView,
+        displayName: generator.displayName,
+        likeCount: generator.likeCount,
+        indexedAt: generator.indexedAt.toISOString(),
+      };
+      if (generator.description) view.description = generator.description;
+      if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+      
+      res.json({
+        view,
+        isOnline: true,
+        isValid: true,
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting feed generator:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getFeedGenerators(req: Request, res: Response) {
+    try {
+      const params = getFeedGeneratorsSchema.parse(req.query);
+      
+      const generators = await storage.getFeedGenerators(params.feeds);
+      
+      const views = await Promise.all(generators.map(async (generator) => {
+        const creator = await storage.getUser(generator.creatorDid);
+        
+        const creatorView: any = {
+          did: generator.creatorDid,
+          handle: creator?.handle || `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+        };
+        if (creator?.displayName) creatorView.displayName = creator.displayName;
+        if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+        
+        const view: any = {
+          uri: generator.uri,
+          cid: generator.cid,
+          did: generator.did,
+          creator: creatorView,
+          displayName: generator.displayName,
+          likeCount: generator.likeCount,
+          indexedAt: generator.indexedAt.toISOString(),
+        };
+        if (generator.description) view.description = generator.description;
+        if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+        
+        return view;
+      }));
+      
+      res.json({ feeds: views });
+    } catch (error) {
+      console.error("[XRPC] Error getting feed generators:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getActorFeeds(req: Request, res: Response) {
+    try {
+      const params = getActorFeedsSchema.parse(req.query);
+      
+      let actorDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        actorDid = user.did;
+      }
+      
+      const { generators, cursor } = await storage.getActorFeeds(actorDid, params.limit, params.cursor);
+      
+      const feeds = await Promise.all(generators.map(async (generator) => {
+        const creator = await storage.getUser(generator.creatorDid);
+        
+        const creatorView: any = {
+          did: generator.creatorDid,
+          handle: creator?.handle || `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+        };
+        if (creator?.displayName) creatorView.displayName = creator.displayName;
+        if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+        
+        const view: any = {
+          uri: generator.uri,
+          cid: generator.cid,
+          did: generator.did,
+          creator: creatorView,
+          displayName: generator.displayName,
+          likeCount: generator.likeCount,
+          indexedAt: generator.indexedAt.toISOString(),
+        };
+        if (generator.description) view.description = generator.description;
+        if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+        
+        return view;
+      }));
+      
+      res.json({ cursor, feeds });
+    } catch (error) {
+      console.error("[XRPC] Error getting actor feeds:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getSuggestedFeeds(req: Request, res: Response) {
+    try {
+      const params = getSuggestedFeedsSchema.parse(req.query);
+      
+      const { generators, cursor } = await storage.getSuggestedFeeds(params.limit, params.cursor);
+      
+      const feeds = await Promise.all(generators.map(async (generator) => {
+        const creator = await storage.getUser(generator.creatorDid);
+        
+        const creatorView: any = {
+          did: generator.creatorDid,
+          handle: creator?.handle || `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+        };
+        if (creator?.displayName) creatorView.displayName = creator.displayName;
+        if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+        
+        const view: any = {
+          uri: generator.uri,
+          cid: generator.cid,
+          did: generator.did,
+          creator: creatorView,
+          displayName: generator.displayName,
+          likeCount: generator.likeCount,
+          indexedAt: generator.indexedAt.toISOString(),
+        };
+        if (generator.description) view.description = generator.description;
+        if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+        
+        return view;
+      }));
+      
+      res.json({ cursor, feeds });
+    } catch (error) {
+      console.error("[XRPC] Error getting suggested feeds:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async describeFeedGenerator(req: Request, res: Response) {
+    try {
+      describeFeedGeneratorSchema.parse(req.query);
+      
+      res.json({
+        did: "did:web:appview.local",
+        feeds: [
+          {
+            uri: "at://did:web:appview.local/app.bsky.feed.generator/reverse-chron",
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("[XRPC] Error describing feed generator:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // Starter Pack endpoints
+  async getStarterPack(req: Request, res: Response) {
+    try {
+      const params = getStarterPackSchema.parse(req.query);
+      
+      const pack = await storage.getStarterPack(params.starterPack);
+      if (!pack) {
+        return res.status(404).json({ error: "Starter pack not found" });
+      }
+      
+      const creator = await storage.getUser(pack.creatorDid);
+      let list = null;
+      if (pack.listUri) {
+        list = await storage.getList(pack.listUri);
+      }
+      
+      const creatorView: any = {
+        did: pack.creatorDid,
+        handle: creator?.handle || `${pack.creatorDid.replace(/:/g, '-')}.invalid`,
+      };
+      if (creator?.displayName) creatorView.displayName = creator.displayName;
+      if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+      
+      const record: any = {
+        name: pack.name,
+        list: pack.listUri,
+        feeds: pack.feeds,
+        createdAt: pack.createdAt.toISOString(),
+      };
+      if (pack.description) record.description = pack.description;
+      
+      const starterPackView: any = {
+        uri: pack.uri,
+        cid: pack.cid,
+        record,
+        creator: creatorView,
+        indexedAt: pack.indexedAt.toISOString(),
+      };
+
+      if (list) {
+        starterPackView.list = {
+          uri: list.uri,
+          cid: list.cid,
+          name: list.name,
+          purpose: list.purpose,
+        };
+      }
+      
+      res.json({ starterPack: starterPackView });
+    } catch (error) {
+      console.error("[XRPC] Error getting starter pack:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getStarterPacks(req: Request, res: Response) {
+    try {
+      const params = getStarterPacksSchema.parse(req.query);
+      
+      const packs = await storage.getStarterPacks(params.uris);
+      
+      const views = await Promise.all(packs.map(async (pack) => {
+        const creator = await storage.getUser(pack.creatorDid);
+        let list = null;
+        if (pack.listUri) {
+          list = await storage.getList(pack.listUri);
+        }
+        
+        const creatorView: any = {
+          did: pack.creatorDid,
+          handle: creator?.handle || `handle.invalid`,
+        };
+        if (creator?.displayName) creatorView.displayName = creator.displayName;
+        if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+        
+        const record: any = {
+          name: pack.name,
+          list: pack.listUri,
+          feeds: pack.feeds,
+          createdAt: pack.createdAt.toISOString(),
+        };
+        if (pack.description) record.description = pack.description;
+        
+        const view: any = {
+          uri: pack.uri,
+          cid: pack.cid,
+          record,
+          creator: creatorView,
+          indexedAt: pack.indexedAt.toISOString(),
+        };
+
+        if (list) {
+          view.list = {
+            uri: list.uri,
+            cid: list.cid,
+            name: list.name,
+            purpose: list.purpose,
+          };
+        }
+        
+        return view;
+      }));
+      
+      res.json({ starterPacks: views });
+    } catch (error) {
+      console.error("[XRPC] Error getting starter packs:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getServices(req: Request, res: Response) {
+    try {
+      const params = getLabelerServicesSchema.parse(req.query);
+      
+      // Get all labeler services for the requested DIDs
+      const allServices = await Promise.all(
+        params.dids.map(async (did: string) => {
+          const services = await storage.getLabelerServicesByCreator(did);
+          return services;
+        })
+      );
+      
+      // Flatten array of arrays
+      const services = allServices.flat();
+      
+      const views = await Promise.all(services.map(async (service) => {
+        const creator = await storage.getUser(service.creatorDid);
+        
+        const creatorView: any = {
+          did: service.creatorDid,
+          handle: creator?.handle || `${service.creatorDid.replace(/:/g, '-')}.invalid`,
+        };
+        if (creator?.displayName) creatorView.displayName = creator.displayName;
+        if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+        
+        const view: any = {
+          uri: service.uri,
+          cid: service.cid,
+          creator: creatorView,
+          likeCount: service.likeCount,
+          indexedAt: service.indexedAt.toISOString(),
+        };
+        
+        // Add policies
+        if (service.policies) {
+          view.policies = service.policies;
+        }
+        
+        // Get labels applied to this labeler service
+        const labels = await storage.getLabelsForSubject(service.uri);
+        if (labels.length > 0) {
+          view.labels = labels.map(label => {
+            const labelView: any = {
+              src: label.src,
+              uri: label.subject,
+              val: label.val,
+              cts: label.createdAt.toISOString(),
+            };
+            if (label.neg) labelView.neg = true;
+            return labelView;
+          });
+        }
+        
+        return view;
+      }));
+      
+      res.json({ views });
+    } catch (error) {
+      console.error("[XRPC] Error getting labeler services:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // app.bsky.notification.registerPush
+  async registerPush(req: Request, res: Response) {
+    try {
+      const params = registerPushSchema.parse(req.body);
+      
+      // Get authenticated user from session
+      const userDid = (req as any).user?.did;
+      if (!userDid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      // Create or update push subscription
+      const subscription = await storage.createPushSubscription({
+        userDid,
+        platform: params.platform,
+        token: params.token,
+        appId: params.appId,
+      });
+      
+      res.json({
+        id: subscription.id,
+        platform: subscription.platform,
+        createdAt: subscription.createdAt.toISOString(),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error registering push:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // app.bsky.notification.putPreferences
+  async putNotificationPreferences(req: Request, res: Response) {
+    try {
+      const params = putNotificationPreferencesSchema.parse(req.body);
+      
+      // Get authenticated user from session
+      const userDid = (req as any).user?.did;
+      if (!userDid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      // Get existing preferences or create new ones if they don't exist
+      let prefs = await storage.getUserPreferences(userDid);
+      if (!prefs) {
+        prefs = await storage.createUserPreferences({
+          userDid,
+          notificationPriority: params.priority !== undefined ? params.priority : false,
+        });
+      } else {
+        // Update notification preferences
+        prefs = await storage.updateUserPreferences(userDid, {
+          notificationPriority: params.priority !== undefined ? params.priority : prefs.notificationPriority,
+        });
+      }
+      
+      res.json({
+        priority: prefs?.notificationPriority ?? false,
+      });
+    } catch (error) {
+      console.error("[XRPC] Error updating notification preferences:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // app.bsky.video.getJobStatus
+  async getJobStatus(req: Request, res: Response) {
+    try {
+      const params = getJobStatusSchema.parse(req.query);
+      
+      // Get video job
+      const job = await storage.getVideoJob(params.jobId);
+      
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      
+      // Build response
+      const response: any = {
+        jobId: job.jobId,
+        did: job.userDid,
+        state: job.state,
+        progress: job.progress,
+      };
+      
+      // Add optional fields
+      if (job.blobRef) {
+        response.blob = job.blobRef;
+      }
+      
+      if (job.error) {
+        response.error = job.error;
+      }
+      
+      res.json({ jobStatus: response });
+    } catch (error) {
+      console.error("[XRPC] Error getting job status:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  // app.bsky.video.getUploadLimits
+  async getUploadLimits(req: Request, res: Response) {
+    try {
+      // Get authenticated user from session
+      const userDid = (req as any).user?.did;
+      if (!userDid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      // Return upload limits - these are configurable per instance
+      // Default limits based on Bluesky's specs
+      res.json({
+        canUpload: true,
+        remainingDailyVideos: 10, // Simplified - production would track actual usage
+        remainingDailyBytes: 100 * 1024 * 1024, // 100MB
+        message: undefined,
+        error: undefined,
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting upload limits:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
     }
   }

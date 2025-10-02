@@ -55,6 +55,28 @@ export const blockSchema = z.object({
   createdAt: z.string(),
 }).passthrough();
 
+export const feedGeneratorSchema = z.object({
+  $type: z.literal("app.bsky.feed.generator"),
+  did: z.string(),
+  displayName: z.string(),
+  description: z.optional(z.string()),
+  avatar: z.optional(z.any()),
+  acceptsInteractions: z.optional(z.boolean()),
+  labels: z.optional(z.any()),
+  createdAt: z.string(),
+}).passthrough();
+
+export const starterPackSchema = z.object({
+  $type: z.literal("app.bsky.graph.starterpack"),
+  name: z.string(),
+  description: z.optional(z.string()),
+  list: z.optional(z.string()),
+  feeds: z.optional(z.array(z.object({
+    uri: z.string(),
+  }))),
+  createdAt: z.string(),
+}).passthrough();
+
 export class LexiconValidator {
   private validCount = 0;
   private invalidCount = 0;
@@ -86,6 +108,14 @@ export class LexiconValidator {
           break;
         case "app.bsky.graph.block":
           blockSchema.parse(record);
+          this.validCount++;
+          break;
+        case "app.bsky.feed.generator":
+          feedGeneratorSchema.parse(record);
+          this.validCount++;
+          break;
+        case "app.bsky.graph.starterpack":
+          starterPackSchema.parse(record);
           this.validCount++;
           break;
         default:

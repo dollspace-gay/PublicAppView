@@ -24,12 +24,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       metricsService.recordApiRequest();
       
       const startTime = Date.now();
+      
+      // Track request bytes (approximate from content-length or body)
+      const requestBytes = parseInt(req.headers['content-length'] || '0', 10) || 
+                          (req.body ? JSON.stringify(req.body).length : 0);
+      
       const originalSend = res.send;
       
       res.send = function(data: any) {
         const duration = Date.now() - startTime;
         const success = res.statusCode >= 200 && res.statusCode < 400;
         metricsService.recordEndpointRequest(req.path, duration, success);
+        
+        // Track response bytes
+        const responseBytes = Buffer.byteLength(typeof data === 'string' ? data : JSON.stringify(data));
+        metricsService.trackNetworkBytes(requestBytes, responseBytes);
+        
         return originalSend.call(this, data);
       };
     }
@@ -1089,6 +1099,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/xrpc/app.bsky.graph.muteActor", xrpcApi.muteActor.bind(xrpcApi));
   app.post("/xrpc/app.bsky.graph.unmuteActor", xrpcApi.unmuteActor.bind(xrpcApi));
   app.get("/xrpc/app.bsky.graph.getRelationships", xrpcApi.getRelationships.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getKnownFollowers", xrpcApi.getKnownFollowers.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", xrpcApi.getSuggestedFollowsByActor.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.muteActorList", xrpcApi.muteActorList.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.unmuteActorList", xrpcApi.unmuteActorList.bind(xrpcApi));
+
+  // Feed Generator endpoints
+  app.get("/xrpc/app.bsky.feed.getFeedGenerator", xrpcApi.getFeedGenerator.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getFeedGenerators", xrpcApi.getFeedGenerators.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getActorFeeds", xrpcApi.getActorFeeds.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getSuggestedFeeds", xrpcApi.getSuggestedFeeds.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.describeFeedGenerator", xrpcApi.describeFeedGenerator.bind(xrpcApi));
+
+  // Starter Pack endpoints
+  app.get("/xrpc/app.bsky.graph.getStarterPack", xrpcApi.getStarterPack.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getStarterPacks", xrpcApi.getStarterPacks.bind(xrpcApi));
+
+  // Labeler APIs
+  app.get("/xrpc/app.bsky.labeler.getServices", xrpcApi.getServices.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.registerPush", xrpcApi.registerPush.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.putPreferences", xrpcApi.putNotificationPreferences.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
 
   // Dashboard API endpoints
   app.get("/api/metrics", async (_req, res) => {
@@ -1248,6 +1280,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: "Submit a moderation report",
         params: ["reasonType: string (required)", "subject: object (required)", "reason: string"],
       },
+      "app.bsky.graph.getKnownFollowers": {
+        description: "Get followers of an actor that are also followed by the viewer",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      "app.bsky.graph.getSuggestedFollowsByActor": {
+        description: "Get suggested accounts to follow based on another actor",
+        params: ["actor: string (required)", "limit: number"],
+      },
+      "app.bsky.graph.muteActorList": {
+        description: "Mute all members of a list",
+        params: ["list: string (required)"],
+      },
+      "app.bsky.graph.unmuteActorList": {
+        description: "Unmute all members of a list",
+        params: ["list: string (required)"],
+      },
+      "app.bsky.feed.getFeedGenerator": {
+        description: "Get information about a specific feed generator",
+        params: ["feed: string (required)"],
+      },
+      "app.bsky.feed.getFeedGenerators": {
+        description: "Batch fetch multiple feed generators",
+        params: ["feeds: string[] (required)"],
+      },
+      "app.bsky.feed.getActorFeeds": {
+        description: "Get feed generators created by a specific actor",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.getSuggestedFeeds": {
+        description: "Get popular/suggested feed generators",
+        params: ["limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.describeFeedGenerator": {
+        description: "Describe feed generators available from this service",
+        params: [],
+      },
+      "app.bsky.graph.getStarterPack": {
+        description: "Get information about a specific starter pack",
+        params: ["starterPack: string (required)"],
+      },
+      "app.bsky.graph.getStarterPacks": {
+        description: "Batch fetch multiple starter packs",
+        params: ["uris: string[] (required)"],
+      },
+      "app.bsky.labeler.getServices": {
+        description: "Get information about labeler services",
+        params: ["dids: string[] (required)", "detailed: boolean (optional)"],
+      },
+      "app.bsky.notification.registerPush": {
+        description: "Register a push notification subscription",
+        params: ["serviceDid: string (required)", "token: string (required)", "platform: enum (required)", "appId: string (optional)"],
+      },
+      "app.bsky.notification.putPreferences": {
+        description: "Update notification preferences",
+        params: ["priority: boolean (optional)"],
+      },
+      "app.bsky.video.getJobStatus": {
+        description: "Get video processing job status",
+        params: ["jobId: string (required)"],
+      },
+      "app.bsky.video.getUploadLimits": {
+        description: "Get video upload limits for authenticated user",
+        params: [],
+      },
     };
 
     // Auto-discover XRPC routes from the Express app
@@ -1288,7 +1384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Add performance metrics to each endpoint
     const endpointsWithMetrics = endpoints.map(endpoint => {
-      const metrics = endpointMetrics[endpoint.fullPath] || {
+      const metrics = (endpointMetrics && endpointMetrics[endpoint.fullPath]) || {
         totalRequests: 0,
         requestsPerMinute: 0,
         avgResponseTime: 0,

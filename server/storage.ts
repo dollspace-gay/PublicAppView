@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem } from "@shared/schema";
+import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -72,6 +72,8 @@ export interface IStorage {
     blockedBy: boolean;
     muting: boolean;
   }>>;
+  getKnownFollowers(actorDid: string, viewerDid: string, limit?: number, cursor?: string): Promise<{ followers: User[], cursor?: string }>;
+  getSuggestedFollowsByActor(actorDid: string, limit?: number): Promise<User[]>;
 
   // Session operations
   createSession(session: InsertSession): Promise<Session>;
@@ -143,6 +145,44 @@ export interface IStorage {
   deleteListItem(uri: string): Promise<void>;
   getListItems(listUri: string, limit?: number): Promise<ListItem[]>;
   getListFeed(listUri: string, limit?: number, cursor?: string): Promise<Post[]>;
+  
+  // Feed generator operations
+  createFeedGenerator(generator: InsertFeedGenerator): Promise<FeedGenerator>;
+  deleteFeedGenerator(uri: string): Promise<void>;
+  getFeedGenerator(uri: string): Promise<FeedGenerator | undefined>;
+  getFeedGenerators(uris: string[]): Promise<FeedGenerator[]>;
+  getActorFeeds(actorDid: string, limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
+  getSuggestedFeeds(limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
+  updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined>;
+  
+  // Starter pack operations
+  createStarterPack(pack: InsertStarterPack): Promise<StarterPack>;
+  deleteStarterPack(uri: string): Promise<void>;
+  getStarterPack(uri: string): Promise<StarterPack | undefined>;
+  getStarterPacks(uris: string[]): Promise<StarterPack[]>;
+  
+  // Labeler service operations
+  createLabelerService(service: InsertLabelerService): Promise<LabelerService>;
+  deleteLabelerService(uri: string): Promise<void>;
+  getLabelerService(uri: string): Promise<LabelerService | undefined>;
+  getLabelerServices(uris: string[]): Promise<LabelerService[]>;
+  getLabelerServicesByCreator(creatorDid: string): Promise<LabelerService[]>;
+  updateLabelerService(uri: string, data: Partial<InsertLabelerService>): Promise<LabelerService | undefined>;
+  
+  // Push subscription operations
+  createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
+  deletePushSubscription(id: number): Promise<void>;
+  deletePushSubscriptionByToken(token: string): Promise<void>;
+  getUserPushSubscriptions(userDid: string): Promise<PushSubscription[]>;
+  getPushSubscription(id: number): Promise<PushSubscription | undefined>;
+  updatePushSubscription(id: number, data: Partial<InsertPushSubscription>): Promise<PushSubscription | undefined>;
+  
+  // Video job operations
+  createVideoJob(job: InsertVideoJob): Promise<VideoJob>;
+  getVideoJob(jobId: string): Promise<VideoJob | undefined>;
+  getUserVideoJobs(userDid: string, limit?: number): Promise<VideoJob[]>;
+  updateVideoJob(jobId: string, data: Partial<InsertVideoJob>): Promise<VideoJob | undefined>;
+  deleteVideoJob(jobId: string): Promise<void>;
   
   // Stats
   getStats(): Promise<{
@@ -657,6 +697,83 @@ export class DatabaseStorage implements IStorage {
     return relationships;
   }
 
+  async getKnownFollowers(actorDid: string, viewerDid: string, limit = 50, cursor?: string): Promise<{ followers: User[], cursor?: string }> {
+    // Compute intersection in SQL: Find users who follow the actor AND are followed by the viewer
+    // This scales properly and supports true cursor pagination
+    
+    // Use raw SQL with proper table aliasing for the self-join
+    const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
+    
+    const results = await db.execute(sql`
+      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.description, u.indexed_at
+      FROM users u
+      INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
+      INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
+      WHERE 1=1 ${cursorCondition}
+      ORDER BY u.indexed_at DESC
+      LIMIT ${limit + 1}
+    `);
+    
+    const rows = results.rows as any[];
+    const hasMore = rows.length > limit;
+    const followers: User[] = (hasMore ? rows.slice(0, limit) : rows).map(row => ({
+      did: row.did,
+      handle: row.handle,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      description: row.description,
+      indexedAt: row.indexed_at,
+    }));
+    
+    const nextCursor = hasMore ? followers[followers.length - 1].indexedAt.toISOString() : undefined;
+
+    return { followers, cursor: nextCursor };
+  }
+
+  async getSuggestedFollowsByActor(actorDid: string, limit = 25): Promise<User[]> {
+    // Friends-of-friends algorithm: Get accounts followed by accounts the actor follows
+    const actorFollowing = await db
+      .select({ followingDid: follows.followingDid })
+      .from(follows)
+      .where(eq(follows.followerDid, actorDid))
+      .limit(100); // Limit to avoid performance issues
+
+    if (actorFollowing.length === 0) {
+      return [];
+    }
+
+    const followingDids = actorFollowing.map(f => f.followingDid);
+
+    // Get accounts followed by the actor's follows (friends-of-friends)
+    const friendsOfFriends = await db
+      .select({ 
+        followingDid: follows.followingDid,
+        count: sql<number>`count(*)::int`
+      })
+      .from(follows)
+      .where(inArray(follows.followerDid, followingDids))
+      .groupBy(follows.followingDid)
+      .orderBy(desc(sql`count(*)`))
+      .limit(limit * 2); // Get extra to filter out existing follows
+
+    // Filter out DIDs the actor already follows and the actor themselves
+    const actorFollowingSet = new Set([actorDid, ...followingDids]);
+    const suggestedDids = friendsOfFriends
+      .filter(f => !actorFollowingSet.has(f.followingDid))
+      .slice(0, limit)
+      .map(f => f.followingDid);
+
+    if (suggestedDids.length === 0) {
+      return [];
+    }
+
+    // Fetch user data for suggestions
+    return await db
+      .select()
+      .from(users)
+      .where(inArray(users.did, suggestedDids));
+  }
+
   async getTimeline(userDid: string, limit = 50, cursor?: string): Promise<Post[]> {
     const followList = await this.getFollows(userDid);
     const followingDids = followList.map(f => f.followingDid);
@@ -1151,6 +1268,271 @@ export class DatabaseStorage implements IStorage {
       .where(and(...conditions))
       .orderBy(desc(posts.indexedAt))
       .limit(limit);
+  }
+
+  // Feed generator operations
+  async createFeedGenerator(generator: InsertFeedGenerator): Promise<FeedGenerator> {
+    const [feedGen] = await db
+      .insert(feedGenerators)
+      .values(generator)
+      .onConflictDoUpdate({
+        target: feedGenerators.uri,
+        set: {
+          cid: generator.cid,
+          displayName: generator.displayName,
+          description: generator.description,
+          avatarUrl: generator.avatarUrl,
+          createdAt: generator.createdAt,
+          did: generator.did,
+          indexedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    return feedGen;
+  }
+
+  async deleteFeedGenerator(uri: string): Promise<void> {
+    await db.delete(feedGenerators).where(eq(feedGenerators.uri, uri));
+  }
+
+  async getFeedGenerator(uri: string): Promise<FeedGenerator | undefined> {
+    const [generator] = await db.select().from(feedGenerators).where(eq(feedGenerators.uri, uri));
+    return generator || undefined;
+  }
+
+  async getFeedGenerators(uris: string[]): Promise<FeedGenerator[]> {
+    if (uris.length === 0) return [];
+    return await db.select().from(feedGenerators).where(inArray(feedGenerators.uri, uris));
+  }
+
+  async getActorFeeds(actorDid: string, limit = 50, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }> {
+    const conditions = [eq(feedGenerators.creatorDid, actorDid)];
+
+    if (cursor) {
+      conditions.push(sql`${feedGenerators.indexedAt} < ${new Date(cursor)}`);
+    }
+
+    const generators = await db
+      .select()
+      .from(feedGenerators)
+      .where(and(...conditions))
+      .orderBy(desc(feedGenerators.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = generators.length > limit;
+    const results = hasMore ? generators.slice(0, limit) : generators;
+    const nextCursor = hasMore ? results[results.length - 1].indexedAt.toISOString() : undefined;
+
+    return { generators: results, cursor: nextCursor };
+  }
+
+  async getSuggestedFeeds(limit = 50, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }> {
+    const conditions = [];
+
+    if (cursor) {
+      const [likeCount, indexedAt] = cursor.split('::');
+      conditions.push(
+        sql`(${feedGenerators.likeCount}, ${feedGenerators.indexedAt}) < (${parseInt(likeCount)}, ${new Date(indexedAt)})`
+      );
+    }
+
+    const generators = await db
+      .select()
+      .from(feedGenerators)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(feedGenerators.likeCount), desc(feedGenerators.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = generators.length > limit;
+    const results = hasMore ? generators.slice(0, limit) : generators;
+    const nextCursor = hasMore 
+      ? `${results[results.length - 1].likeCount}::${results[results.length - 1].indexedAt.toISOString()}`
+      : undefined;
+
+    return { generators: results, cursor: nextCursor };
+  }
+
+  async updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined> {
+    const [generator] = await db
+      .update(feedGenerators)
+      .set(data)
+      .where(eq(feedGenerators.uri, uri))
+      .returning();
+    return generator || undefined;
+  }
+
+  // Starter pack operations
+  async createStarterPack(pack: InsertStarterPack): Promise<StarterPack> {
+    const [starterPack] = await db
+      .insert(starterPacks)
+      .values(pack)
+      .onConflictDoUpdate({
+        target: starterPacks.uri,
+        set: {
+          cid: pack.cid,
+          name: pack.name,
+          description: pack.description,
+          listUri: pack.listUri,
+          feeds: pack.feeds,
+          createdAt: pack.createdAt,
+          indexedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    return starterPack;
+  }
+
+  async deleteStarterPack(uri: string): Promise<void> {
+    await db.delete(starterPacks).where(eq(starterPacks.uri, uri));
+  }
+
+  async getStarterPack(uri: string): Promise<StarterPack | undefined> {
+    const [pack] = await db.select().from(starterPacks).where(eq(starterPacks.uri, uri));
+    return pack || undefined;
+  }
+
+  async getStarterPacks(uris: string[]): Promise<StarterPack[]> {
+    if (uris.length === 0) return [];
+    return await db.select().from(starterPacks).where(inArray(starterPacks.uri, uris));
+  }
+
+  // Labeler service operations
+  async createLabelerService(service: InsertLabelerService): Promise<LabelerService> {
+    const [labelerService] = await db
+      .insert(labelerServices)
+      .values(service)
+      .onConflictDoUpdate({
+        target: labelerServices.uri,
+        set: {
+          cid: service.cid,
+          policies: service.policies,
+          createdAt: service.createdAt,
+          indexedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    return labelerService;
+  }
+
+  async deleteLabelerService(uri: string): Promise<void> {
+    await db.delete(labelerServices).where(eq(labelerServices.uri, uri));
+  }
+
+  async getLabelerService(uri: string): Promise<LabelerService | undefined> {
+    const [service] = await db.select().from(labelerServices).where(eq(labelerServices.uri, uri));
+    return service || undefined;
+  }
+
+  async getLabelerServices(uris: string[]): Promise<LabelerService[]> {
+    if (uris.length === 0) return [];
+    return await db.select().from(labelerServices).where(inArray(labelerServices.uri, uris));
+  }
+
+  async getLabelerServicesByCreator(creatorDid: string): Promise<LabelerService[]> {
+    return await db.select().from(labelerServices).where(eq(labelerServices.creatorDid, creatorDid));
+  }
+
+  async updateLabelerService(uri: string, data: Partial<InsertLabelerService>): Promise<LabelerService | undefined> {
+    const [service] = await db
+      .update(labelerServices)
+      .set(data)
+      .where(eq(labelerServices.uri, uri))
+      .returning();
+    return service || undefined;
+  }
+
+  // Push subscription operations
+  async createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription> {
+    const [sub] = await db
+      .insert(pushSubscriptions)
+      .values(subscription)
+      .onConflictDoUpdate({
+        target: pushSubscriptions.token,
+        set: {
+          userDid: subscription.userDid,
+          platform: subscription.platform,
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          appId: subscription.appId,
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    return sub;
+  }
+
+  async deletePushSubscription(id: number): Promise<void> {
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
+  }
+
+  async deletePushSubscriptionByToken(token: string): Promise<void> {
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.token, token));
+  }
+
+  async getUserPushSubscriptions(userDid: string): Promise<PushSubscription[]> {
+    return await db
+      .select()
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userDid, userDid))
+      .orderBy(desc(pushSubscriptions.createdAt));
+  }
+
+  async getPushSubscription(id: number): Promise<PushSubscription | undefined> {
+    const [sub] = await db
+      .select()
+      .from(pushSubscriptions)
+      .where(eq(pushSubscriptions.id, id))
+      .limit(1);
+    return sub || undefined;
+  }
+
+  async updatePushSubscription(id: number, data: Partial<InsertPushSubscription>): Promise<PushSubscription | undefined> {
+    const [sub] = await db
+      .update(pushSubscriptions)
+      .set({ ...data, updatedAt: sql`NOW()` })
+      .where(eq(pushSubscriptions.id, id))
+      .returning();
+    return sub || undefined;
+  }
+
+  // Video job operations
+  async createVideoJob(job: InsertVideoJob): Promise<VideoJob> {
+    const [videoJob] = await db
+      .insert(videoJobs)
+      .values(job)
+      .returning();
+    return videoJob;
+  }
+
+  async getVideoJob(jobId: string): Promise<VideoJob | undefined> {
+    const [job] = await db
+      .select()
+      .from(videoJobs)
+      .where(eq(videoJobs.jobId, jobId))
+      .limit(1);
+    return job || undefined;
+  }
+
+  async getUserVideoJobs(userDid: string, limit: number = 50): Promise<VideoJob[]> {
+    return await db
+      .select()
+      .from(videoJobs)
+      .where(eq(videoJobs.userDid, userDid))
+      .orderBy(desc(videoJobs.createdAt))
+      .limit(limit);
+  }
+
+  async updateVideoJob(jobId: string, data: Partial<InsertVideoJob>): Promise<VideoJob | undefined> {
+    const [job] = await db
+      .update(videoJobs)
+      .set({ ...data, updatedAt: sql`NOW()` })
+      .where(eq(videoJobs.jobId, jobId))
+      .returning();
+    return job || undefined;
+  }
+
+  async deleteVideoJob(jobId: string): Promise<void> {
+    await db.delete(videoJobs).where(eq(videoJobs.jobId, jobId));
   }
 
   private statsCache: { data: any, timestamp: number } | null = null;

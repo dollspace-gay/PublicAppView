@@ -1,7 +1,7 @@
 import { storage } from "../storage";
 import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
-import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem } from "@shared/schema";
+import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 interface PendingOp {
   type: 'like' | 'repost';
@@ -332,6 +332,15 @@ export class EventProcessor {
               break;
             case "app.bsky.graph.listitem":
               await this.processListItem(uri, cid, repo, record);
+              break;
+            case "app.bsky.feed.generator":
+              await this.processFeedGenerator(uri, cid, repo, record);
+              break;
+            case "app.bsky.graph.starterpack":
+              await this.processStarterPack(uri, cid, repo, record);
+              break;
+            case "app.bsky.labeler.service":
+              await this.processLabelerService(uri, cid, repo, record);
               break;
             case "com.atproto.label.label":
               await this.processLabel(uri, repo, record);
@@ -666,6 +675,55 @@ export class EventProcessor {
     }
   }
 
+  private async processFeedGenerator(uri: string, cid: string, creatorDid: string, record: any) {
+    await this.ensureUser(creatorDid);
+
+    const feedGenerator: InsertFeedGenerator = {
+      uri,
+      cid,
+      creatorDid,
+      did: record.did,
+      displayName: record.displayName,
+      description: record.description,
+      avatarUrl: record.avatar?.ref?.$link,
+      createdAt: new Date(record.createdAt),
+    };
+
+    await storage.createFeedGenerator(feedGenerator);
+  }
+
+  private async processStarterPack(uri: string, cid: string, creatorDid: string, record: any) {
+    await this.ensureUser(creatorDid);
+
+    const starterPack: InsertStarterPack = {
+      uri,
+      cid,
+      creatorDid,
+      name: record.name,
+      description: record.description,
+      listUri: record.list,
+      feeds: record.feeds?.map((f: any) => f.uri) || [],
+      createdAt: new Date(record.createdAt),
+    };
+
+    await storage.createStarterPack(starterPack);
+  }
+
+  private async processLabelerService(uri: string, cid: string, creatorDid: string, record: any) {
+    await this.ensureUser(creatorDid);
+
+    const labelerService: InsertLabelerService = {
+      uri,
+      cid,
+      creatorDid,
+      policies: record.policies || { labelValues: [], labelValueDefinitions: [] },
+      createdAt: new Date(record.createdAt),
+    };
+
+    await storage.createLabelerService(labelerService);
+    console.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
+  }
+
   private async processDelete(uri: string, collection: string) {
     // Cancel pending op if it's a like/repost being deleted
     if (collection === "app.bsky.feed.like" || collection === "app.bsky.feed.repost") {
@@ -707,6 +765,15 @@ export class EventProcessor {
         break;
       case "app.bsky.graph.listitem":
         await storage.deleteListItem(uri);
+        break;
+      case "app.bsky.feed.generator":
+        await storage.deleteFeedGenerator(uri);
+        break;
+      case "app.bsky.graph.starterpack":
+        await storage.deleteStarterPack(uri);
+        break;
+      case "app.bsky.labeler.service":
+        await storage.deleteLabelerService(uri);
         break;
       case "com.atproto.label.label":
         await labelService.removeLabel(uri);

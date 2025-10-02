@@ -44,11 +44,6 @@ export function SystemHealth({ cpu, memory, disk, network }: SystemHealthProps) 
             <span className="text-sm font-medium text-muted-foreground">Network I/O</span>
             <span className="text-sm font-semibold text-foreground font-mono" data-testid="text-network">{network}</span>
           </div>
-          <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-            <span>↓ 98 MB/s</span>
-            <span>•</span>
-            <span>↑ 58 MB/s</span>
-          </div>
         </div>
       </CardContent>
     </Card>

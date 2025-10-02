@@ -23,15 +23,17 @@ Preferred communication style: Simple, everyday language.
 
 **Runtime**: Node.js with Express.js.
 **Language**: TypeScript (ESM).
-**API Layer**: Implements 33 Bluesky-compatible XRPC endpoints including:
-- **Feed APIs**: `getTimeline`, `getAuthorFeed`, `getPostThread`, `getPosts`, `getLikes`, `getRepostedBy`, `getQuotes`, `getActorLikes`, `getListFeed`, `searchPosts`
-- **Actor/Profile APIs**: `getProfile`, `getProfiles`, `getSuggestions`, `searchActors`, `searchActorsTypeahead`, `getPreferences`, `putPreferences`
-- **Graph APIs**: `getFollows`, `getFollowers`, `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`, `getRelationships`, `getList`, `getLists`, `getListMutes`, `getListBlocks`
-- **Notification APIs**: `listNotifications`, `getUnreadCount`, `updateSeen`
-- **Moderation APIs**: `queryLabels`, `createReport`
+**API Layer**: Implements 50 Bluesky-compatible XRPC endpoints (Priority 1 Complete, Phase 2 Complete, Phase 3 Complete) including:
+- **Feed APIs** (15/16): `getTimeline`, `getAuthorFeed`, `getPostThread`, `getPosts`, `getLikes`, `getRepostedBy`, `getQuotes`, `getActorLikes`, `getListFeed`, `searchPosts`, `getFeedGenerator`, `getFeedGenerators`, `getActorFeeds`, `getSuggestedFeeds`, `describeFeedGenerator`
+- **Actor/Profile APIs** (7/7 - Complete): `getProfile`, `getProfiles`, `getSuggestions`, `searchActors`, `searchActorsTypeahead`, `getPreferences`, `putPreferences`
+- **Graph APIs** (17/18): `getFollows`, `getFollowers`, `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`, `getRelationships`, `getList`, `getLists`, `getListMutes`, `getListBlocks`, `getKnownFollowers`, `getSuggestedFollowsByActor`, `muteActorList`, `unmuteActorList`, `getStarterPack`, `getStarterPacks`
+- **Notification APIs** (5/5 - Complete): `listNotifications`, `getUnreadCount`, `updateSeen`, `registerPush`, `putPreferences`
+- **Video APIs** (2/2 - Complete): `getJobStatus`, `getUploadLimits`
+- **Moderation APIs** (2/2 - Complete): `queryLabels`, `createReport`
+- **Labeler APIs** (1/1 - Complete): `getServices`
 **Firehose Client**: Connects to the AT Protocol relay to consume and process `#commit`, `#identity`, and `#account` events with concurrency control (max 50 concurrent operations) and event queuing to prevent database connection pool exhaustion.
 **Event Processing Pipeline**: Parses raw CBOR events, validates them with Zod against Lexicon schemas, and stores them in the database. Includes pending operation management with TTL-based cleanup (10min TTL, max 10k pending ops) to prevent memory leaks.
-**Validation Layer**: Employs Zod-based schemas for AT Protocol record types (posts, likes, reposts, profiles, follows, blocks).
+**Validation Layer**: Employs Zod-based schemas for AT Protocol record types (posts, likes, reposts, profiles, follows, blocks, feed generators, starter packs, labeler services).
 **Metrics Service**: Tracks system performance, event counts, error rates, system health, and firehose connection status. Includes periodic cleanup (every 5 minutes) to prevent memory accumulation.
 **Storage Abstraction**: Provides an interface for database operations across various data entities.
 **Authentication**: Implements AT Protocol-compliant OAuth 2.0 with DID verification, token encryption (AES-256-GCM), and automatic token refresh.
@@ -43,7 +45,7 @@ Preferred communication style: Simple, everyday language.
 
 **Database**: PostgreSQL, utilizing Neon serverless driver.
 **ORM**: Drizzle ORM with a schema-first approach.
-**Schema Design**: Includes tables for `users`, `posts`, `likes`, `reposts`, `follows`, `blocks`, `mutes`, `user_preferences`, `list_mutes`, and `list_blocks` with optimized indexing.
+**Schema Design**: Includes tables for `users`, `posts`, `likes`, `reposts`, `follows`, `blocks`, `mutes`, `user_preferences`, `list_mutes`, `list_blocks`, `feed_generators`, `starter_packs`, `labeler_services`, `push_subscriptions`, and `video_jobs` with optimized indexing and composite cursor pagination.
 **Migration Management**: Drizzle Kit is used for schema migrations.
 
 ## External Dependencies

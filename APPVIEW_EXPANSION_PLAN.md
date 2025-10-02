@@ -2,38 +2,58 @@
 
 ## Current Implementation Status
 
-### ✅ Already Implemented (17 endpoints)
+### ✅ Already Implemented (37 endpoints - Priority 1 Complete!)
 
-**Feed APIs (4/16)**
+**Feed APIs (9/16)**
 - `app.bsky.feed.getTimeline`
 - `app.bsky.feed.getAuthorFeed`
 - `app.bsky.feed.getPostThread`
 - `app.bsky.feed.searchPosts`
+- `app.bsky.feed.getPosts` ✨ NEW
+- `app.bsky.feed.getLikes` ✨ NEW
+- `app.bsky.feed.getRepostedBy` ✨ NEW
+- `app.bsky.feed.getQuotes` ✨ NEW
+- `app.bsky.feed.getActorLikes` ✨ NEW
 
-**Actor/Profile APIs (3/7)**
+**Actor/Profile APIs (7/7)** ✅ COMPLETE
 - `app.bsky.actor.getProfile`
 - `app.bsky.actor.searchActors`
 - `app.bsky.actor.searchActorsTypeahead`
+- `app.bsky.actor.getProfiles` ✨ NEW
+- `app.bsky.actor.getSuggestions` ✨ NEW
+- `app.bsky.actor.getPreferences` ✨ NEW
+- `app.bsky.actor.putPreferences` ✨ NEW
 
-**Graph APIs (5/18)**
+**Graph APIs (15/18)**
 - `app.bsky.graph.getFollows`
 - `app.bsky.graph.getFollowers`
 - `app.bsky.graph.getList`
 - `app.bsky.graph.getLists`
 - `app.bsky.graph.getListFeed`
+- `app.bsky.graph.getBlocks` ✨ NEW
+- `app.bsky.graph.getMutes` ✨ NEW
+- `app.bsky.graph.muteActor` ✨ NEW
+- `app.bsky.graph.unmuteActor` ✨ NEW
+- `app.bsky.graph.getRelationships` ✨ NEW
+- `app.bsky.graph.getListMutes` ✨ NEW
+- `app.bsky.graph.getListBlocks` ✨ NEW
+- `app.bsky.graph.getKnownFollowers` ✨ NEW
+- `app.bsky.graph.getSuggestedFollowsByActor` ✨ NEW
+- `app.bsky.graph.muteActorList` ✨ NEW
+- `app.bsky.graph.unmuteActorList` ✨ NEW
 
 **Notification APIs (3/5)**
 - `app.bsky.notification.listNotifications`
 - `app.bsky.notification.getUnreadCount`
 - `app.bsky.notification.updateSeen`
 
-**Moderation APIs (2/2)**
+**Moderation APIs (2/2)** ✅ COMPLETE
 - `com.atproto.label.queryLabels`
 - `app.bsky.moderation.createReport`
 
 ---
 
-## 🎯 Priority 1: Core Social Features (High Value)
+## ✅ Priority 1: Core Social Features (COMPLETE!)
 
 ### 1. Post Interaction Endpoints
 **Business Value**: Enable users to see engagement metrics and discover related content

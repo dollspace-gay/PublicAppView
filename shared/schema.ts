@@ -135,6 +135,7 @@ export const userPreferences = pgTable("user_preferences", {
   feedViewPrefs: jsonb("feed_view_prefs").default({}).notNull(), // {hideReplies: false, hideReposts: false, ...}
   threadViewPrefs: jsonb("thread_view_prefs").default({}).notNull(),
   interests: jsonb("interests").default([]).notNull(), // Array of interest tags
+  notificationPriority: boolean("notification_priority").default(false).notNull(), // Push notification priority
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -298,6 +299,92 @@ export const listItems = pgTable("list_items", {
   uniqueListItem: uniqueIndex("unique_list_item").on(table.listUri, table.subjectDid),
 }));
 
+// Feed generators table - custom algorithmic feeds
+export const feedGenerators = pgTable("feed_generators", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  did: varchar("did", { length: 255 }).notNull(), // Service DID that hosts the feed
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  description: text("description"),
+  avatarUrl: text("avatar_url"),
+  likeCount: integer("like_count").default(0).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  creatorIdx: index("idx_feed_generators_creator").on(table.creatorDid),
+  didIdx: index("idx_feed_generators_did").on(table.did),
+  likeCountIdx: index("idx_feed_generators_like_count").on(table.likeCount),
+  indexedAtIdx: index("idx_feed_generators_indexed_at").on(table.indexedAt),
+}));
+
+// Starter packs table - curated onboarding packs
+export const starterPacks = pgTable("starter_packs", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  listUri: varchar("list_uri", { length: 512 }).references(() => lists.uri, { onDelete: "set null" }),
+  feeds: jsonb("feeds").default(sql`'[]'::jsonb`).notNull(), // Array of feed generator URIs
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  creatorIdx: index("idx_starter_packs_creator").on(table.creatorDid),
+  listIdx: index("idx_starter_packs_list").on(table.listUri),
+  indexedAtIdx: index("idx_starter_packs_indexed_at").on(table.indexedAt),
+}));
+
+// Labeler services table - moderation labeler services
+export const labelerServices = pgTable("labeler_services", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  policies: jsonb("policies").notNull(), // Label values and label value definitions
+  likeCount: integer("like_count").default(0).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  creatorIdx: index("idx_labeler_services_creator").on(table.creatorDid),
+  likeCountIdx: index("idx_labeler_services_like_count").on(table.likeCount),
+  indexedAtIdx: index("idx_labeler_services_indexed_at").on(table.indexedAt),
+}));
+
+// Push subscriptions table - device push notification registrations
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  platform: varchar("platform", { length: 32 }).notNull(), // ios, android, web
+  token: text("token").notNull(), // FCM/APNs device token
+  endpoint: text("endpoint"), // For web push
+  keys: jsonb("keys"), // For web push (p256dh, auth)
+  appId: varchar("app_id", { length: 255 }), // Optional app identifier
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("idx_push_subscriptions_user").on(table.userDid),
+  tokenIdx: uniqueIndex("idx_push_subscriptions_token").on(table.token),
+  platformIdx: index("idx_push_subscriptions_platform").on(table.platform),
+}));
+
+// Video jobs table - video processing status
+export const videoJobs = pgTable("video_jobs", {
+  id: serial("id").primaryKey(),
+  jobId: varchar("job_id", { length: 255 }).notNull().unique(), // External job identifier
+  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  state: varchar("state", { length: 32 }).notNull(), // JOB_STATE_CREATED, JOB_STATE_PROCESSING, JOB_STATE_COMPLETED, JOB_STATE_FAILED
+  progress: integer("progress").default(0).notNull(), // 0-100
+  blobRef: jsonb("blob_ref"), // Reference to uploaded blob {cid, mimeType}
+  error: text("error"), // Error message if failed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  jobIdIdx: uniqueIndex("idx_video_jobs_job_id").on(table.jobId),
+  userIdx: index("idx_video_jobs_user").on(table.userDid),
+  stateIdx: index("idx_video_jobs_state").on(table.state),
+  createdAtIdx: index("idx_video_jobs_created_at").on(table.createdAt),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   posts: many(posts),
@@ -398,6 +485,19 @@ export const listItemsRelations = relations(listItems, ({ one }) => ({
   subject: one(users, { fields: [listItems.subjectDid], references: [users.did] }),
 }));
 
+export const feedGeneratorsRelations = relations(feedGenerators, ({ one }) => ({
+  creator: one(users, { fields: [feedGenerators.creatorDid], references: [users.did] }),
+}));
+
+export const starterPacksRelations = relations(starterPacks, ({ one }) => ({
+  creator: one(users, { fields: [starterPacks.creatorDid], references: [users.did] }),
+  list: one(lists, { fields: [starterPacks.listUri], references: [lists.uri] }),
+}));
+
+export const labelerServicesRelations = relations(labelerServices, ({ one }) => ({
+  creator: one(users, { fields: [labelerServices.creatorDid], references: [users.did] }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true, indexedAt: true });
 export const insertPostSchema = createInsertSchema(posts).omit({ indexedAt: true });
@@ -420,6 +520,11 @@ export const insertModeratorAssignmentSchema = createInsertSchema(moderatorAssig
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, indexedAt: true });
 export const insertListSchema = createInsertSchema(lists).omit({ indexedAt: true });
 export const insertListItemSchema = createInsertSchema(listItems).omit({ indexedAt: true });
+export const insertFeedGeneratorSchema = createInsertSchema(feedGenerators).omit({ indexedAt: true, likeCount: true });
+export const insertStarterPackSchema = createInsertSchema(starterPacks).omit({ indexedAt: true });
+export const insertLabelerServiceSchema = createInsertSchema(labelerServices).omit({ indexedAt: true, likeCount: true });
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertVideoJobSchema = createInsertSchema(videoJobs).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -464,3 +569,13 @@ export type List = typeof lists.$inferSelect;
 export type InsertList = z.infer<typeof insertListSchema>;
 export type ListItem = typeof listItems.$inferSelect;
 export type InsertListItem = z.infer<typeof insertListItemSchema>;
+export type FeedGenerator = typeof feedGenerators.$inferSelect;
+export type InsertFeedGenerator = z.infer<typeof insertFeedGeneratorSchema>;
+export type StarterPack = typeof starterPacks.$inferSelect;
+export type InsertStarterPack = z.infer<typeof insertStarterPackSchema>;
+export type LabelerService = typeof labelerServices.$inferSelect;
+export type InsertLabelerService = z.infer<typeof insertLabelerServiceSchema>;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type VideoJob = typeof videoJobs.$inferSelect;
+export type InsertVideoJob = z.infer<typeof insertVideoJobSchema>;
