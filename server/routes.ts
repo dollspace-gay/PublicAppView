@@ -66,68 +66,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const consumerId = `worker-${workerId}`;
   console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
   
-  // Start consumer loop (non-blocking)
+  // Start multiple parallel consumer pipelines per worker for maximum throughput
   const { eventProcessor } = await import("./services/event-processor");
-  (async () => {
-    let pendingClaimAttempt = 0;
-    
-    while (true) {
-      try {
-        // Every 10th iteration, also try to claim pending messages from dead consumers
-        let events = await redisQueue.consume(consumerId, 10);
-        
-        if (++pendingClaimAttempt >= 10) {
-          pendingClaimAttempt = 0;
-          const claimed = await redisQueue.claimPendingMessages(consumerId, 30000);
-          if (claimed.length > 0) {
-            console.log(`[REDIS] Worker ${workerId} claimed ${claimed.length} pending messages`);
-            events = [...events, ...claimed];
-          }
-        }
-        
-        if (events.length > 0) {
-          // Process events in parallel with concurrency control
-          const promises = events.map(async (event) => {
-            let success = false;
-            try {
-              if (event.type === "commit") {
-                await eventProcessor.processCommit(event.data);
-              } else if (event.type === "identity") {
-                await eventProcessor.processIdentity(event.data);
-              } else if (event.type === "account") {
-                await eventProcessor.processAccount(event.data);
-              }
-              success = true;
-            } catch (error: any) {
-              if (error?.code === '23505' || error?.code === '23503') {
-                // Duplicate key or foreign key violation - treat as success
-                success = true;
-              } else {
-                console.error(`[REDIS] Worker ${workerId} error processing ${event.type}:`, error);
-                // Don't acknowledge - message will be retried
-              }
-            }
-            
-            // Acknowledge ONLY after successful processing
-            if (success) {
-              // Update metrics for successfully processed events
-              const metricType = event.type === "commit" ? "#commit" 
-                : event.type === "identity" ? "#identity" 
-                : "#account";
-              metricsService.incrementEvent(metricType as any);
-              
-              await redisQueue.ack(event.messageId);
-            }
-          });
-          
-          await Promise.all(promises);
-        }
-      } catch (error) {
-        console.error(`[REDIS] Worker ${workerId} consumer error:`, error);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+  const PARALLEL_PIPELINES = 5; // Run 5 concurrent consumer loops per worker
+  
+  const processEvent = async (event: any) => {
+    let success = false;
+    try {
+      if (event.type === "commit") {
+        await eventProcessor.processCommit(event.data);
+      } else if (event.type === "identity") {
+        await eventProcessor.processIdentity(event.data);
+      } else if (event.type === "account") {
+        await eventProcessor.processAccount(event.data);
+      }
+      success = true;
+    } catch (error: any) {
+      if (error?.code === '23505' || error?.code === '23503') {
+        // Duplicate key or foreign key violation - treat as success
+        success = true;
+      } else {
+        console.error(`[REDIS] Worker ${workerId} error processing ${event.type}:`, error);
+        // Don't acknowledge - message will be retried
       }
     }
-  })();
+    
+    // Acknowledge ONLY after successful processing
+    if (success) {
+      // Update metrics for successfully processed events
+      const metricType = event.type === "commit" ? "#commit" 
+        : event.type === "identity" ? "#identity" 
+        : "#account";
+      metricsService.incrementEvent(metricType as any);
+      
+      await redisQueue.ack(event.messageId);
+    }
+  };
+  
+  // Launch parallel consumer pipelines
+  const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
+    return (async () => {
+      const pipelineConsumerId = `${consumerId}-p${pipelineId}`;
+      let iterationCount = 0;
+      
+      while (true) {
+        try {
+          // Large batch size (300) with short block timeout (100ms) for high throughput
+          let events = await redisQueue.consume(pipelineConsumerId, 300);
+          
+          // Use XAUTOCLAIM every 5 seconds for fast dead consumer recovery
+          if (++iterationCount % 50 === 0) { // ~50 iterations × 100ms = 5 seconds
+            const claimed = await redisQueue.claimPendingMessages(pipelineConsumerId, 10000);
+            if (claimed.length > 0) {
+              console.log(`[REDIS] Worker ${workerId} pipeline ${pipelineId} auto-claimed ${claimed.length} pending messages`);
+              events = [...events, ...claimed];
+            }
+          }
+          
+          if (events.length > 0) {
+            // Process all events in batch with Promise.allSettled for fault tolerance
+            await Promise.allSettled(events.map(processEvent));
+          }
+        } catch (error) {
+          console.error(`[REDIS] Worker ${workerId} pipeline ${pipelineId} error:`, error);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    })();
+  });
+  
+  // Run all pipelines concurrently (don't await - let them run in background)
+  Promise.allSettled(consumerPipelines);
 
   // Authentication endpoints
   app.post("/api/auth/create-session", async (req, res) => {

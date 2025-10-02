@@ -108,7 +108,7 @@ class RedisQueue {
         "COUNT",
         count,
         "BLOCK",
-        1000,
+        100, // 100ms block timeout for low latency
         "STREAMS",
         this.STREAM_KEY,
         ">"

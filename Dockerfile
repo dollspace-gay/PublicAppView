@@ -49,8 +49,9 @@ ENV REDIS_URL=redis://localhost:6379
 ENV PORT=5000
 ENV APPVIEW_DID=did:web:appview.local
 ENV ENABLE_BACKFILL=false
-ENV DB_POOL_SIZE=100
+ENV DB_POOL_SIZE=32
 ENV MAX_CONCURRENT_OPS=80
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 
 # Expose port
 EXPOSE 5000
@@ -60,5 +61,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Run database migrations and start the application with PM2 cluster mode
-# Database has max_connections=20000, using 32 workers for ABSOLUTE MAXIMUM CPU utilization
-CMD ["sh", "-c", "npm run db:push && pm2-runtime start dist/index.js -i 32 --name bluesky-app"]
+# Optimized for 47GB RAM VPS: 32 workers × 2GB heap = 64GB target (leaves room for OS/PostgreSQL)
+# Each worker runs 5 parallel pipelines × 300 events/batch for maximum throughput
+CMD ["sh", "-c", "npm run db:push && pm2-runtime start dist/index.js -i 32 --name bluesky-app --max-memory-restart 2G"]
