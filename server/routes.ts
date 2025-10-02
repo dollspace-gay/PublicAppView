@@ -47,13 +47,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // ALL workers connect to firehose for parallel processing
-  // Events are distributed using consistent hashing to prevent duplicates
+  // ONLY worker 0 connects to firehose to prevent overwhelming the relay with 32 connections
+  // Worker 0 receives all events and distributes them to all workers via the processing queue
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
-  console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Starting firehose connection (parallel processing mode)`);
-  firehoseClient.connect(workerId, totalWorkers);
+  if (workerId === 0) {
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Primary worker starting firehose connection`);
+    firehoseClient.connect(workerId, totalWorkers);
+  } else {
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Secondary worker (no firehose connection, processes distributed events)`);
+  }
 
   // Authentication endpoints
   app.post("/api/auth/create-session", async (req, res) => {
