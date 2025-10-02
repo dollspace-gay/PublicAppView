@@ -100,13 +100,19 @@ export class EventProcessor {
     if (expired > 0) {
       this.totalPendingCount -= expired;
       this.metrics.pendingExpired += expired;
-      console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
+      // Only log if significant (>10k to reduce noise under heavy load)
+      if (expired > 10000) {
+        console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded, database overload)`);
+      }
     }
 
     if (expiredListItems > 0) {
       this.totalPendingListItems -= expiredListItems;
       this.metrics.pendingListItemsExpired += expiredListItems;
-      console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+      // Only log if significant (>100 to reduce noise)
+      if (expiredListItems > 100) {
+        console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+      }
     }
   }
 

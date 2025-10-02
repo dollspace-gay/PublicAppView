@@ -31,12 +31,12 @@ export class FirehoseClient {
   private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
   
   // Concurrency control to prevent database connection pool exhaustion
-  // With pool size of 20 per worker, allow 15 concurrent operations per worker
-  // This prevents queue buildup where 500 jobs try to use 20 connections (causing timeouts)
-  // 32 workers × 15 = 480 total concurrent operations across cluster
+  // With pool size of 100 per worker, allow 80 concurrent operations per worker
+  // This enables maximum throughput on high-memory VPS (47GB+)
+  // 32 workers × 80 = 2560 total concurrent operations across cluster
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
-  private readonly MAX_CONCURRENT_PROCESSING = 15; // Aligned with pool size of 20
+  private readonly MAX_CONCURRENT_PROCESSING = parseInt(process.env.MAX_CONCURRENT_OPS || '80');
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
     this.url = url;
