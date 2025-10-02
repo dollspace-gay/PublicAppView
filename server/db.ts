@@ -18,6 +18,16 @@ const isNeonDatabase = databaseUrl.includes('.neon.tech') ||
                         databaseUrl.includes('neon.tech') ||
                         databaseUrl.includes('pooler.supabase.com'); // Neon-based services
 
+// Calculate pool size based on PM2 cluster mode
+// PM2 sets NODE_APP_INSTANCE for each worker (0, 1, 2, etc.)
+const isPM2Cluster = process.env.NODE_APP_INSTANCE !== undefined;
+const totalWorkers = isPM2Cluster ? (parseInt(process.env.PM2_INSTANCES || '1') || 8) : 1;
+
+// Distribute connections across workers (assume 100 total connection limit)
+const maxPoolSize = Math.max(5, Math.floor(100 / totalWorkers));
+
+console.log(`[DB] Pool configuration: ${isPM2Cluster ? 'PM2 Cluster Mode' : 'Single Process'}, Workers: ${totalWorkers}, Pool Size per Worker: ${maxPoolSize}`);
+
 let pool: any;
 let db: any;
 
@@ -28,7 +38,7 @@ if (isNeonDatabase) {
   
   pool = new NeonPool({ 
     connectionString: databaseUrl,
-    max: 100,
+    max: maxPoolSize,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 30000,
   });
@@ -40,7 +50,7 @@ if (isNeonDatabase) {
   
   pool = new PgPool({ 
     connectionString: databaseUrl,
-    max: 100,
+    max: maxPoolSize,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 30000,
   });
