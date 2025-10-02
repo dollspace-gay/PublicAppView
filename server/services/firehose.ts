@@ -26,9 +26,10 @@ export class FirehoseClient {
   private lastCursorSave = 0;
   private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
   
-  // Process all events without throttling - no concurrency limits
+  // Concurrency control to prevent database connection pool exhaustion
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
+  private readonly MAX_CONCURRENT_PROCESSING = 1000; // High limit to maximize throughput while protecting database
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
     this.url = url;
@@ -45,8 +46,8 @@ export class FirehoseClient {
   }
 
   private processNextInQueue() {
-    // Process all queued events without any limits
-    while (this.processingQueue.length > 0) {
+    // Process as many queued events as concurrency allows
+    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING && this.processingQueue.length > 0) {
       const nextTask = this.processingQueue.shift();
       if (nextTask) {
         this.processQueuedEvent(nextTask);
@@ -55,8 +56,13 @@ export class FirehoseClient {
   }
 
   private async queueEventProcessing(task: () => Promise<void>) {
-    // No throttling - just process everything immediately
-    this.processQueuedEvent(task);
+    // Process immediately if under concurrency limit, otherwise queue
+    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING) {
+      this.processQueuedEvent(task);
+    } else {
+      // Queue without any memory checks or event dropping - let it grow unlimited
+      this.processingQueue.push(task);
+    }
   }
 
   onEvent(callback: EventCallback) {
