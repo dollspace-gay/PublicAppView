@@ -3,6 +3,16 @@ import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
+function sanitizeText(text: string | undefined | null): string | undefined {
+  if (!text) return undefined;
+  return text.replace(/\u0000/g, '');
+}
+
+function sanitizeRequiredText(text: string | undefined | null): string {
+  if (!text) return '';
+  return text.replace(/\u0000/g, '');
+}
+
 interface PendingOp {
   type: 'like' | 'repost';
   payload: InsertLike | InsertRepost;
@@ -381,7 +391,7 @@ export class EventProcessor {
       uri,
       cid,
       authorDid,
-      text: record.text,
+      text: sanitizeRequiredText(record.text),
       parentUri: record.reply?.parent.uri,
       rootUri: record.reply?.root.uri,
       embed: record.embed,
@@ -563,8 +573,8 @@ export class EventProcessor {
     await storage.createUser({
       did,
       handle: did,
-      displayName: record.displayName,
-      description: record.description,
+      displayName: sanitizeText(record.displayName),
+      description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
     });
   }
@@ -619,9 +629,9 @@ export class EventProcessor {
       uri,
       cid,
       creatorDid,
-      name: record.name,
+      name: sanitizeRequiredText(record.name),
       purpose: record.purpose,
-      description: record.description,
+      description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
       createdAt: new Date(record.createdAt),
     };
@@ -683,8 +693,8 @@ export class EventProcessor {
       cid,
       creatorDid,
       did: record.did,
-      displayName: record.displayName,
-      description: record.description,
+      displayName: sanitizeRequiredText(record.displayName),
+      description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
       createdAt: new Date(record.createdAt),
     };
@@ -699,8 +709,8 @@ export class EventProcessor {
       uri,
       cid,
       creatorDid,
-      name: record.name,
-      description: record.description,
+      name: sanitizeRequiredText(record.name),
+      description: sanitizeText(record.description),
       listUri: record.list,
       feeds: record.feeds?.map((f: any) => f.uri) || [],
       createdAt: new Date(record.createdAt),

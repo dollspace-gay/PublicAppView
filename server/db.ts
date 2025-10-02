@@ -1,9 +1,9 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
+import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import { Pool as PgPool } from 'pg';
 import ws from "ws";
 import * as schema from "@shared/schema";
-
-neonConfig.webSocketConstructor = ws;
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -11,10 +11,41 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL,
-  max: 100, // Increased from 20 to handle high firehose load
-  idleTimeoutMillis: 10000, // Close idle connections after 10s
-  connectionTimeoutMillis: 30000, // Increased timeout for acquiring connections
-});
-export const db = drizzle({ client: pool, schema });
+const databaseUrl = process.env.DATABASE_URL;
+
+// Auto-detect: Use standard pg driver for local/Docker PostgreSQL, Neon for cloud
+const isNeonDatabase = databaseUrl.includes('.neon.tech') || 
+                        databaseUrl.includes('neon.tech') ||
+                        databaseUrl.includes('pooler.supabase.com'); // Neon-based services
+
+let pool: any;
+let db: any;
+
+if (isNeonDatabase) {
+  // Use Neon serverless driver for Neon cloud databases (Replit default)
+  console.log('[DB] Using Neon serverless driver for cloud database');
+  neonConfig.webSocketConstructor = ws;
+  
+  pool = new NeonPool({ 
+    connectionString: databaseUrl,
+    max: 100,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 30000,
+  });
+  
+  db = drizzle({ client: pool, schema });
+} else {
+  // Use standard pg driver for local PostgreSQL (Docker, self-hosted)
+  console.log('[DB] Using standard PostgreSQL driver for local database');
+  
+  pool = new PgPool({ 
+    connectionString: databaseUrl,
+    max: 100,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 30000,
+  });
+  
+  db = drizzlePg({ client: pool, schema });
+}
+
+export { pool, db };

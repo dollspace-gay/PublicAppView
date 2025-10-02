@@ -156,11 +156,7 @@ export class FirehoseClient {
     // Close existing client before creating new one to prevent memory leaks
     if (this.client) {
       try {
-        this.client.removeAllListeners();
-        // @ts-ignore - close method exists but not in types
-        if (typeof this.client.close === 'function') {
-          this.client.close();
-        }
+        this.client.close();
       } catch (error) {
         console.error("[FIREHOSE] Error closing existing client:", error);
       }
@@ -189,7 +185,9 @@ export class FirehoseClient {
     
     try {
       // Configure options for Firehose constructor
-      const options: any = {};
+      const options: any = {
+        relay: this.url
+      };
       
       // Resume from saved cursor if available
       if (this.currentCursor) {
@@ -197,7 +195,7 @@ export class FirehoseClient {
       }
       
       // WebSocket is now available globally, so library will detect it automatically
-      this.client = new Firehose(this.url, options);
+      this.client = new Firehose(options);
 
       this.client.on("open", () => {
         console.log("[FIREHOSE] Connected to relay");
@@ -210,9 +208,9 @@ export class FirehoseClient {
       this.client.on("commit", (commit) => {
         metricsService.incrementEvent("#commit");
         
-        // Save cursor for restart recovery (extract from commit metadata if available)
-        if ((commit as any).seq) {
-          this.saveCursor(String((commit as any).seq));
+        // Save cursor for restart recovery
+        if (commit.seq) {
+          this.saveCursor(String(commit.seq));
         }
         
         const event = {
@@ -261,10 +259,7 @@ export class FirehoseClient {
       this.client.on("identity", (identity) => {
         metricsService.incrementEvent("#identity");
         
-        // Save cursor for restart recovery
-        if ((identity as any).seq) {
-          this.saveCursor(String((identity as any).seq));
-        }
+        // Note: Identity events don't have seq, cursor management handled by commit events
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({
@@ -292,10 +287,7 @@ export class FirehoseClient {
       this.client.on("account", (account) => {
         metricsService.incrementEvent("#account");
         
-        // Save cursor for restart recovery
-        if ((account as any).seq) {
-          this.saveCursor(String((account as any).seq));
-        }
+        // Note: Account events don't have seq, cursor management handled by commit events
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({
@@ -320,15 +312,16 @@ export class FirehoseClient {
         });
       });
 
-      this.client.on("error", (error) => {
+      this.client.on("error", ({ cursor, error }) => {
         console.error("[FIREHOSE] WebSocket error:", error);
         
         // Categorize errors for better monitoring
         const errorType = this.categorizeError(error);
         logCollector.error(`Firehose ${errorType} error`, { 
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
           type: errorType,
-          url: this.url
+          url: this.url,
+          cursor
         });
         
         this.isConnected = false;
@@ -372,11 +365,7 @@ export class FirehoseClient {
 
     if (this.client) {
       try {
-        // @skyware/firehose doesn't have removeAllListeners, just close the connection
-        // @ts-ignore - close method exists but not in types
-        if (typeof this.client.close === 'function') {
-          this.client.close();
-        }
+        this.client.close();
       } catch (error) {
         console.error("[FIREHOSE] Error during disconnect:", error);
       }
