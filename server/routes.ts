@@ -1,0 +1,1522 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import { firehoseClient } from "./services/firehose";
+import { metricsService } from "./services/metrics";
+import { lexiconValidator } from "./services/lexicon-validator";
+import { xrpcApi } from "./services/xrpc-api";
+import { storage } from "./storage";
+import { authService, requireAuth, type AuthRequest } from "./services/auth";
+import { contentFilter } from "./services/content-filter";
+import { didResolver } from "./services/did-resolver";
+import { pdsClient } from "./services/pds-client";
+import { labelService } from "./services/label";
+import { moderationService } from "./services/moderation";
+import { z } from "zod";
+import { logCollector } from "./services/log-collector";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  const httpServer = createServer(app);
+
+  // API request tracking middleware with per-endpoint performance tracking
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/xrpc')) {
+      metricsService.recordApiRequest();
+      
+      const startTime = Date.now();
+      const originalSend = res.send;
+      
+      res.send = function(data: any) {
+        const duration = Date.now() - startTime;
+        const success = res.statusCode >= 200 && res.statusCode < 400;
+        metricsService.recordEndpointRequest(req.path, duration, success);
+        return originalSend.call(this, data);
+      };
+    }
+    next();
+  });
+
+  // Start firehose connection
+  firehoseClient.connect();
+
+  // Authentication endpoints
+  app.post("/api/auth/create-session", async (req, res) => {
+    try {
+      const MAX_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
+      const DEFAULT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
+      
+      const schema = z.object({
+        did: z.string(),
+        pdsEndpoint: z.string(),
+        accessToken: z.string(),
+        refreshToken: z.string().optional(),
+        expiresIn: z.number().default(DEFAULT_EXPIRY_SECONDS),
+      });
+      
+      const data = schema.parse(req.body);
+      
+      // Step 1: Verify DID and PDS endpoint are valid
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(data.did);
+      if (!pdsEndpoint) {
+        return res.status(400).json({ 
+          error: "Invalid DID: Could not resolve PDS endpoint" 
+        });
+      }
+      
+      // Verify the provided PDS endpoint matches the resolved one
+      // Allow either exact match or normalized URLs
+      const normalizedProvided = data.pdsEndpoint.replace(/\/$/, '');
+      const normalizedResolved = pdsEndpoint.replace(/\/$/, '');
+      if (normalizedProvided !== normalizedResolved) {
+        console.warn(
+          `[AUTH] PDS endpoint mismatch for ${data.did}: ` +
+          `provided=${data.pdsEndpoint}, resolved=${pdsEndpoint}`
+        );
+        // Use the resolved endpoint for security
+      }
+      
+      // Step 2: Verify the access token by calling authenticated PDS endpoint
+      // This returns the DID if valid, ensuring the token actually belongs to the user
+      const verifiedDid = await pdsClient.verifyToken(
+        data.did,
+        pdsEndpoint,
+        data.accessToken
+      );
+      
+      if (!verifiedDid || verifiedDid !== data.did) {
+        return res.status(401).json({ 
+          error: "Invalid access token: Token verification failed or DID mismatch" 
+        });
+      }
+      
+      console.log(`[AUTH] Successfully verified token for ${verifiedDid}`);
+      
+      const sessionId = authService.generateSessionId();
+      
+      // Cap expiry to maximum 30 days for security
+      const cappedExpiresIn = Math.min(data.expiresIn, MAX_EXPIRY_SECONDS);
+      const expiresAt = new Date(Date.now() + cappedExpiresIn * 1000);
+      
+      // Ensure user exists to prevent foreign key failures
+      // Only create if user doesn't exist (don't overwrite existing data)
+      const existingUser = await storage.getUser(data.did);
+      if (!existingUser) {
+        const handle = data.did.replace('did:plc:', '') + '.unknown';
+        await storage.createUser({
+          did: data.did,
+          handle,
+          displayName: null,
+          avatarUrl: null,
+          description: null,
+        });
+      }
+      
+      const session = await storage.createSession({
+        id: sessionId,
+        userDid: data.did,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken || null,
+        pdsEndpoint: pdsEndpoint, // Use resolved PDS endpoint for security
+        expiresAt,
+      });
+      
+      const token = authService.createSessionToken(data.did, sessionId);
+      
+      res.json({ token, session });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  });
+
+  app.post("/api/auth/logout", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (req.session) {
+        await storage.deleteSession(req.session.sessionId);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to logout" });
+    }
+  });
+
+  app.get("/api/auth/session", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      
+      const user = await storage.getUser(session.userDid);
+      res.json({ session, user });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get session" });
+    }
+  });
+
+  // Write operations endpoints
+  app.post("/api/posts/create", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        text: z.string().max(3000),
+        reply: z.object({
+          root: z.object({ uri: z.string(), cid: z.string() }),
+          parent: z.object({ uri: z.string(), cid: z.string() }),
+        }).optional(),
+        embed: z.any().optional(),
+      });
+      
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      // Proxy to PDS to create the post
+      const result = await pdsClient.createPost(
+        session.pdsEndpoint,
+        session.accessToken,
+        session.userDid,
+        {
+          text: data.text,
+          createdAt: new Date().toISOString(),
+          reply: data.reply,
+          embed: data.embed,
+        }
+      );
+      
+      if (!result.success || !result.data) {
+        console.error('[API] Failed to create post on PDS:', result.error);
+        return res.status(500).json({ 
+          error: result.error || "Failed to create post on PDS" 
+        });
+      }
+      
+      // Store the post locally with canonical URI and CID from PDS
+      let post;
+      try {
+        post = await storage.createPost({
+          uri: result.data.uri,
+          cid: result.data.cid,
+          authorDid: session.userDid,
+          text: data.text,
+          parentUri: data.reply?.parent.uri,
+          rootUri: data.reply?.root.uri,
+          embed: data.embed,
+          createdAt: new Date(),
+        });
+      } catch (storageError) {
+        // Rollback: Delete from PDS since local storage failed
+        console.error('[API] Local storage failed after PDS creation, attempting rollback:', storageError);
+        const rkey = result.data.uri.split('/').pop()!;
+        
+        try {
+          const rollbackResult = await pdsClient.deleteRecord(
+            session.pdsEndpoint,
+            session.accessToken,
+            session.userDid,
+            'app.bsky.feed.post',
+            rkey
+          );
+          
+          if (!rollbackResult.success) {
+            console.error(
+              `[API] CRITICAL: Rollback failed for post ${result.data.uri}. ` +
+              `Record orphaned on PDS. Error: ${rollbackResult.error}`
+            );
+            return res.status(500).json({ 
+              error: "Failed to persist locally AND rollback failed. Record orphaned on PDS. Manual cleanup required.",
+              orphanedUri: result.data.uri
+            });
+          }
+          
+          console.log(`[API] Successfully rolled back post ${result.data.uri}`);
+          return res.status(500).json({ 
+            error: "Failed to persist post locally after PDS creation. Operation rolled back successfully." 
+          });
+        } catch (rollbackError) {
+          console.error(
+            `[API] CRITICAL: Rollback exception for post ${result.data.uri}. ` +
+            `Record orphaned on PDS. Error:`, rollbackError
+          );
+          return res.status(500).json({ 
+            error: "Failed to persist locally AND rollback threw exception. Record orphaned on PDS. Manual cleanup required.",
+            orphanedUri: result.data.uri
+          });
+        }
+      }
+      
+      console.log(`[API] Created post ${result.data.uri} for ${session.userDid}`);
+      
+      res.json({ post });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to create post" });
+    }
+  });
+
+  app.post("/api/likes/create", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        postUri: z.string(),
+        postCid: z.string(),
+      });
+      
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      // Proxy to PDS to create the like
+      const result = await pdsClient.createLike(
+        session.pdsEndpoint,
+        session.accessToken,
+        session.userDid,
+        { uri: data.postUri, cid: data.postCid }
+      );
+      
+      if (!result.success || !result.data) {
+        console.error('[API] Failed to create like on PDS:', result.error);
+        return res.status(500).json({ 
+          error: result.error || "Failed to create like on PDS" 
+        });
+      }
+      
+      // Store the like locally with canonical URI from PDS
+      let like;
+      try {
+        like = await storage.createLike({
+          uri: result.data.uri,
+          userDid: session.userDid,
+          postUri: data.postUri,
+          createdAt: new Date(),
+        });
+      } catch (storageError) {
+        // Rollback: Delete from PDS since local storage failed
+        console.error('[API] Local storage failed after PDS creation, attempting rollback:', storageError);
+        const rkey = result.data.uri.split('/').pop()!;
+        
+        try {
+          const rollbackResult = await pdsClient.deleteRecord(
+            session.pdsEndpoint,
+            session.accessToken,
+            session.userDid,
+            'app.bsky.feed.like',
+            rkey
+          );
+          
+          if (!rollbackResult.success) {
+            console.error(
+              `[API] CRITICAL: Rollback failed for like ${result.data.uri}. ` +
+              `Record orphaned on PDS. Error: ${rollbackResult.error}`
+            );
+            return res.status(500).json({ 
+              error: "Failed to persist locally AND rollback failed. Record orphaned on PDS. Manual cleanup required.",
+              orphanedUri: result.data.uri
+            });
+          }
+          
+          console.log(`[API] Successfully rolled back like ${result.data.uri}`);
+          return res.status(500).json({ 
+            error: "Failed to persist like locally after PDS creation. Operation rolled back successfully." 
+          });
+        } catch (rollbackError) {
+          console.error(
+            `[API] CRITICAL: Rollback exception for like ${result.data.uri}. ` +
+            `Record orphaned on PDS. Error:`, rollbackError
+          );
+          return res.status(500).json({ 
+            error: "Failed to persist locally AND rollback threw exception. Record orphaned on PDS. Manual cleanup required.",
+            orphanedUri: result.data.uri
+          });
+        }
+      }
+      
+      console.log(`[API] Created like ${result.data.uri} for ${session.userDid}`);
+      
+      res.json({ like });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to create like" });
+    }
+  });
+
+  app.delete("/api/likes/:uri", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uri = decodeURIComponent(req.params.uri);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      // Extract rkey from URI (at://did/app.bsky.feed.like/RKEY)
+      const parts = uri.split('/');
+      const rkey = parts[parts.length - 1];
+      
+      // Proxy delete to PDS
+      const result = await pdsClient.deleteRecord(
+        session.pdsEndpoint,
+        session.accessToken,
+        session.userDid,
+        'app.bsky.feed.like',
+        rkey
+      );
+      
+      if (!result.success) {
+        console.error('[API] Failed to delete like on PDS:', result.error);
+        return res.status(500).json({ 
+          error: result.error || "Failed to delete like on PDS" 
+        });
+      }
+      
+      // Delete from local storage
+      try {
+        await storage.deleteLike(uri);
+      } catch (storageError) {
+        // PDS delete succeeded but local delete failed - log for manual reconciliation
+        console.error(
+          `[API] INCONSISTENCY: PDS delete succeeded but local delete failed for ${uri}:`,
+          storageError
+        );
+        return res.status(500).json({ 
+          error: "Like deleted from PDS but failed to remove from local index. Manual reconciliation required." 
+        });
+      }
+      
+      console.log(`[API] Deleted like ${uri} for ${session.userDid}`);
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to delete like" });
+    }
+  });
+
+  app.post("/api/follows/create", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        targetDid: z.string(),
+      });
+      
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      // Proxy to PDS to create the follow
+      const result = await pdsClient.createFollow(
+        session.pdsEndpoint,
+        session.accessToken,
+        session.userDid,
+        data.targetDid
+      );
+      
+      if (!result.success || !result.data) {
+        console.error('[API] Failed to create follow on PDS:', result.error);
+        return res.status(500).json({ 
+          error: result.error || "Failed to create follow on PDS" 
+        });
+      }
+      
+      // Store the follow locally with canonical URI from PDS
+      let follow;
+      try {
+        follow = await storage.createFollow({
+          uri: result.data.uri,
+          followerDid: session.userDid,
+          followingDid: data.targetDid,
+          createdAt: new Date(),
+        });
+      } catch (storageError) {
+        // Rollback: Delete from PDS since local storage failed
+        console.error('[API] Local storage failed after PDS creation, attempting rollback:', storageError);
+        const rkey = result.data.uri.split('/').pop()!;
+        
+        try {
+          const rollbackResult = await pdsClient.deleteRecord(
+            session.pdsEndpoint,
+            session.accessToken,
+            session.userDid,
+            'app.bsky.graph.follow',
+            rkey
+          );
+          
+          if (!rollbackResult.success) {
+            console.error(
+              `[API] CRITICAL: Rollback failed for follow ${result.data.uri}. ` +
+              `Record orphaned on PDS. Error: ${rollbackResult.error}`
+            );
+            return res.status(500).json({ 
+              error: "Failed to persist locally AND rollback failed. Record orphaned on PDS. Manual cleanup required.",
+              orphanedUri: result.data.uri
+            });
+          }
+          
+          console.log(`[API] Successfully rolled back follow ${result.data.uri}`);
+          return res.status(500).json({ 
+            error: "Failed to persist follow locally after PDS creation. Operation rolled back successfully." 
+          });
+        } catch (rollbackError) {
+          console.error(
+            `[API] CRITICAL: Rollback exception for follow ${result.data.uri}. ` +
+            `Record orphaned on PDS. Error:`, rollbackError
+          );
+          return res.status(500).json({ 
+            error: "Failed to persist locally AND rollback threw exception. Record orphaned on PDS. Manual cleanup required.",
+            orphanedUri: result.data.uri
+          });
+        }
+      }
+      
+      console.log(`[API] Created follow ${result.data.uri} for ${session.userDid}`);
+      
+      res.json({ follow });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to create follow" });
+    }
+  });
+
+  app.delete("/api/follows/:uri", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uri = decodeURIComponent(req.params.uri);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      
+      // Extract rkey from URI (at://did/app.bsky.graph.follow/RKEY)
+      const parts = uri.split('/');
+      const rkey = parts[parts.length - 1];
+      
+      // Proxy delete to PDS
+      const result = await pdsClient.deleteRecord(
+        session.pdsEndpoint,
+        session.accessToken,
+        session.userDid,
+        'app.bsky.graph.follow',
+        rkey
+      );
+      
+      if (!result.success) {
+        console.error('[API] Failed to delete follow on PDS:', result.error);
+        return res.status(500).json({ 
+          error: result.error || "Failed to delete follow on PDS" 
+        });
+      }
+      
+      // Delete from local storage
+      try {
+        await storage.deleteFollow(uri);
+      } catch (storageError) {
+        // PDS delete succeeded but local delete failed - log for manual reconciliation
+        console.error(
+          `[API] INCONSISTENCY: PDS delete succeeded but local delete failed for ${uri}:`,
+          storageError
+        );
+        return res.status(500).json({ 
+          error: "Follow deleted from PDS but failed to remove from local index. Manual reconciliation required." 
+        });
+      }
+      
+      console.log(`[API] Deleted follow ${uri} for ${session.userDid}`);
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to delete follow" });
+    }
+  });
+
+  // User settings endpoints
+  app.get("/api/settings", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const session = await storage.getSession(req.session!.sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+
+      res.json({ settings });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get settings" });
+    }
+  });
+
+  app.put("/api/settings", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        blockedKeywords: z.array(z.string()).optional(),
+        mutedUsers: z.array(z.string()).optional(),
+        customLists: z.array(z.any()).optional(),
+        feedPreferences: z.record(z.any()).optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      // Get existing settings or create new ones
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: data.blockedKeywords || [],
+          mutedUsers: data.mutedUsers || [],
+          customLists: data.customLists || [],
+          feedPreferences: data.feedPreferences || {},
+        });
+      } else {
+        settings = await storage.updateUserSettings(session.userDid, data) || settings;
+      }
+
+      res.json({ settings });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update settings" });
+    }
+  });
+
+  app.post("/api/settings/keywords/block", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        keyword: z.string().min(1),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+      
+      const currentKeywords = (settings.blockedKeywords as string[]) || [];
+      
+      if (!currentKeywords.includes(data.keyword)) {
+        currentKeywords.push(data.keyword);
+      }
+
+      const updated = await storage.updateUserSettings(session.userDid, {
+        blockedKeywords: currentKeywords,
+      });
+
+      res.json({ settings: updated });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to block keyword" });
+    }
+  });
+
+  app.delete("/api/settings/keywords/:keyword", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const keyword = decodeURIComponent(req.params.keyword);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+      
+      const currentKeywords = (settings.blockedKeywords as string[]) || [];
+      
+      const updated = await storage.updateUserSettings(session.userDid, {
+        blockedKeywords: currentKeywords.filter((k: string) => k !== keyword),
+      });
+
+      res.json({ settings: updated });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to unblock keyword" });
+    }
+  });
+
+  app.post("/api/settings/users/mute", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        userDid: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+      
+      const currentMuted = (settings.mutedUsers as string[]) || [];
+      
+      if (!currentMuted.includes(data.userDid)) {
+        currentMuted.push(data.userDid);
+      }
+
+      const updated = await storage.updateUserSettings(session.userDid, {
+        mutedUsers: currentMuted,
+      });
+
+      res.json({ settings: updated });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to mute user" });
+    }
+  });
+
+  app.delete("/api/settings/users/mute/:did", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const userDid = decodeURIComponent(req.params.did);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+      
+      const currentMuted = (settings.mutedUsers as string[]) || [];
+      
+      const updated = await storage.updateUserSettings(session.userDid, {
+        mutedUsers: currentMuted.filter((d: string) => d !== userDid),
+      });
+
+      res.json({ settings: updated });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to unmute user" });
+    }
+  });
+
+  // Feed preferences endpoints
+  app.put("/api/settings/feed", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        algorithm: z.enum(["reverse-chronological", "engagement", "discovery"]).default("reverse-chronological"),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      
+      // Create default settings if none exist
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        });
+      }
+
+      const updated = await storage.updateUserSettings(session.userDid, {
+        feedPreferences: {
+          ...(settings.feedPreferences as object || {}),
+          algorithm: data.algorithm,
+        },
+      });
+
+      res.json({ settings: updated });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update feed preferences" });
+    }
+  });
+
+  // Label management endpoints (admin)
+  app.post("/api/labels/apply", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subject: z.string(),
+        val: z.string(),
+        neg: z.boolean().default(false),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const label = await labelService.applyLabel({
+        src: session.userDid,
+        subject: data.subject,
+        val: data.val,
+        neg: data.neg,
+      });
+
+      res.json({ label });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to apply label" });
+    }
+  });
+
+  app.delete("/api/labels/:uri", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const uri = decodeURIComponent(req.params.uri);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      await labelService.removeLabel(uri);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to remove label" });
+    }
+  });
+
+  app.get("/api/labels/definitions", async (_req, res) => {
+    try {
+      const definitions = await labelService.getAllLabelDefinitions();
+      res.json({ definitions });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get label definitions" });
+    }
+  });
+
+  app.post("/api/labels/definitions", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        value: z.string(),
+        description: z.string().optional(),
+        severity: z.enum(["info", "warn", "alert", "none"]).default("warn"),
+        localizedStrings: z.record(z.any()).optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const definition = await labelService.createLabelDefinition(data);
+      res.json({ definition });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to create label definition" });
+    }
+  });
+
+  app.get("/api/labels/query", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subjects: z.array(z.string()).optional(),
+        sources: z.array(z.string()).optional(),
+        values: z.array(z.string()).optional(),
+        limit: z.coerce.number().default(50),
+      });
+
+      const params = schema.parse(req.query);
+      const labels = await labelService.queryLabels(params);
+      
+      res.json({ labels });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to query labels" });
+    }
+  });
+
+  // Moderation queue management endpoints (admin)
+  app.get("/api/moderation/queue", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        status: z.enum(["pending", "under_review", "resolved", "dismissed"]).default("pending"),
+        limit: z.coerce.number().default(50),
+      });
+
+      const params = schema.parse(req.query);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const reports = await moderationService.getReportsByStatus(params.status, params.limit);
+      
+      res.json({ reports });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to get moderation queue" });
+    }
+  });
+
+  app.get("/api/moderation/report/:id", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const history = await moderationService.getReportHistory(reportId);
+      
+      if (!history.report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+
+      res.json(history);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to get report" });
+    }
+  });
+
+  app.post("/api/moderation/assign", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        reportId: z.number(),
+        moderatorDid: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const assignment = await moderationService.assignModerator(data.reportId, data.moderatorDid);
+      
+      res.json({ assignment });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to assign moderator" });
+    }
+  });
+
+  app.post("/api/moderation/action", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        reportId: z.number(),
+        actionType: z.enum(["label_applied", "content_removed", "account_suspended", "dismissed", "escalated"]),
+        resolutionNotes: z.string().optional(),
+        labelValue: z.string().optional(),
+        labelSrc: z.string().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const action = await moderationService.takeAction({
+        reportId: data.reportId,
+        actionType: data.actionType,
+        moderatorDid: session.userDid,
+        resolutionNotes: data.resolutionNotes,
+        labelValue: data.labelValue,
+        labelSrc: data.labelSrc,
+      });
+      
+      res.json({ action });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to take action" });
+    }
+  });
+
+  app.post("/api/moderation/dismiss", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        reportId: z.number(),
+        reason: z.string().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const action = await moderationService.dismissReport(data.reportId, session.userDid, data.reason);
+      
+      res.json({ action });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to dismiss report" });
+    }
+  });
+
+  app.post("/api/moderation/escalate", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        reportId: z.number(),
+        reason: z.string().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const action = await moderationService.escalateReport(data.reportId, session.userDid, data.reason);
+      
+      res.json({ action });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to escalate report" });
+    }
+  });
+
+  app.get("/api/moderation/workload/:moderatorDid", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const moderatorDid = req.params.moderatorDid;
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const workload = await moderationService.getModeratorWorkload(moderatorDid);
+      
+      res.json(workload);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to get workload" });
+    }
+  });
+
+  // XRPC API Endpoints
+  app.get("/xrpc/app.bsky.feed.getTimeline", xrpcApi.getTimeline.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getAuthorFeed", xrpcApi.getAuthorFeed.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getPostThread", xrpcApi.getPostThread.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.actor.getProfile", xrpcApi.getProfile.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getFollows", xrpcApi.getFollows.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getFollowers", xrpcApi.getFollowers.bind(xrpcApi));
+  app.get("/xrpc/com.atproto.label.queryLabels", xrpcApi.queryLabels.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.moderation.createReport", xrpcApi.createReport.bind(xrpcApi));
+
+  // Search endpoints
+  app.get("/xrpc/app.bsky.feed.searchPosts", xrpcApi.searchPosts.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.actor.searchActors", xrpcApi.searchActors.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.actor.searchActorsTypeahead", xrpcApi.searchActorsTypeahead.bind(xrpcApi));
+
+  // Notification endpoints
+  app.get("/xrpc/app.bsky.notification.listNotifications", xrpcApi.listNotifications.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.notification.getUnreadCount", xrpcApi.getUnreadCount.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.updateSeen", xrpcApi.updateSeen.bind(xrpcApi));
+
+  // List endpoints
+  app.get("/xrpc/app.bsky.graph.getList", xrpcApi.getList.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getLists", xrpcApi.getLists.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getListFeed", xrpcApi.getListFeed.bind(xrpcApi));
+
+  // Dashboard API endpoints
+  app.get("/api/metrics", async (_req, res) => {
+    const stats = await storage.getStats();
+    const metrics = metricsService.getStats();
+    const eventCounts = metricsService.getEventCounts();
+    const systemHealth = await metricsService.getSystemHealth();
+
+    res.json({
+      eventsProcessed: metrics.totalEvents,
+      dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
+      apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+      stats,
+      eventCounts,
+      systemHealth,
+      firehoseStatus: firehoseClient.getStatus(),
+      errorRate: metrics.errorRate,
+      lastUpdate: metrics.lastUpdate,
+    });
+  });
+
+  // Get all API endpoints with real performance metrics
+  app.get("/api/endpoints", (_req, res) => {
+    const endpointMetrics = metricsService.getEndpointMetrics();
+    
+    const endpoints = [
+      {
+        method: "GET",
+        path: "app.bsky.feed.getTimeline",
+        fullPath: "/xrpc/app.bsky.feed.getTimeline",
+        description: "Retrieve a user's main timeline with posts from followed accounts",
+        params: ["algorithm: string", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.feed.getAuthorFeed",
+        fullPath: "/xrpc/app.bsky.feed.getAuthorFeed",
+        description: "Get posts from a specific user's profile",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.feed.getPostThread",
+        fullPath: "/xrpc/app.bsky.feed.getPostThread",
+        description: "View a post and its complete reply thread",
+        params: ["uri: string (required)", "depth: number"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.feed.searchPosts",
+        fullPath: "/xrpc/app.bsky.feed.searchPosts",
+        description: "Full-text search for posts with ranking",
+        params: ["q: string (required)", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.actor.getProfile",
+        fullPath: "/xrpc/app.bsky.actor.getProfile",
+        description: "Get detailed profile information for a user",
+        params: ["actor: string (required)"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.actor.searchActors",
+        fullPath: "/xrpc/app.bsky.actor.searchActors",
+        description: "Search for user accounts",
+        params: ["q: string (required)", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.actor.searchActorsTypeahead",
+        fullPath: "/xrpc/app.bsky.actor.searchActorsTypeahead",
+        description: "Autocomplete search for user handles",
+        params: ["q: string (required)", "limit: number"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.graph.getFollows",
+        fullPath: "/xrpc/app.bsky.graph.getFollows",
+        description: "Get list of accounts a user follows",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "app.bsky.graph.getFollowers",
+        fullPath: "/xrpc/app.bsky.graph.getFollowers",
+        description: "Get list of accounts following a user",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      {
+        method: "GET",
+        path: "com.atproto.label.queryLabels",
+        fullPath: "/xrpc/com.atproto.label.queryLabels",
+        description: "Query moderation labels for content",
+        params: ["uriPatterns: string[]", "sources: string[]", "limit: number", "cursor: string"],
+      },
+      {
+        method: "POST",
+        path: "app.bsky.moderation.createReport",
+        fullPath: "/xrpc/app.bsky.moderation.createReport",
+        description: "Submit a moderation report",
+        params: ["reasonType: string (required)", "subject: object (required)", "reason: string"],
+      },
+    ];
+
+    const endpointsWithMetrics = endpoints.map(endpoint => {
+      const metrics = endpointMetrics[endpoint.fullPath] || {
+        totalRequests: 0,
+        requestsPerMinute: 0,
+        avgResponseTime: 0,
+        successRate: 0,
+      };
+
+      return {
+        ...endpoint,
+        performance: {
+          avgResponse: metrics.avgResponseTime > 0 ? `${metrics.avgResponseTime}ms` : "N/A",
+          requestsMin: metrics.requestsPerMinute.toString(),
+          successRate: metrics.successRate > 0 ? `${metrics.successRate.toFixed(1)}%` : "N/A",
+          totalRequests: metrics.totalRequests,
+        },
+        status: metrics.totalRequests > 0 ? "active" : "available",
+      };
+    });
+
+    res.json(endpointsWithMetrics);
+  });
+
+  // Get database schema with cached row counts
+  app.get("/api/database/schema", async (_req, res) => {
+    // getStats now handles caching and timeouts internally
+    const stats = await storage.getStats();
+    
+    const tables = [
+      {
+        name: "users",
+        description: "Profile and identity data",
+        rows: stats.totalUsers.toLocaleString(),
+        color: "primary",
+        fields: [
+          { name: "did", type: "VARCHAR(255)", description: "Primary key, unique identifier" },
+          { name: "handle", type: "VARCHAR(255)", description: "User's current handle" },
+          { name: "display_name", type: "VARCHAR(255)", description: "User's display name" },
+          { name: "avatar_url", type: "TEXT", description: "Profile image URL" },
+          { name: "description", type: "TEXT", description: "Profile bio" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+          { name: "search_vector", type: "TSVECTOR", description: "Full-text search index" },
+        ],
+        indexes: ["idx_users_handle", "idx_users_indexed_at", "idx_users_search_vector (GIN)"],
+      },
+      {
+        name: "posts",
+        description: "Feed posts and content",
+        rows: stats.totalPosts.toLocaleString(),
+        color: "accent",
+        fields: [
+          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
+          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
+          { name: "author_did", type: "VARCHAR(255)", description: "Foreign key to users" },
+          { name: "text", type: "TEXT", description: "Post content" },
+          { name: "embed", type: "JSONB", description: "Embedded media/links" },
+          { name: "parent_uri", type: "VARCHAR(512)", description: "Reply parent reference" },
+          { name: "root_uri", type: "VARCHAR(512)", description: "Thread root reference" },
+          { name: "created_at", type: "TIMESTAMP", description: "Post creation timestamp" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+          { name: "search_vector", type: "TSVECTOR", description: "Full-text search index" },
+        ],
+        indexes: ["idx_posts_author_did", "idx_posts_indexed_at", "idx_posts_parent_uri", "idx_posts_search_vector (GIN)"],
+      },
+      {
+        name: "follows",
+        description: "Social graph relationships",
+        rows: stats.totalFollows.toLocaleString(),
+        color: "success",
+        fields: [
+          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
+          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
+          { name: "follower_did", type: "VARCHAR(255)", description: "User who follows" },
+          { name: "following_did", type: "VARCHAR(255)", description: "User being followed" },
+          { name: "created_at", type: "TIMESTAMP", description: "Follow timestamp" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+        ],
+        indexes: ["idx_follows_follower", "idx_follows_following"],
+      },
+      {
+        name: "likes",
+        description: "Post like interactions",
+        rows: stats.totalLikes.toLocaleString(),
+        color: "warning",
+        fields: [
+          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
+          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
+          { name: "user_did", type: "VARCHAR(255)", description: "User who liked" },
+          { name: "post_uri", type: "VARCHAR(512)", description: "Post being liked" },
+          { name: "created_at", type: "TIMESTAMP", description: "Like timestamp" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+        ],
+        indexes: ["idx_likes_user_did", "idx_likes_post_uri"],
+      },
+      {
+        name: "reposts",
+        description: "Post repost/retweet interactions",
+        rows: stats.totalReposts.toLocaleString(),
+        color: "info",
+        fields: [
+          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
+          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
+          { name: "user_did", type: "VARCHAR(255)", description: "User who reposted" },
+          { name: "post_uri", type: "VARCHAR(512)", description: "Post being reposted" },
+          { name: "created_at", type: "TIMESTAMP", description: "Repost timestamp" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+        ],
+        indexes: ["idx_reposts_user_did", "idx_reposts_post_uri"],
+      },
+      {
+        name: "blocks",
+        description: "User block relationships",
+        rows: stats.totalBlocks.toLocaleString(),
+        color: "destructive",
+        fields: [
+          { name: "uri", type: "VARCHAR(512)", description: "Primary key, AT URI" },
+          { name: "cid", type: "VARCHAR(255)", description: "Content identifier" },
+          { name: "blocker_did", type: "VARCHAR(255)", description: "User who blocked" },
+          { name: "blocked_did", type: "VARCHAR(255)", description: "User being blocked" },
+          { name: "created_at", type: "TIMESTAMP", description: "Block timestamp" },
+          { name: "indexed_at", type: "TIMESTAMP", description: "Indexing timestamp" },
+        ],
+        indexes: ["idx_blocks_blocker", "idx_blocks_blocked"],
+      },
+    ];
+
+    res.json(tables);
+  });
+
+  app.get("/api/lexicon/stats", (_req, res) => {
+    const stats = lexiconValidator.getStats();
+    res.json(stats);
+  });
+
+  app.get("/api/events/recent", (_req, res) => {
+    const events = firehoseClient.getRecentEvents(10);
+    res.json(events);
+  });
+
+  app.get("/api/logs", (_req, res) => {
+    const limit = parseInt(_req.query.limit as string) || 100;
+    const logs = logCollector.getRecentLogs(limit);
+    res.json(logs);
+  });
+
+  app.post("/api/logs/clear", (_req, res) => {
+    logCollector.clear();
+    res.json({ success: true });
+  });
+
+  app.post("/api/firehose/reconnect", (_req, res) => {
+    firehoseClient.disconnect();
+    firehoseClient.connect();
+    res.json({ success: true });
+  });
+
+  // Content filtering endpoints
+  app.get("/api/filter/stats", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const session = await storage.getSession(req.session!.sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const settings = await storage.getUserSettings(session.userDid);
+      
+      // Get recent posts for stats calculation
+      const recentPosts = await storage.getTimeline(session.userDid, 100);
+      const stats = contentFilter.getFilterStats(recentPosts, settings || null);
+      
+      res.json({ stats });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get filter stats" });
+    }
+  });
+
+  app.post("/api/filter/test", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        text: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      const settings = await storage.getUserSettings(session.userDid);
+      
+      // Create a mock post to test filtering
+      const mockPost = {
+        uri: "test://post",
+        cid: "test",
+        authorDid: "did:plc:test",
+        text: data.text,
+        embed: null,
+        parentUri: null,
+        rootUri: null,
+        createdAt: new Date(),
+        indexedAt: new Date(),
+      };
+
+      const result = contentFilter.wouldFilter(mockPost, settings || null);
+      
+      res.json({ 
+        wouldFilter: result.filtered,
+        reason: result.reason,
+      });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  });
+
+  // WebSocket server for real-time updates
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: "/ws",
+    perMessageDeflate: false // Disable compression to avoid RSV1 frame errors
+  });
+
+  // Subscribe firehose events to broadcast to all WebSocket clients
+  firehoseClient.onEvent((event) => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: "event",
+          data: event,
+        }));
+      }
+    });
+  });
+
+  // WebSocket server for label subscriptions (com.atproto.label.subscribeLabels)
+  const labelWss = new WebSocketServer({ 
+    server: httpServer, 
+    path: "/xrpc/com.atproto.label.subscribeLabels",
+    perMessageDeflate: false // Disable compression to avoid RSV1 frame errors
+  });
+
+  labelWss.on("connection", (ws: WebSocket) => {
+    console.log("[LABEL_WS] Client connected to label subscription");
+
+    let lastSeenId = 0;
+
+    // Send initial labels and then stream new events
+    const streamLabels = async () => {
+      try {
+        const events = await labelService.getRecentLabelEvents(100);
+        
+        for (const event of events) {
+          if (event.id > lastSeenId) {
+            const label = await storage.getLabel(event.labelUri);
+            if (label && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                seq: event.id,
+                labels: [{
+                  ver: 1,
+                  src: label.src,
+                  uri: label.subject,
+                  cid: "",
+                  val: label.val,
+                  neg: label.neg,
+                  cts: label.createdAt.toISOString(),
+                }],
+              }));
+              lastSeenId = event.id;
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[LABEL_WS] Error streaming labels:", error);
+      }
+    };
+
+    // Initial stream
+    streamLabels();
+
+    // Poll for new label events every 5 seconds
+    const interval = setInterval(streamLabels, 5000);
+
+    ws.on("close", () => {
+      console.log("[LABEL_WS] Client disconnected from label subscription");
+      clearInterval(interval);
+    });
+
+    ws.on("error", (error) => {
+      console.error("[LABEL_WS] Error:", error);
+      clearInterval(interval);
+    });
+  });
+
+  wss.on("connection", (ws: WebSocket) => {
+    console.log("[WS] Client connected");
+
+    // Send initial test message
+    try {
+      ws.send(JSON.stringify({ type: "connected", message: "Welcome to AppView" }));
+    } catch (error) {
+      console.error("[WS] Error sending initial message:", error);
+    }
+
+    // Send metrics every 2 seconds
+    const interval = setInterval(async () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          const stats = await storage.getStats();
+          const metrics = metricsService.getStats();
+          const eventCounts = metricsService.getEventCounts();
+          const systemHealth = await metricsService.getSystemHealth();
+          const firehoseStatus = firehoseClient.getStatus();
+
+          const payload = {
+            type: "metrics",
+            data: {
+              eventsProcessed: metrics.totalEvents,
+              dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
+              apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+              stats,
+              eventCounts,
+              systemHealth,
+              firehoseStatus,
+              errorRate: metrics.errorRate,
+              lastUpdate: metrics.lastUpdate,
+            },
+          };
+
+          ws.send(JSON.stringify(payload));
+        } catch (error) {
+          console.error("[WS] Error sending metrics:", error);
+        }
+      }
+    }, 2000);
+
+    ws.on("close", () => {
+      console.log("[WS] Client disconnected");
+      clearInterval(interval);
+    });
+
+    ws.on("error", (error) => {
+      console.error("[WS] Error:", error);
+      clearInterval(interval);
+    });
+  });
+
+  return httpServer;
+}
