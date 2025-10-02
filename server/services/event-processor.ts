@@ -29,9 +29,7 @@ export class EventProcessor {
   private pendingOpIndex: Map<string, string> = new Map(); // opUri -> postUri
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
-  private readonly MAX_GLOBAL_PENDING = 10000; // Reduced from 100k to prevent memory leaks
-  private readonly MAX_PER_POST = 100; // Reduced from 1000
-  private readonly TTL_MS = 10 * 60 * 1000; // Reduced from 30min to 10min
+  private readonly TTL_MS = 10 * 60 * 1000; // 10 minute TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
   private totalPendingListItems = 0; // Counter for pending list items
   private metrics = {
@@ -119,24 +117,10 @@ export class EventProcessor {
     if (this.pendingOpIndex.has(opUri)) {
       return; // Already pending, skip
     }
-    
-    // Check global limit using cached count
-    if (this.totalPendingCount >= this.MAX_GLOBAL_PENDING) {
-      this.metrics.pendingDropped++;
-      console.warn(`[EVENT_PROCESSOR] Dropped pending ${op.type} - global limit reached`);
-      return;
-    }
 
-    // Get or create queue for this post
+    // Get or create queue for this post (no limits)
     const queue = this.pendingOps.get(postUri) || [];
     
-    // Check per-post limit
-    if (queue.length >= this.MAX_PER_POST) {
-      this.metrics.pendingDropped++;
-      console.warn(`[EVENT_PROCESSOR] Dropped pending ${op.type} - per-post limit reached`);
-      return;
-    }
-
     queue.push(op);
     this.pendingOps.set(postUri, queue);
     
@@ -220,24 +204,10 @@ export class EventProcessor {
     if (this.pendingListItemIndex.has(itemUri)) {
       return; // Already pending, skip
     }
-    
-    // Check global limit
-    if (this.totalPendingListItems >= this.MAX_GLOBAL_PENDING) {
-      this.metrics.pendingListItemsDropped++;
-      console.warn(`[EVENT_PROCESSOR] Dropped pending list item - global limit reached`);
-      return;
-    }
 
-    // Get or create queue for this list
+    // Get or create queue for this list (no limits)
     const queue = this.pendingListItems.get(listUri) || [];
     
-    // Check per-list limit
-    if (queue.length >= this.MAX_PER_POST) {
-      this.metrics.pendingListItemsDropped++;
-      console.warn(`[EVENT_PROCESSOR] Dropped pending list item - per-list limit reached`);
-      return;
-    }
-
     queue.push(item);
     this.pendingListItems.set(listUri, queue);
     
