@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob } from "@shared/schema";
+import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -58,6 +58,12 @@ export interface IStorage {
   createListBlock(listBlock: InsertListBlock): Promise<ListBlock>;
   deleteListBlock(uri: string): Promise<void>;
   getListBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: ListBlock[], cursor?: string }>;
+  
+  // Thread mute operations
+  createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute>;
+  deleteThreadMute(uri: string): Promise<void>;
+  getThreadMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: ThreadMute[], cursor?: string }>;
+  isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean>;
   
   // User preferences operations
   getUserPreferences(userDid: string): Promise<UserPreferences | undefined>;
@@ -607,6 +613,54 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? blocks[blocks.length - 1].createdAt.toISOString() : undefined;
 
     return { blocks, cursor: nextCursor };
+  }
+
+  async createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute> {
+    const [newThreadMute] = await db
+      .insert(threadMutes)
+      .values(threadMute)
+      .onConflictDoNothing()
+      .returning();
+    return newThreadMute;
+  }
+
+  async deleteThreadMute(uri: string): Promise<void> {
+    await db.delete(threadMutes).where(eq(threadMutes.uri, uri));
+  }
+
+  async getThreadMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ThreadMute[]; cursor?: string }> {
+    let query = db
+      .select()
+      .from(threadMutes)
+      .where(eq(threadMutes.muterDid, muterDid))
+      .orderBy(desc(threadMutes.createdAt))
+      .limit(limit + 1);
+
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      query = query.where(
+        and(
+          eq(threadMutes.muterDid, muterDid),
+          sql`${threadMutes.createdAt} < ${cursorDate}`
+        )
+      ) as any;
+    }
+
+    const results = await query;
+    const hasMore = results.length > limit;
+    const mutes = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? mutes[mutes.length - 1].createdAt.toISOString() : undefined;
+
+    return { mutes, cursor: nextCursor };
+  }
+
+  async isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean> {
+    const [result] = await db
+      .select()
+      .from(threadMutes)
+      .where(and(eq(threadMutes.muterDid, muterDid), eq(threadMutes.threadRootUri, threadRootUri)))
+      .limit(1);
+    return !!result;
   }
 
   async getUserPreferences(userDid: string): Promise<UserPreferences | undefined> {

@@ -24,6 +24,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
       - RELAY_URL=wss://bsky.network
+      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
+      - APPVIEW_DID=${APPVIEW_DID:-did:web:appview.local}
       - PORT=5000
       - NODE_ENV=production
     depends_on:

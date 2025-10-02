@@ -217,6 +217,44 @@ export class DIDResolver {
       return null;
     }
   }
+
+  /**
+   * Extract Feed Generator service endpoint from DID document
+   */
+  getFeedGeneratorEndpoint(didDoc: DIDDocument): string | null {
+    if (!didDoc.service) {
+      return null;
+    }
+
+    const feedService = didDoc.service.find(
+      (service) =>
+        service.id === '#bsky_fg' ||
+        service.type === 'BskyFeedGenerator'
+    );
+
+    if (!feedService) {
+      return null;
+    }
+
+    return feedService.serviceEndpoint;
+  }
+
+  /**
+   * Resolve DID directly to Feed Generator service endpoint
+   */
+  async resolveDIDToFeedGenerator(did: string): Promise<string | null> {
+    try {
+      const didDoc = await this.resolveDID(did);
+      if (!didDoc) {
+        return null;
+      }
+
+      return this.getFeedGeneratorEndpoint(didDoc);
+    } catch (error) {
+      console.error(`[DID_RESOLVER] Error resolving DID ${did} to Feed Generator:`, error);
+      return null;
+    }
+  }
 }
 
 export const didResolver = new DIDResolver();

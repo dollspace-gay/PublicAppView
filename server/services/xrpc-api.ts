@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { storage } from "../storage";
 import { contentFilter } from "./content-filter";
 import { feedAlgorithm } from "./feed-algorithm";
+import { feedGeneratorClient } from "./feed-generator-client";
 import { labelService } from "./label";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
@@ -200,6 +201,16 @@ const muteActorListSchema = z.object({
 
 const unmuteActorListSchema = z.object({
   list: z.string(),
+});
+
+const muteThreadSchema = z.object({
+  root: z.string(), // URI of the thread root post
+});
+
+const getFeedSchema = z.object({
+  feed: z.string(), // AT URI of feed generator
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
 });
 
 const getFeedGeneratorSchema = z.object({
@@ -1432,7 +1443,115 @@ export class XRPCApi {
     }
   }
 
+  // app.bsky.graph.muteThread
+  async muteThread(req: Request, res: Response) {
+    try {
+      const params = muteThreadSchema.parse(req.body);
+      
+      // Get authenticated user from session
+      const userDid = (req as any).user?.did;
+      if (!userDid) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      // Verify thread root post exists
+      const rootPost = await storage.getPost(params.root);
+      if (!rootPost) {
+        return res.status(404).json({ error: "Thread root post not found" });
+      }
+      
+      // Create thread mute
+      await storage.createThreadMute({
+        uri: `at://${userDid}/app.bsky.graph.threadMute/${Date.now()}`,
+        muterDid: userDid,
+        threadRootUri: params.root,
+        createdAt: new Date(),
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error muting thread:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
   // Feed Generator endpoints
+  
+  // app.bsky.feed.getFeed
+  async getFeed(req: Request, res: Response) {
+    try {
+      const params = getFeedSchema.parse(req.query);
+      
+      // Get feed generator info
+      const feedGen = await storage.getFeedGenerator(params.feed);
+      if (!feedGen) {
+        return res.status(404).json({ error: "Feed generator not found" });
+      }
+      
+      console.log(`[XRPC] Getting feed from generator: ${feedGen.displayName} (${feedGen.did})`);
+      
+      // Call external feed generator service to get skeleton
+      // Then hydrate with full post data from our database
+      const { feed: hydratedFeed, cursor } = await feedGeneratorClient.getFeed(
+        feedGen.did,
+        {
+          feed: params.feed,
+          limit: params.limit,
+          cursor: params.cursor,
+        }
+      );
+      
+      console.log(`[XRPC] Hydrated ${hydratedFeed.length} posts from feed generator`);
+      
+      // Build post views with author information
+      const feed = await Promise.all(hydratedFeed.map(async ({ post, reason }) => {
+        const author = await storage.getUser(post.authorDid);
+        
+        const postView: any = {
+          uri: post.uri,
+          cid: post.cid,
+          author: {
+            did: post.authorDid,
+            handle: author?.handle || "unknown.user",
+            displayName: author?.displayName,
+            avatar: author?.avatarUrl,
+          },
+          record: {
+            text: post.text,
+            createdAt: post.createdAt.toISOString(),
+          },
+          replyCount: 0,
+          repostCount: 0,
+          likeCount: 0,
+          indexedAt: post.indexedAt.toISOString(),
+        };
+        
+        const feedView: any = { post: postView };
+        
+        // Include reason if present (e.g., repost context)
+        if (reason) {
+          feedView.reason = reason;
+        }
+        
+        return feedView;
+      }));
+      
+      res.json({ feed, cursor });
+    } catch (error) {
+      console.error("[XRPC] Error getting feed:", error);
+      
+      // If feed generator is unavailable, provide a helpful error
+      if (error instanceof Error && error.message.includes("Could not resolve")) {
+        return res.status(502).json({ 
+          error: "Feed generator service unavailable",
+          message: "The feed generator's service endpoint could not be reached"
+        });
+      }
+      
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+  
   async getFeedGenerator(req: Request, res: Response) {
     try {
       const params = getFeedGeneratorSchema.parse(req.query);

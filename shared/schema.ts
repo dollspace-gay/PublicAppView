@@ -127,6 +127,19 @@ export const listBlocks = pgTable("list_blocks", {
   uniqueListBlock: uniqueIndex("unique_list_block").on(table.blockerDid, table.listUri),
 }));
 
+// Thread mutes table - muted threads
+export const threadMutes = pgTable("thread_mutes", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  muterDid: varchar("muter_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  threadRootUri: varchar("thread_root_uri", { length: 512 }).notNull().references(() => posts.uri, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  muterIdx: index("idx_thread_mutes_muter").on(table.muterDid),
+  threadIdx: index("idx_thread_mutes_thread").on(table.threadRootUri),
+  uniqueThreadMute: uniqueIndex("unique_thread_mute").on(table.muterDid, table.threadRootUri),
+}));
+
 // User preferences table - AT Protocol preferences
 export const userPreferences = pgTable("user_preferences", {
   userDid: varchar("user_did", { length: 255 }).primaryKey().references(() => users.did, { onDelete: "cascade" }),
@@ -508,6 +521,7 @@ export const insertBlockSchema = createInsertSchema(blocks).omit({ indexedAt: tr
 export const insertMuteSchema = createInsertSchema(mutes).omit({ indexedAt: true });
 export const insertListMuteSchema = createInsertSchema(listMutes).omit({ indexedAt: true });
 export const insertListBlockSchema = createInsertSchema(listBlocks).omit({ indexedAt: true });
+export const insertThreadMuteSchema = createInsertSchema(threadMutes).omit({ indexedAt: true });
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ createdAt: true, updatedAt: true });
 export const insertSessionSchema = createInsertSchema(sessions).omit({ createdAt: true, updatedAt: true });
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({ createdAt: true, updatedAt: true });
@@ -545,6 +559,8 @@ export type ListMute = typeof listMutes.$inferSelect;
 export type InsertListMute = z.infer<typeof insertListMuteSchema>;
 export type ListBlock = typeof listBlocks.$inferSelect;
 export type InsertListBlock = z.infer<typeof insertListBlockSchema>;
+export type ThreadMute = typeof threadMutes.$inferSelect;
+export type InsertThreadMute = z.infer<typeof insertThreadMuteSchema>;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
 export type Session = typeof sessions.$inferSelect;

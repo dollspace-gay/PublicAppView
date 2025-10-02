@@ -7,6 +7,7 @@ import { lexiconValidator } from "./services/lexicon-validator";
 import { xrpcApi } from "./services/xrpc-api";
 import { storage } from "./storage";
 import { authService, requireAuth, type AuthRequest } from "./services/auth";
+import { dashboardAuthService, requireDashboardAuth, type DashboardAuthRequest } from "./services/dashboard-auth";
 import { contentFilter } from "./services/content-filter";
 import { didResolver } from "./services/did-resolver";
 import { pdsClient } from "./services/pds-client";
@@ -165,6 +166,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       res.status(500).json({ error: "Failed to get session" });
     }
+  });
+
+  // Dashboard authentication endpoints
+  app.get("/api/dashboard/check-auth", (_req, res) => {
+    res.json({ 
+      authRequired: dashboardAuthService.isAuthRequired(),
+    });
+  });
+
+  app.post("/api/dashboard/login", async (req, res) => {
+    try {
+      const schema = z.object({
+        password: z.string(),
+      });
+      
+      const data = schema.parse(req.body);
+      
+      if (!dashboardAuthService.verifyPassword(data.password)) {
+        return res.status(401).json({ error: "Invalid password" });
+      }
+      
+      const token = dashboardAuthService.createDashboardToken();
+      
+      res.json({ 
+        token,
+        message: "Dashboard login successful",
+      });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid request" });
+    }
+  });
+
+  app.post("/api/dashboard/logout", (_req, res) => {
+    res.json({ success: true });
   });
 
   // Write operations endpoints
@@ -1103,8 +1138,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.graph.getSuggestedFollowsByActor", xrpcApi.getSuggestedFollowsByActor.bind(xrpcApi));
   app.post("/xrpc/app.bsky.graph.muteActorList", xrpcApi.muteActorList.bind(xrpcApi));
   app.post("/xrpc/app.bsky.graph.unmuteActorList", xrpcApi.unmuteActorList.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.muteThread", xrpcApi.muteThread.bind(xrpcApi));
 
   // Feed Generator endpoints
+  app.get("/xrpc/app.bsky.feed.getFeed", xrpcApi.getFeed.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getFeedGenerator", xrpcApi.getFeedGenerator.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getFeedGenerators", xrpcApi.getFeedGenerators.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getActorFeeds", xrpcApi.getActorFeeds.bind(xrpcApi));
@@ -1122,8 +1159,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
 
-  // Dashboard API endpoints
-  app.get("/api/metrics", async (_req, res) => {
+  // Dashboard API endpoints (protected by dashboard auth)
+  app.get("/api/metrics", requireDashboardAuth, async (_req, res) => {
     const stats = await storage.getStats();
     const metrics = metricsService.getStats();
     const eventCounts = metricsService.getEventCounts();
@@ -1295,6 +1332,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       "app.bsky.graph.unmuteActorList": {
         description: "Unmute all members of a list",
         params: ["list: string (required)"],
+      },
+      "app.bsky.graph.muteThread": {
+        description: "Mute a thread by its root post URI",
+        params: ["root: string (required)"],
+      },
+      "app.bsky.feed.getFeed": {
+        description: "Get posts from a custom feed generator",
+        params: ["feed: string (required)", "limit: number", "cursor: string"],
       },
       "app.bsky.feed.getFeedGenerator": {
         description: "Get information about a specific feed generator",
@@ -1517,23 +1562,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(stats);
   });
 
-  app.get("/api/events/recent", (_req, res) => {
+  app.get("/api/events/recent", requireDashboardAuth, (_req, res) => {
     const events = firehoseClient.getRecentEvents(10);
     res.json(events);
   });
 
-  app.get("/api/logs", (_req, res) => {
+  app.get("/api/logs", requireDashboardAuth, (_req, res) => {
     const limit = parseInt(_req.query.limit as string) || 100;
     const logs = logCollector.getRecentLogs(limit);
     res.json(logs);
   });
 
-  app.post("/api/logs/clear", (_req, res) => {
+  app.post("/api/logs/clear", requireDashboardAuth, (_req, res) => {
     logCollector.clear();
     res.json({ success: true });
   });
 
-  app.post("/api/firehose/reconnect", (_req, res) => {
+  app.post("/api/firehose/reconnect", requireDashboardAuth, (_req, res) => {
     firehoseClient.disconnect();
     firehoseClient.connect();
     res.json({ success: true });

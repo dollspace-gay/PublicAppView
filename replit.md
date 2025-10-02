@@ -23,10 +23,10 @@ Preferred communication style: Simple, everyday language.
 
 **Runtime**: Node.js with Express.js.
 **Language**: TypeScript (ESM).
-**API Layer**: Implements 50 Bluesky-compatible XRPC endpoints (Priority 1 Complete, Phase 2 Complete, Phase 3 Complete) including:
-- **Feed APIs** (15/16): `getTimeline`, `getAuthorFeed`, `getPostThread`, `getPosts`, `getLikes`, `getRepostedBy`, `getQuotes`, `getActorLikes`, `getListFeed`, `searchPosts`, `getFeedGenerator`, `getFeedGenerators`, `getActorFeeds`, `getSuggestedFeeds`, `describeFeedGenerator`
+**API Layer**: Implements 52 Bluesky-compatible XRPC endpoints (~87% API coverage) including:
+- **Feed APIs** (16/16 - Complete): `getTimeline`, `getAuthorFeed`, `getPostThread`, `getPosts`, `getLikes`, `getRepostedBy`, `getQuotes`, `getActorLikes`, `getListFeed`, `searchPosts`, `getFeedGenerator`, `getFeedGenerators`, `getActorFeeds`, `getSuggestedFeeds`, `describeFeedGenerator`, `getFeed`
 - **Actor/Profile APIs** (7/7 - Complete): `getProfile`, `getProfiles`, `getSuggestions`, `searchActors`, `searchActorsTypeahead`, `getPreferences`, `putPreferences`
-- **Graph APIs** (17/18): `getFollows`, `getFollowers`, `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`, `getRelationships`, `getList`, `getLists`, `getListMutes`, `getListBlocks`, `getKnownFollowers`, `getSuggestedFollowsByActor`, `muteActorList`, `unmuteActorList`, `getStarterPack`, `getStarterPacks`
+- **Graph APIs** (18/18 - Complete): `getFollows`, `getFollowers`, `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`, `getRelationships`, `getList`, `getLists`, `getListMutes`, `getListBlocks`, `getKnownFollowers`, `getSuggestedFollowsByActor`, `muteActorList`, `unmuteActorList`, `getStarterPack`, `getStarterPacks`, `muteThread`
 - **Notification APIs** (5/5 - Complete): `listNotifications`, `getUnreadCount`, `updateSeen`, `registerPush`, `putPreferences`
 - **Video APIs** (2/2 - Complete): `getJobStatus`, `getUploadLimits`
 - **Moderation APIs** (2/2 - Complete): `queryLabels`, `createReport`
@@ -40,12 +40,24 @@ Preferred communication style: Simple, everyday language.
 **Write Operations**: All write operations are proxied to the user's PDS, ensuring data consistency with rollback mechanisms.
 **Content Filtering Engine**: Supports keyword-based filtering and user muting, applied to all XRPC feed endpoints.
 **Feed Algorithm System**: Offers `reverse-chronological`, `engagement`, and `discovery` ranking algorithms with user preferences and query parameter overrides.
+**Feed Generator Integration**: Full AT Protocol-compliant integration for consuming external feed generators:
+- **DID Resolution**: Resolves feed generator service DIDs (did:web, did:plc) to extract BskyFeedGenerator service endpoints with 1-hour caching.
+- **Skeleton Fetching**: Calls external feed generator `/xrpc/app.bsky.feed.getFeedSkeleton` endpoints with 10-second timeout.
+- **JWT Authentication**: Signs requests to feed generators with AppView DID using short-lived (5min) JWT tokens for service-to-service authentication.
+- **Hydration**: Fetches full post data from local database using skeleton URIs with batch optimization.
+- **Error Handling**: Graceful degradation with proper HTTP status codes (404 for missing feeds, 502 for unavailable services).
+- **Performance**: Endpoint caching and batch post lookups prevent N+1 queries.
+**Dashboard Authentication**: Optional password-based authentication for dashboard access (separate from AT Protocol OAuth):
+- **Password Protection**: When `DASHBOARD_PASSWORD` environment variable is set, all dashboard routes require authentication.
+- **Public Mode**: If `DASHBOARD_PASSWORD` is not set, dashboard remains publicly accessible (useful for development).
+- **JWT Sessions**: Dashboard sessions use JWT tokens with 24-hour expiry stored in localStorage.
+- **Protected Endpoints**: Metrics, logs, events, and configuration endpoints require dashboard authentication.
 
 ### Data Storage
 
 **Database**: PostgreSQL, utilizing Neon serverless driver.
 **ORM**: Drizzle ORM with a schema-first approach.
-**Schema Design**: Includes tables for `users`, `posts`, `likes`, `reposts`, `follows`, `blocks`, `mutes`, `user_preferences`, `list_mutes`, `list_blocks`, `feed_generators`, `starter_packs`, `labeler_services`, `push_subscriptions`, and `video_jobs` with optimized indexing and composite cursor pagination.
+**Schema Design**: Includes tables for `users`, `posts`, `likes`, `reposts`, `follows`, `blocks`, `mutes`, `user_preferences`, `list_mutes`, `list_blocks`, `thread_mutes`, `feed_generators`, `starter_packs`, `labeler_services`, `push_subscriptions`, and `video_jobs` with optimized indexing and composite cursor pagination.
 **Migration Management**: Drizzle Kit is used for schema migrations.
 
 ## External Dependencies
@@ -70,6 +82,8 @@ Preferred communication style: Simple, everyday language.
 - `tailwindcss`: CSS framework.
 
 **Environment Requirements**:
-- `DATABASE_URL`: PostgreSQL connection string.
-- `RELAY_URL`: AT Protocol relay URL.
-- `SESSION_SECRET`: JWT secret for session tokens.
+- `DATABASE_URL`: PostgreSQL connection string (required).
+- `RELAY_URL`: AT Protocol relay URL (defaults to `wss://bsky.network`).
+- `SESSION_SECRET`: JWT secret for session tokens and encryption (required for production).
+- `APPVIEW_DID`: DID of this AppView instance for feed generator JWT signing (defaults to `did:web:appview.local`).
+- `DASHBOARD_PASSWORD`: Password for dashboard authentication (optional - dashboard is public if not set).

@@ -3,19 +3,50 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DashboardAuthGuard } from "@/components/dashboard-auth-guard";
 import Dashboard from "@/pages/dashboard";
+import Login from "@/pages/login";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/firehose" component={Dashboard} />
-      <Route path="/database" component={Dashboard} />
-      <Route path="/api" component={Dashboard} />
-      <Route path="/lexicons" component={Dashboard} />
-      <Route path="/config" component={Dashboard} />
-      <Route path="/logs" component={Dashboard} />
+      <Route path="/login" component={Login} />
+      <Route path="/">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/firehose">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/database">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/api">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/lexicons">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/config">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
+      <Route path="/logs">
+        <DashboardAuthGuard>
+          <Dashboard />
+        </DashboardAuthGuard>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
