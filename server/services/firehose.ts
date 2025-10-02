@@ -30,8 +30,8 @@ export class FirehoseClient {
   // Concurrency control to prevent overwhelming the database connection pool
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
-  private readonly MAX_CONCURRENT_PROCESSING = 200; // Increased from 50 for better throughput
-  private readonly MEMORY_THRESHOLD_PERCENT = 15; // Drop events when free memory < 15% (was 20%)
+  private readonly MAX_CONCURRENT_PROCESSING = 500; // Increased for 6-worker cluster (was 200)
+  private readonly MEMORY_THRESHOLD_PERCENT = 10; // Drop events when free memory < 10% (was 15%)
   private lastMemoryWarning = 0; // Throttle memory warnings
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
@@ -80,8 +80,8 @@ export class FirehoseClient {
       // Check memory status before dropping events
       const memStatus = this.getMemoryStatus();
       
-      // Only drop events when memory is critically low
-      if (memStatus.isLow && this.processingQueue.length > 10000) {
+      // Only drop events when memory is critically low AND queue is massive
+      if (memStatus.isLow && this.processingQueue.length > 50000) {
         const dropped = this.processingQueue.shift(); // Remove oldest
         
         // Throttle warnings to every 30 seconds
