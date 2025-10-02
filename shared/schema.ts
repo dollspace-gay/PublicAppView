@@ -171,10 +171,10 @@ export const sessions = pgTable("sessions", {
 // User settings table - for custom preferences and moderation
 export const userSettings = pgTable("user_settings", {
   userDid: varchar("user_did", { length: 255 }).primaryKey().references(() => users.did, { onDelete: "cascade" }),
-  blockedKeywords: jsonb("blocked_keywords").default([]),
-  mutedUsers: jsonb("muted_users").default([]),
-  customLists: jsonb("custom_lists").default([]),
-  feedPreferences: jsonb("feed_preferences").default({}),
+  blockedKeywords: jsonb("blocked_keywords").default([]).notNull(),
+  mutedUsers: jsonb("muted_users").default([]).notNull(),
+  customLists: jsonb("custom_lists").default([]).notNull(),
+  feedPreferences: jsonb("feed_preferences").default({}).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

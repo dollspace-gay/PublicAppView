@@ -95,12 +95,17 @@ export class FirehoseClient {
     this.eventCallbacks.push(callback);
   }
 
-  private broadcastEvent(event: any) {
+  private async broadcastEvent(event: any) {
     // Add to recent events history (keep last 50)
     this.recentEvents.unshift(event);
     if (this.recentEvents.length > 50) {
       this.recentEvents.pop();
     }
+
+    // Store in Redis for cluster-wide visibility (non-blocking)
+    redisQueue.setRecentEvents(this.recentEvents).catch(err => {
+      console.error("[FIREHOSE] Error storing events in Redis:", err);
+    });
 
     this.eventCallbacks.forEach(callback => {
       try {
@@ -108,6 +113,17 @@ export class FirehoseClient {
       } catch (error) {
         console.error("[FIREHOSE] Error in event callback:", error);
       }
+    });
+  }
+
+  private updateRedisStatus() {
+    // Store firehose status in Redis for cluster-wide visibility (non-blocking)
+    redisQueue.setFirehoseStatus({
+      connected: this.isConnected,
+      url: this.url,
+      currentCursor: this.currentCursor,
+    }).catch(err => {
+      console.error("[FIREHOSE] Error storing status in Redis:", err);
     });
   }
 
@@ -190,6 +206,7 @@ export class FirehoseClient {
         this.isConnected = true;
         this.reconnectDelay = 1000;
         metricsService.updateFirehoseStatus("connected");
+        this.updateRedisStatus();
       });
 
       this.client.on("commit", async (commit) => {
@@ -314,6 +331,7 @@ export class FirehoseClient {
         this.isConnected = false;
         metricsService.updateFirehoseStatus("error");
         metricsService.incrementError();
+        this.updateRedisStatus();
         
         // Attempt reconnection for recoverable errors
         if (errorType !== "fatal") {
@@ -361,6 +379,7 @@ export class FirehoseClient {
 
     this.isConnected = false;
     metricsService.updateFirehoseStatus("disconnected");
+    this.updateRedisStatus();
   }
 
   private categorizeError(error: any): string {

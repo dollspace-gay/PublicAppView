@@ -225,6 +225,74 @@ class RedisQueue {
     }
   }
 
+  // Store firehose status for cluster-wide visibility
+  async setFirehoseStatus(status: { connected: boolean; url: string; currentCursor: string | null }): Promise<void> {
+    if (!this.redis || !this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.redis.setex(
+        "firehose:status",
+        10, // Expire after 10 seconds (will be refreshed by worker 0)
+        JSON.stringify(status)
+      );
+    } catch (error) {
+      console.error("[REDIS] Error setting firehose status:", error);
+    }
+  }
+
+  async getFirehoseStatus(): Promise<{ connected: boolean; url: string; currentCursor: string | null } | null> {
+    if (!this.redis || !this.isInitialized) {
+      return null;
+    }
+
+    try {
+      const data = await this.redis.get("firehose:status");
+      if (data) {
+        return JSON.parse(data);
+      }
+      return null;
+    } catch (error) {
+      console.error("[REDIS] Error getting firehose status:", error);
+      return null;
+    }
+  }
+
+  // Store recent events for dashboard visibility across all workers
+  async setRecentEvents(events: any[]): Promise<void> {
+    if (!this.redis || !this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.redis.setex(
+        "firehose:recent_events",
+        10, // Expire after 10 seconds (will be refreshed by worker 0)
+        JSON.stringify(events)
+      );
+    } catch (error) {
+      console.error("[REDIS] Error setting recent events:", error);
+    }
+  }
+
+  async getRecentEvents(): Promise<any[]> {
+    if (!this.redis || !this.isInitialized) {
+      return [];
+    }
+
+    try {
+      const data = await this.redis.get("firehose:recent_events");
+      if (data) {
+        return JSON.parse(data);
+      }
+      return [];
+    } catch (error) {
+      console.error("[REDIS] Error getting recent events:", error);
+      return [];
+    }
+  }
+
   async disconnect() {
     if (this.redis) {
       await this.redis.quit();

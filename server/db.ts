@@ -1,5 +1,5 @@
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { drizzle, type NeonDatabase } from 'drizzle-orm/neon-serverless';
+import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
 import { Pool as PgPool } from 'pg';
 import ws from "ws";
@@ -26,34 +26,36 @@ const maxPoolSize = parseInt(process.env.DB_POOL_SIZE || '100');
 
 console.log(`[DB] Connection pool size per process/worker: ${maxPoolSize}`);
 
-let pool: any;
-let db: any;
+let pool: NeonPool | PgPool;
+let db: NeonDatabase<typeof schema> | NodePgDatabase<typeof schema>;
 
 if (isNeonDatabase) {
   // Use Neon serverless driver for Neon cloud databases (Replit default)
   console.log('[DB] Using Neon serverless driver for cloud database');
   neonConfig.webSocketConstructor = ws;
   
-  pool = new NeonPool({ 
+  const neonPool = new NeonPool({ 
     connectionString: databaseUrl,
     max: maxPoolSize,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 60000, // Increased from 30s to 60s
   });
   
-  db = drizzle({ client: pool, schema });
+  pool = neonPool;
+  db = drizzle(neonPool, { schema });
 } else {
   // Use standard pg driver for local PostgreSQL (Docker, self-hosted)
   console.log('[DB] Using standard PostgreSQL driver for local database');
   
-  pool = new PgPool({ 
+  const pgPool = new PgPool({ 
     connectionString: databaseUrl,
     max: maxPoolSize,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 60000, // Increased from 30s to 60s
   });
   
-  db = drizzlePg({ client: pool, schema });
+  pool = pgPool;
+  db = drizzlePg(pgPool, { schema });
 }
 
 export { pool, db };

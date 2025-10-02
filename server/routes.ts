@@ -1357,6 +1357,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const eventCounts = metricsService.getEventCounts();
     const systemHealth = await metricsService.getSystemHealth();
 
+    // Read from Redis for cluster-wide visibility
+    const redisStatus = await redisQueue.getFirehoseStatus();
+    const firehoseStatus = redisStatus || {
+      connected: false,
+      isConnected: false,
+      url: process.env.RELAY_URL || "wss://bsky.network",
+      currentCursor: null,
+      queueDepth: 0,
+      activeProcessing: 0,
+      reconnectDelay: 1000,
+    };
+
     res.json({
       eventsProcessed: metrics.totalEvents,
       dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
@@ -1364,7 +1376,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       stats,
       eventCounts,
       systemHealth,
-      firehoseStatus: firehoseClient.getStatus(),
+      firehoseStatus: {
+        ...firehoseStatus,
+        isConnected: firehoseStatus.connected,
+        queueDepth: await redisQueue.getQueueDepth(),
+      },
       errorRate: metrics.errorRate,
       lastUpdate: metrics.lastUpdate,
     });
@@ -1663,9 +1679,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(stats);
   });
 
-  app.get("/api/events/recent", (_req, res) => {
-    const events = firehoseClient.getRecentEvents(10);
-    res.json(events);
+  app.get("/api/events/recent", async (_req, res) => {
+    // Read from Redis for cluster-wide visibility
+    const events = await redisQueue.getRecentEvents();
+    res.json(events.slice(0, 10));
   });
 
   app.get("/api/logs", (_req, res) => {
