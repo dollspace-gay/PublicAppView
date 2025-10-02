@@ -110,20 +110,25 @@ export class FirehoseClient {
     });
   }
 
-  private async saveCursor(cursor: string) {
-    // Update current cursor
+  private saveCursor(cursor: string) {
+    // Update current cursor in memory immediately
     this.currentCursor = cursor;
     
     // Save to database periodically (every 5 seconds) to avoid excessive writes
     const now = Date.now();
     if (now - this.lastCursorSave > this.CURSOR_SAVE_INTERVAL) {
-      try {
-        const { storage } = await import("../storage");
-        await storage.saveFirehoseCursor("firehose", cursor, new Date());
-        this.lastCursorSave = now;
-      } catch (error) {
-        console.error("[FIREHOSE] Error saving cursor:", error);
-      }
+      this.lastCursorSave = now;
+      
+      // Queue cursor save through concurrency system to prevent timeout
+      // Don't await - let it run in background without blocking event processing
+      this.queueEventProcessing(async () => {
+        try {
+          const { storage } = await import("../storage");
+          await storage.saveFirehoseCursor("firehose", cursor, new Date());
+        } catch (error) {
+          console.error("[FIREHOSE] Error saving cursor:", error);
+        }
+      });
     }
   }
 
