@@ -333,7 +333,12 @@ export class EventProcessor {
         // Handle duplicate key errors gracefully (common during firehose reconnections)
         if (error?.code === '23505') {
           console.log(`[EVENT_PROCESSOR] Skipped duplicate ${action} ${uri}`);
-        } else {
+        } 
+        // Handle foreign key constraint violations (record references missing data)
+        else if (error?.code === '23503') {
+          console.log(`[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`);
+        } 
+        else {
           console.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
         }
       }
