@@ -27,10 +27,10 @@ export class FirehoseClient {
   private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
   
   // Concurrency control to prevent database connection pool exhaustion
-  // With pool size of 240, allow 3000 concurrent operations for LUDICROUS SPEED throughput
+  // With pool size of 600, allow 5000 concurrent operations for MAXIMUM POSSIBLE throughput
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
-  private readonly MAX_CONCURRENT_PROCESSING = 3000; // Balanced with pool size of 240
+  private readonly MAX_CONCURRENT_PROCESSING = 5000; // Balanced with pool size of 600
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
     this.url = url;

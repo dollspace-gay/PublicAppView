@@ -51,5 +51,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Run database migrations and start the application with PM2 cluster mode
-# Database has max_connections=8000, using 32 workers for ABSOLUTE MAXIMUM CPU utilization
+# Database has max_connections=20000, using 32 workers for ABSOLUTE MAXIMUM CPU utilization
 CMD ["sh", "-c", "npm run db:push && pm2-runtime start dist/index.js -i 32 --name bluesky-app"]
