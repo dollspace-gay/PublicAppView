@@ -21,6 +21,10 @@ export class FirehoseClient {
   private eventCallbacks: EventCallback[] = [];
   private recentEvents: any[] = []; // Keep last 50 events for dashboard
   
+  // Worker distribution for parallel processing
+  private workerId: number = 0;
+  private totalWorkers: number = 1;
+  
   // Cursor persistence for restart recovery
   private currentCursor: string | null = null;
   private lastCursorSave = 0;
@@ -34,6 +38,24 @@ export class FirehoseClient {
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
     this.url = url;
+  }
+  
+  // Simple hash function for consistent event distribution
+  private hashString(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+  }
+  
+  // Check if this worker should process this event
+  private shouldProcessEvent(eventId: string): boolean {
+    if (this.totalWorkers === 1) return true;
+    const hash = this.hashString(eventId);
+    return (hash % this.totalWorkers) === this.workerId;
   }
 
   private async processQueuedEvent(task: () => Promise<void>) {
@@ -103,7 +125,11 @@ export class FirehoseClient {
     }
   }
 
-  async connect() {
+  async connect(workerId: number = 0, totalWorkers: number = 1) {
+    // Store worker info for event distribution
+    this.workerId = workerId;
+    this.totalWorkers = totalWorkers;
+    
     // Close existing client before creating new one to prevent memory leaks
     if (this.client) {
       try {
@@ -114,25 +140,27 @@ export class FirehoseClient {
       this.client = null;
     }
     
-    // Load saved cursor for restart recovery
-    try {
-      const { storage } = await import("../storage");
-      const savedCursor = await storage.getFirehoseCursor("firehose");
-      if (savedCursor && savedCursor.cursor) {
-        this.currentCursor = savedCursor.cursor;
-        console.log(`[FIREHOSE] Resuming from saved cursor: ${this.currentCursor.slice(0, 20)}...`);
-        logCollector.info(`Resuming firehose from cursor: ${this.currentCursor.slice(0, 20)}...`);
-      } else {
-        console.log(`[FIREHOSE] No saved cursor found, starting from now`);
-        logCollector.info("No saved cursor - starting firehose from current position");
+    // Load saved cursor for restart recovery (only worker 0 manages cursor)
+    if (workerId === 0) {
+      try {
+        const { storage } = await import("../storage");
+        const savedCursor = await storage.getFirehoseCursor("firehose");
+        if (savedCursor && savedCursor.cursor) {
+          this.currentCursor = savedCursor.cursor;
+          console.log(`[FIREHOSE] Worker ${workerId} - Resuming from saved cursor: ${this.currentCursor.slice(0, 20)}...`);
+          logCollector.info(`Worker ${workerId} - Resuming firehose from cursor: ${this.currentCursor.slice(0, 20)}...`);
+        } else {
+          console.log(`[FIREHOSE] Worker ${workerId} - No saved cursor found, starting from now`);
+          logCollector.info(`Worker ${workerId} - No saved cursor - starting from current position`);
+        }
+      } catch (error) {
+        console.error("[FIREHOSE] Error loading cursor:", error);
+        logCollector.error("Failed to load firehose cursor", { error });
       }
-    } catch (error) {
-      console.error("[FIREHOSE] Error loading cursor:", error);
-      logCollector.error("Failed to load firehose cursor", { error });
     }
     
-    console.log(`[FIREHOSE] Connecting to ${this.url}...`);
-    logCollector.info(`Connecting to firehose at ${this.url}`);
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Connecting to ${this.url}...`);
+    logCollector.info(`Worker ${workerId}/${totalWorkers} - Connecting to firehose at ${this.url}`);
     
     try {
       // Configure options for Firehose constructor
@@ -159,9 +187,14 @@ export class FirehoseClient {
       this.client.on("commit", (commit) => {
         metricsService.incrementEvent("#commit");
         
-        // Save cursor for restart recovery
-        if (commit.seq) {
+        // Save cursor for restart recovery (only worker 0)
+        if (commit.seq && this.workerId === 0) {
           this.saveCursor(String(commit.seq));
+        }
+        
+        // Distribute events across workers using consistent hashing
+        if (!this.shouldProcessEvent(commit.repo)) {
+          return; // Skip events not assigned to this worker
         }
         
         const event = {
@@ -210,7 +243,10 @@ export class FirehoseClient {
       this.client.on("identity", (identity) => {
         metricsService.incrementEvent("#identity");
         
-        // Note: Identity events don't have seq, cursor management handled by commit events
+        // Distribute events across workers using consistent hashing
+        if (!this.shouldProcessEvent(identity.did)) {
+          return; // Skip events not assigned to this worker
+        }
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({
@@ -238,7 +274,10 @@ export class FirehoseClient {
       this.client.on("account", (account) => {
         metricsService.incrementEvent("#account");
         
-        // Note: Account events don't have seq, cursor management handled by commit events
+        // Distribute events across workers using consistent hashing
+        if (!this.shouldProcessEvent(account.did)) {
+          return; // Skip events not assigned to this worker
+        }
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({

@@ -47,17 +47,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // Start firehose connection only on worker 0 in cluster mode
-  // In PM2 cluster mode, each worker gets NODE_APP_INSTANCE env var (0, 1, 2, etc.)
-  const workerId = process.env.NODE_APP_INSTANCE || '0';
-  const isPrimaryWorker = workerId === '0';
+  // ALL workers connect to firehose for parallel processing
+  // Events are distributed using consistent hashing to prevent duplicates
+  const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
+  const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
-  if (isPrimaryWorker) {
-    console.log(`[FIREHOSE] Worker ${workerId} - Starting firehose connection (primary worker)`);
-    firehoseClient.connect();
-  } else {
-    console.log(`[FIREHOSE] Worker ${workerId} - Skipping firehose (not primary worker)`);
-  }
+  console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Starting firehose connection (parallel processing mode)`);
+  firehoseClient.connect(workerId, totalWorkers);
 
   // Authentication endpoints
   app.post("/api/auth/create-session", async (req, res) => {
