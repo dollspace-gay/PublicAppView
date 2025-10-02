@@ -29,6 +29,9 @@ RUN npm ci --omit=dev
 # Add drizzle-kit for runtime migrations (pinned version for stability)
 RUN npm install drizzle-kit@0.31.4
 
+# Install PM2 globally for cluster mode
+RUN npm install -g pm2
+
 # Copy built application from builder (includes both server and frontend)
 # Note: Vite builds frontend to dist/public, backend builds to dist/index.js
 COPY --from=builder /app/dist ./dist
@@ -47,5 +50,6 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Run database migrations and start the application
-CMD ["sh", "-c", "npm run db:push && node dist/index.js"]
+# Run database migrations and start the application with PM2 cluster mode
+# PM2 will automatically use all CPU cores (-i max)
+CMD ["sh", "-c", "npm run db:push && pm2-runtime start dist/index.js -i max --name bluesky-app"]
