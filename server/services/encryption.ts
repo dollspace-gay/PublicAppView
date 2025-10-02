@@ -72,6 +72,11 @@ class EncryptionService {
       const iv = Buffer.from(ivHex, 'hex');
       const authTag = Buffer.from(authTagHex, 'hex');
       
+      // Validate authentication tag length to prevent forgery attacks
+      if (authTag.length !== this.authTagLength) {
+        throw new Error(`Invalid authentication tag length: expected ${this.authTagLength} bytes, got ${authTag.length} bytes`);
+      }
+      
       // Derive the same encryption key
       const key = this.deriveKey(process.env.SESSION_SECRET, salt);
       

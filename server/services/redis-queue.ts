@@ -10,7 +10,18 @@ class RedisQueue {
   private redis: Redis | null = null;
   private readonly STREAM_KEY = "firehose:events";
   private readonly CONSUMER_GROUP = "firehose-processors";
+  private readonly METRICS_KEY = "cluster:metrics";
   private isInitialized = false;
+  
+  // Buffered metrics for periodic flush
+  private metricsBuffer = {
+    totalEvents: 0,
+    "#commit": 0,
+    "#identity": 0,
+    "#account": 0,
+    errors: 0,
+  };
+  private flushInterval: NodeJS.Timeout | null = null;
 
   async connect() {
     if (this.redis) {
@@ -39,6 +50,61 @@ class RedisQueue {
 
     await this.ensureStreamAndGroup();
     this.isInitialized = true;
+    
+    // Start periodic metrics flush (every 500ms)
+    this.startMetricsFlush();
+  }
+  
+  private startMetricsFlush() {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+    }
+    
+    this.flushInterval = setInterval(async () => {
+      await this.flushMetrics();
+    }, 500);
+  }
+  
+  private async flushMetrics() {
+    if (!this.redis || !this.isInitialized) return;
+    
+    // Only flush if there are buffered increments
+    const hasUpdates = Object.values(this.metricsBuffer).some(v => v > 0);
+    if (!hasUpdates) return;
+    
+    try {
+      const pipeline = this.redis.pipeline();
+      
+      // Increment cluster-wide counters atomically
+      if (this.metricsBuffer.totalEvents > 0) {
+        pipeline.hincrby(this.METRICS_KEY, "totalEvents", this.metricsBuffer.totalEvents);
+      }
+      if (this.metricsBuffer["#commit"] > 0) {
+        pipeline.hincrby(this.METRICS_KEY, "#commit", this.metricsBuffer["#commit"]);
+      }
+      if (this.metricsBuffer["#identity"] > 0) {
+        pipeline.hincrby(this.METRICS_KEY, "#identity", this.metricsBuffer["#identity"]);
+      }
+      if (this.metricsBuffer["#account"] > 0) {
+        pipeline.hincrby(this.METRICS_KEY, "#account", this.metricsBuffer["#account"]);
+      }
+      if (this.metricsBuffer.errors > 0) {
+        pipeline.hincrby(this.METRICS_KEY, "errors", this.metricsBuffer.errors);
+      }
+      
+      await pipeline.exec();
+      
+      // Reset buffer after successful flush
+      this.metricsBuffer = {
+        totalEvents: 0,
+        "#commit": 0,
+        "#identity": 0,
+        "#account": 0,
+        errors: 0,
+      };
+    } catch (error) {
+      console.error("[REDIS] Error flushing metrics:", error);
+    }
   }
 
   private async ensureStreamAndGroup() {
@@ -293,7 +359,58 @@ class RedisQueue {
     }
   }
 
+  // Cluster-wide metrics methods
+  incrementClusterMetric(type: "#commit" | "#identity" | "#account") {
+    // Buffer locally for periodic flush
+    this.metricsBuffer[type]++;
+    this.metricsBuffer.totalEvents++;
+  }
+  
+  incrementClusterError() {
+    this.metricsBuffer.errors++;
+  }
+  
+  async getClusterMetrics(): Promise<{
+    totalEvents: number;
+    eventCounts: { "#commit": number; "#identity": number; "#account": number };
+    errors: number;
+  }> {
+    if (!this.redis || !this.isInitialized) {
+      return {
+        totalEvents: 0,
+        eventCounts: { "#commit": 0, "#identity": 0, "#account": 0 },
+        errors: 0,
+      };
+    }
+    
+    try {
+      const metrics = await this.redis.hgetall(this.METRICS_KEY);
+      
+      return {
+        totalEvents: parseInt(metrics.totalEvents || "0"),
+        eventCounts: {
+          "#commit": parseInt(metrics["#commit"] || "0"),
+          "#identity": parseInt(metrics["#identity"] || "0"),
+          "#account": parseInt(metrics["#account"] || "0"),
+        },
+        errors: parseInt(metrics.errors || "0"),
+      };
+    } catch (error) {
+      console.error("[REDIS] Error getting cluster metrics:", error);
+      return {
+        totalEvents: 0,
+        eventCounts: { "#commit": 0, "#identity": 0, "#account": 0 },
+        errors: 0,
+      };
+    }
+  }
+
   async disconnect() {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+      this.flushInterval = null;
+    }
+    
     if (this.redis) {
       await this.redis.quit();
       this.redis = null;

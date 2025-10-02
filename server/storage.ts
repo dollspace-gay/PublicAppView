@@ -1674,9 +1674,9 @@ export class DatabaseStorage implements IStorage {
 
     try {
       // Set statement timeout to 2 seconds
-      await pool.query('SET LOCAL statement_timeout = 2000');
+      await db.execute(sql`SET LOCAL statement_timeout = 2000`);
       
-      const result = await pool.query(`
+      const result = await db.execute<{ schemaname: string; relname: string; count: number }>(sql`
         SELECT 
           schemaname,
           relname,

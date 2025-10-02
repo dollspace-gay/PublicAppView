@@ -93,11 +93,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Acknowledge ONLY after successful processing
     if (success) {
-      // Update metrics for successfully processed events
+      // Update cluster-wide metrics (buffered, flushed every 500ms)
       const metricType = event.type === "commit" ? "#commit" 
         : event.type === "identity" ? "#identity" 
         : "#account";
-      metricsService.incrementEvent(metricType as any);
+      redisQueue.incrementClusterMetric(metricType);
       
       await redisQueue.ack(event.messageId);
     }
@@ -1368,10 +1368,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard API endpoints (protected by dashboard auth)
   app.get("/api/metrics", async (_req, res) => {
     const stats = await storage.getStats();
-    const metrics = metricsService.getStats();
-    const eventCounts = metricsService.getEventCounts();
     const systemHealth = await metricsService.getSystemHealth();
-
+    
+    // Get cluster-wide metrics from Redis (consistent across all workers)
+    const clusterMetrics = await redisQueue.getClusterMetrics();
+    
     // Read from Redis for cluster-wide visibility
     const redisStatus = await redisQueue.getFirehoseStatus();
     const firehoseStatus = redisStatus || {
@@ -1385,19 +1386,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
 
     res.json({
-      eventsProcessed: metrics.totalEvents,
+      eventsProcessed: clusterMetrics.totalEvents,
       dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
-      apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+      apiRequestsPerMinute: metricsService.getApiRequestsPerMinute(),
       stats,
-      eventCounts,
+      eventCounts: clusterMetrics.eventCounts,
       systemHealth,
       firehoseStatus: {
         ...firehoseStatus,
         isConnected: firehoseStatus.connected,
         queueDepth: await redisQueue.getQueueDepth(),
       },
-      errorRate: metrics.errorRate,
-      lastUpdate: metrics.lastUpdate,
+      errorRate: clusterMetrics.errors > 0 ? (clusterMetrics.errors / clusterMetrics.totalEvents) * 100 : 0,
+      lastUpdate: new Date(),
     });
   });
 
