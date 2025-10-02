@@ -183,17 +183,16 @@ export class FirehoseClient {
     logCollector.info(`Connecting to firehose at ${this.url}`);
     
     try {
-      const firehoseConfig: any = {
-        service: this.url,
-        ws: WebSocket as any,
-      };
+      // Configure options for Firehose constructor
+      const options: any = {};
       
       // Resume from saved cursor if available
       if (this.currentCursor) {
-        firehoseConfig.cursor = this.currentCursor;
+        options.cursor = this.currentCursor;
       }
       
-      this.client = new Firehose(firehoseConfig);
+      // Correct constructor signature: new Firehose(url, options)
+      this.client = new Firehose(this.url, options);
 
       this.client.on("open", () => {
         console.log("[FIREHOSE] Connected to relay");

@@ -29,9 +29,9 @@ RUN npm ci --omit=dev
 # Add drizzle-kit for runtime migrations (pinned version for stability)
 RUN npm install drizzle-kit@0.31.4
 
-# Copy built application from builder
+# Copy built application from builder (includes both server and frontend)
+# Note: Vite builds frontend to dist/public, backend builds to dist/index.js
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/client/dist ./client/dist
 
 # Copy necessary config files
 COPY drizzle.config.ts ./
