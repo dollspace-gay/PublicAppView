@@ -38,7 +38,7 @@ if (isNeonDatabase) {
     connectionString: databaseUrl,
     max: maxPoolSize,
     idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 30000,
+    connectionTimeoutMillis: 60000, // Increased from 30s to 60s
   });
   
   db = drizzle({ client: pool, schema });
@@ -50,7 +50,7 @@ if (isNeonDatabase) {
     connectionString: databaseUrl,
     max: maxPoolSize,
     idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 30000,
+    connectionTimeoutMillis: 60000, // Increased from 30s to 60s
   });
   
   db = drizzlePg({ client: pool, schema });

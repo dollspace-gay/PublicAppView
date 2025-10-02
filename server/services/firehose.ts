@@ -1,6 +1,5 @@
 import { Firehose } from "@skyware/firehose";
 import WebSocket from "ws";
-import os from "os";
 import { eventProcessor } from "./event-processor";
 import { metricsService } from "./metrics";
 import { logCollector } from "./log-collector";
@@ -27,29 +26,12 @@ export class FirehoseClient {
   private lastCursorSave = 0;
   private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
   
-  // Concurrency control to prevent overwhelming the database connection pool
+  // Process all events without throttling - no concurrency limits
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
-  private readonly MAX_CONCURRENT_PROCESSING = 500; // Increased for 6-worker cluster (was 200)
-  private readonly MEMORY_THRESHOLD_PERCENT = 10; // Drop events when free memory < 10% (was 15%)
-  private lastMemoryWarning = 0; // Throttle memory warnings
 
   constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
     this.url = url;
-  }
-
-  private getMemoryStatus(): { freePercent: number; freeMB: number; totalMB: number; isLow: boolean } {
-    const totalMemory = os.totalmem();
-    const freeMemory = os.freemem();
-    const freePercent = (freeMemory / totalMemory) * 100;
-    const isLow = freePercent < this.MEMORY_THRESHOLD_PERCENT;
-    
-    return {
-      freePercent,
-      freeMB: Math.round(freeMemory / 1024 / 1024),
-      totalMB: Math.round(totalMemory / 1024 / 1024),
-      isLow
-    };
   }
 
   private async processQueuedEvent(task: () => Promise<void>) {
@@ -63,7 +45,8 @@ export class FirehoseClient {
   }
 
   private processNextInQueue() {
-    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING && this.processingQueue.length > 0) {
+    // Process all queued events without any limits
+    while (this.processingQueue.length > 0) {
       const nextTask = this.processingQueue.shift();
       if (nextTask) {
         this.processQueuedEvent(nextTask);
@@ -72,47 +55,8 @@ export class FirehoseClient {
   }
 
   private async queueEventProcessing(task: () => Promise<void>) {
-    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING) {
-      this.processQueuedEvent(task);
-    } else {
-      this.processingQueue.push(task);
-      
-      // Check memory status before dropping events
-      const memStatus = this.getMemoryStatus();
-      
-      // Only drop events when memory is critically low AND queue is massive
-      if (memStatus.isLow && this.processingQueue.length > 50000) {
-        const dropped = this.processingQueue.shift(); // Remove oldest
-        
-        // Throttle warnings to every 30 seconds
-        const now = Date.now();
-        if (now - this.lastMemoryWarning > 30000) {
-          console.error(
-            `[FIREHOSE] ⚠️  CRITICAL: Low memory detected - dropping events to prevent crash!\n` +
-            `  Memory: ${memStatus.freeMB}MB free (${memStatus.freePercent.toFixed(1)}%) of ${memStatus.totalMB}MB total\n` +
-            `  Queue size: ${this.processingQueue.length} events\n` +
-            `  Active processing: ${this.activeProcessing}/${this.MAX_CONCURRENT_PROCESSING}\n` +
-            `  ACTION REQUIRED: This system needs more memory to process all events without dropping data.`
-          );
-          logCollector.error("Low memory - dropping firehose events", {
-            freeMemoryMB: memStatus.freeMB,
-            freeMemoryPercent: memStatus.freePercent.toFixed(1),
-            queueSize: this.processingQueue.length,
-            activeProcessing: this.activeProcessing
-          });
-          this.lastMemoryWarning = now;
-        }
-        metricsService.incrementError();
-      }
-      // If memory is sufficient, allow queue to grow without dropping events
-      else if (!memStatus.isLow && this.processingQueue.length % 5000 === 0) {
-        // Log queue growth periodically when memory is sufficient
-        console.log(
-          `[FIREHOSE] Queue growing (memory sufficient): ${this.processingQueue.length} events queued, ` +
-          `${memStatus.freeMB}MB free (${memStatus.freePercent.toFixed(1)}%)`
-        );
-      }
-    }
+    // No throttling - just process everything immediately
+    this.processQueuedEvent(task);
   }
 
   onEvent(callback: EventCallback) {
