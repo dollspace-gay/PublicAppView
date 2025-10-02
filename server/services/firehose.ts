@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { eventProcessor } from "./event-processor";
 import { metricsService } from "./metrics";
 import { logCollector } from "./log-collector";
+import { redisQueue } from "./redis-queue";
 
 // Make WebSocket available globally for @skyware/firehose in Node.js environment
 if (typeof globalThis.WebSocket === "undefined") {
@@ -191,17 +192,12 @@ export class FirehoseClient {
         metricsService.updateFirehoseStatus("connected");
       });
 
-      this.client.on("commit", (commit) => {
+      this.client.on("commit", async (commit) => {
         metricsService.incrementEvent("#commit");
         
         // Save cursor for restart recovery (only worker 0)
         if (commit.seq && this.workerId === 0) {
           this.saveCursor(String(commit.seq));
-        }
-        
-        // Distribute events across workers using consistent hashing
-        if (!this.shouldProcessEvent(commit.repo)) {
-          return; // Skip events not assigned to this worker
         }
         
         const event = {
@@ -236,28 +232,21 @@ export class FirehoseClient {
           });
         }
         
-        // Queue the database processing with concurrency control
-        this.queueEventProcessing(async () => {
-          try {
-            await eventProcessor.processCommit(event);
-          } catch (error: any) {
-            if (error?.code === '23505') {
-              console.log("[FIREHOSE] Skipped duplicate commit event");
-            } else {
-              console.error("[FIREHOSE] Error processing commit:", error);
-              metricsService.incrementError();
-            }
-          }
-        });
+        // Push to Redis queue for distributed processing
+        try {
+          await redisQueue.push({
+            type: "commit",
+            data: event,
+            seq: commit.seq ? String(commit.seq) : undefined,
+          });
+        } catch (error) {
+          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          metricsService.incrementError();
+        }
       });
 
-      this.client.on("identity", (identity) => {
+      this.client.on("identity", async (identity) => {
         metricsService.incrementEvent("#identity");
-        
-        // Distribute events across workers using consistent hashing
-        if (!this.shouldProcessEvent(identity.did)) {
-          return; // Skip events not assigned to this worker
-        }
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({
@@ -268,31 +257,23 @@ export class FirehoseClient {
           timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
         });
         
-        // Queue the database processing
-        this.queueEventProcessing(async () => {
-          try {
-            await eventProcessor.processIdentity({
+        // Push to Redis queue for distributed processing
+        try {
+          await redisQueue.push({
+            type: "identity",
+            data: {
               did: identity.did,
               handle: identity.handle || identity.did,
-            });
-          } catch (error: any) {
-            if (error?.code === '23505') {
-              console.log("[FIREHOSE] Skipped duplicate identity event");
-            } else {
-              console.error("[FIREHOSE] Error processing identity:", error);
-              metricsService.incrementError();
-            }
-          }
-        });
+            },
+          });
+        } catch (error) {
+          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          metricsService.incrementError();
+        }
       });
 
-      this.client.on("account", (account) => {
+      this.client.on("account", async (account) => {
         metricsService.incrementEvent("#account");
-        
-        // Distribute events across workers using consistent hashing
-        if (!this.shouldProcessEvent(account.did)) {
-          return; // Skip events not assigned to this worker
-        }
         
         // Broadcast to WebSocket clients
         this.broadcastEvent({
@@ -303,22 +284,19 @@ export class FirehoseClient {
           timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
         });
         
-        // Queue the database processing
-        this.queueEventProcessing(async () => {
-          try {
-            await eventProcessor.processAccount({
+        // Push to Redis queue for distributed processing
+        try {
+          await redisQueue.push({
+            type: "account",
+            data: {
               did: account.did,
               active: account.active,
-            });
-          } catch (error: any) {
-            if (error?.code === '23505') {
-              console.log("[FIREHOSE] Skipped duplicate account event");
-            } else {
-              console.error("[FIREHOSE] Error processing account:", error);
-              metricsService.incrementError();
-            }
-          }
-        });
+            },
+          });
+        } catch (error) {
+          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          metricsService.incrementError();
+        }
       });
 
       this.client.on("error", ({ cursor, error }) => {

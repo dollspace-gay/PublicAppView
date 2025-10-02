@@ -45,6 +45,7 @@ ENV NODE_ENV=production
 
 # Configuration defaults (can be overridden in docker-compose.yml or at runtime)
 ENV RELAY_URL=wss://bsky.network
+ENV REDIS_URL=redis://localhost:6379
 ENV PORT=5000
 ENV APPVIEW_DID=did:web:appview.local
 ENV ENABLE_BACKFILL=false

@@ -1,6 +1,18 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 8gb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   db:
     image: postgres:14
     command: postgres -c max_connections=5000 -c shared_buffers=20GB -c effective_cache_size=42GB -c work_mem=256MB -c maintenance_work_mem=8GB -c max_parallel_workers=32 -c max_parallel_workers_per_gather=8 -c max_wal_size=8GB
@@ -26,6 +38,7 @@ services:
       - "5000:5000"
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - REDIS_URL=redis://redis:6379
       - RELAY_URL=wss://bsky.network
       - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
@@ -36,6 +49,8 @@ services:
       - PORT=5000
       - NODE_ENV=production
     depends_on:
+      redis:
+        condition: service_healthy
       db:
         condition: service_healthy
     healthcheck:

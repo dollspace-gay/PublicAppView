@@ -47,17 +47,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
-  // ONLY worker 0 connects to firehose to prevent overwhelming the relay with 32 connections
-  // Worker 0 receives all events and distributes them to all workers via the processing queue
+  // Initialize Redis queue connection
+  const { redisQueue } = await import("./services/redis-queue");
+  await redisQueue.connect();
+  
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
+  // ONLY worker 0 connects to firehose and pushes to Redis
   if (workerId === 0) {
-    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Primary worker starting firehose connection`);
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Primary worker ingesting firehose → Redis`);
     firehoseClient.connect(workerId, totalWorkers);
   } else {
-    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Secondary worker (no firehose connection, processes distributed events)`);
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Consumer worker (Redis → PostgreSQL)`);
   }
+  
+  // ALL workers consume from Redis queue in parallel
+  const consumerId = `worker-${workerId}`;
+  console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
+  
+  // Start consumer loop (non-blocking)
+  const { eventProcessor } = await import("./services/event-processor");
+  (async () => {
+    let pendingClaimAttempt = 0;
+    
+    while (true) {
+      try {
+        // Every 10th iteration, also try to claim pending messages from dead consumers
+        let events = await redisQueue.consume(consumerId, 10);
+        
+        if (++pendingClaimAttempt >= 10) {
+          pendingClaimAttempt = 0;
+          const claimed = await redisQueue.claimPendingMessages(consumerId, 30000);
+          if (claimed.length > 0) {
+            console.log(`[REDIS] Worker ${workerId} claimed ${claimed.length} pending messages`);
+            events = [...events, ...claimed];
+          }
+        }
+        
+        if (events.length > 0) {
+          // Process events in parallel with concurrency control
+          const promises = events.map(async (event) => {
+            let success = false;
+            try {
+              if (event.type === "commit") {
+                await eventProcessor.processCommit(event.data);
+              } else if (event.type === "identity") {
+                await eventProcessor.processIdentity(event.data);
+              } else if (event.type === "account") {
+                await eventProcessor.processAccount(event.data);
+              }
+              success = true;
+            } catch (error: any) {
+              if (error?.code === '23505' || error?.code === '23503') {
+                // Duplicate key or foreign key violation - treat as success
+                success = true;
+              } else {
+                console.error(`[REDIS] Worker ${workerId} error processing ${event.type}:`, error);
+                // Don't acknowledge - message will be retried
+              }
+            }
+            
+            // Acknowledge ONLY after successful processing
+            if (success) {
+              await redisQueue.ack(event.messageId);
+            }
+          });
+          
+          await Promise.all(promises);
+        }
+      } catch (error) {
+        console.error(`[REDIS] Worker ${workerId} consumer error:`, error);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  })();
 
   // Authentication endpoints
   app.post("/api/auth/create-session", async (req, res) => {
@@ -1144,13 +1208,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/ready", async (_req, res) => {
     try {
+      const { pool } = await import("./db");
       const firehoseStatus = firehoseClient.getStatus();
       const systemHealth = await metricsService.getSystemHealth();
       
+      // Check database connectivity
+      let dbHealthy = false;
+      try {
+        await pool.query("SELECT 1");
+        dbHealthy = true;
+      } catch (dbError) {
+        console.error("[HEALTH] Database check failed:", dbError);
+      }
+      
+      const memoryPercent = systemHealth.memory;
       const isReady = 
         firehoseStatus.isConnected && 
-        systemHealth.database.healthy &&
-        systemHealth.memory.percentUsed < 95;
+        dbHealthy &&
+        memoryPercent < 95;
       
       if (!isReady) {
         return res.status(503).json({
@@ -1158,13 +1233,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
           checks: {
             firehose: firehoseStatus.isConnected ? "connected" : "disconnected",
-            database: systemHealth.database.healthy ? "healthy" : "unhealthy",
-            memory: systemHealth.memory.percentUsed < 95 ? "ok" : "critical",
+            database: dbHealthy ? "healthy" : "unhealthy",
+            memory: memoryPercent < 95 ? "ok" : "critical",
           },
           details: {
             firehose: firehoseStatus,
-            database: systemHealth.database,
-            memory: systemHealth.memory,
+            memory: { percentUsed: memoryPercent },
           }
         });
       }
