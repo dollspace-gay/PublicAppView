@@ -335,6 +335,25 @@ export const blocksRelations = relations(blocks, ({ one }) => ({
   blocked: one(users, { fields: [blocks.blockedDid], references: [users.did], relationName: "blocked" }),
 }));
 
+export const mutesRelations = relations(mutes, ({ one }) => ({
+  muter: one(users, { fields: [mutes.muterDid], references: [users.did], relationName: "muter" }),
+  muted: one(users, { fields: [mutes.mutedDid], references: [users.did], relationName: "muted" }),
+}));
+
+export const listMutesRelations = relations(listMutes, ({ one }) => ({
+  muter: one(users, { fields: [listMutes.muterDid], references: [users.did] }),
+  list: one(lists, { fields: [listMutes.listUri], references: [lists.uri] }),
+}));
+
+export const listBlocksRelations = relations(listBlocks, ({ one }) => ({
+  blocker: one(users, { fields: [listBlocks.blockerDid], references: [users.did] }),
+  list: one(lists, { fields: [listBlocks.listUri], references: [lists.uri] }),
+}));
+
+export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
+  user: one(users, { fields: [userPreferences.userDid], references: [users.did] }),
+}));
+
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userDid], references: [users.did] }),
 }));
@@ -386,6 +405,10 @@ export const insertLikeSchema = createInsertSchema(likes).omit({ indexedAt: true
 export const insertRepostSchema = createInsertSchema(reposts).omit({ indexedAt: true });
 export const insertFollowSchema = createInsertSchema(follows).omit({ indexedAt: true });
 export const insertBlockSchema = createInsertSchema(blocks).omit({ indexedAt: true });
+export const insertMuteSchema = createInsertSchema(mutes).omit({ indexedAt: true });
+export const insertListMuteSchema = createInsertSchema(listMutes).omit({ indexedAt: true });
+export const insertListBlockSchema = createInsertSchema(listBlocks).omit({ indexedAt: true });
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ createdAt: true, updatedAt: true });
 export const insertSessionSchema = createInsertSchema(sessions).omit({ createdAt: true, updatedAt: true });
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({ createdAt: true, updatedAt: true });
 export const insertLabelSchema = createInsertSchema(labels).omit({ indexedAt: true });
@@ -411,6 +434,14 @@ export type Follow = typeof follows.$inferSelect;
 export type InsertFollow = z.infer<typeof insertFollowSchema>;
 export type Block = typeof blocks.$inferSelect;
 export type InsertBlock = z.infer<typeof insertBlockSchema>;
+export type Mute = typeof mutes.$inferSelect;
+export type InsertMute = z.infer<typeof insertMuteSchema>;
+export type ListMute = typeof listMutes.$inferSelect;
+export type InsertListMute = z.infer<typeof insertListMuteSchema>;
+export type ListBlock = typeof listBlocks.$inferSelect;
+export type InsertListBlock = z.infer<typeof insertListBlockSchema>;
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
 export type Session = typeof sessions.$inferSelect;
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type UserSettings = typeof userSettings.$inferSelect;

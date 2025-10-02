@@ -108,7 +108,153 @@ const getListFeedSchema = z.object({
   cursor: z.string().optional(),
 });
 
+const getPostsSchema = z.object({
+  uris: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ),
+});
+
+const getLikesSchema = z.object({
+  uri: z.string(),
+  cid: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getRepostedBySchema = z.object({
+  uri: z.string(),
+  cid: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getQuotesSchema = z.object({
+  uri: z.string(),
+  cid: z.string().optional(),
+  limit: z.coerce.number().min(1).max(50).default(50),
+  cursor: z.string().optional(),
+});
+
+const getActorLikesSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getProfilesSchema = z.object({
+  actors: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ),
+});
+
+const getSuggestionsSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getMutesSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const muteActorSchema = z.object({
+  actor: z.string(),
+});
+
+const getBlocksSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getRelationshipsSchema = z.object({
+  actor: z.string(),
+  others: z.union([z.string(), z.array(z.string())]).transform(val => 
+    typeof val === 'string' ? [val] : val
+  ).optional(),
+});
+
+const getListMutesSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+const getListBlocksSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
 export class XRPCApi {
+  // Helper method to serialize posts with all required AT Protocol fields
+  private async serializePost(post: any, viewerDid?: string) {
+    const author = await storage.getUser(post.authorDid);
+    
+    // Build reply field if this is a reply - fetch actual CIDs from parent and root posts
+    let reply = undefined;
+    if (post.parentUri) {
+      const parentPost = await storage.getPost(post.parentUri);
+      const rootUri = post.rootUri || post.parentUri;
+      const rootPost = rootUri === post.parentUri ? parentPost : await storage.getPost(rootUri);
+      
+      // Only include reply if we have the actual CIDs from parent/root posts
+      // Don't fabricate CIDs - AT Protocol clients need accurate references
+      if (parentPost && rootPost) {
+        reply = {
+          root: {
+            uri: rootUri,
+            cid: rootPost.cid,
+          },
+          parent: {
+            uri: post.parentUri,
+            cid: parentPost.cid,
+          },
+        };
+      }
+    }
+
+    // Build record with full AT Protocol schema
+    const record: any = {
+      $type: "app.bsky.feed.post",
+      text: post.text,
+      createdAt: post.createdAt.toISOString(),
+    };
+
+    // Add embed if present
+    if (post.embed) {
+      record.embed = post.embed;
+    }
+
+    // Add facets if present (would need to extract from record)
+    if (post.facets) {
+      record.facets = post.facets;
+    }
+
+    // Add reply reference if this is a reply
+    if (reply) {
+      record.reply = reply;
+    }
+
+    return {
+      uri: post.uri,
+      cid: post.cid,
+      author: {
+        did: post.authorDid,
+        handle: author?.handle || post.authorDid,
+        displayName: author?.displayName,
+        avatar: author?.avatarUrl,
+      },
+      record,
+      embed: post.embed,
+      replyCount: post.replyCount || 0,
+      repostCount: post.repostCount || 0,
+      likeCount: post.likeCount || 0,
+      indexedAt: post.indexedAt.toISOString(),
+      viewer: viewerDid ? {
+        like: undefined, // Would check if viewer liked this post
+        repost: undefined, // Would check if viewer reposted
+      } : undefined,
+    };
+  }
+
   async getTimeline(req: Request, res: Response) {
     try {
       const params = getTimelineSchema.parse(req.query);
@@ -673,6 +819,429 @@ export class XRPCApi {
       });
     } catch (error) {
       console.error("[XRPC] Error getting list feed:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getPosts(req: Request, res: Response) {
+    try {
+      const params = getPostsSchema.parse(req.query);
+      const viewerDid = (req as any).user?.did;
+      const posts = await storage.getPosts(params.uris);
+      
+      res.json({
+        posts: await Promise.all(posts.map(post => this.serializePost(post, viewerDid))),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting posts:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getLikes(req: Request, res: Response) {
+    try {
+      const params = getLikesSchema.parse(req.query);
+      const { likes, cursor } = await storage.getPostLikes(params.uri, params.limit, params.cursor);
+      
+      res.json({
+        uri: params.uri,
+        cid: params.cid,
+        cursor,
+        likes: await Promise.all(likes.map(async (like) => {
+          const user = await storage.getUser(like.userDid);
+          return {
+            indexedAt: like.indexedAt.toISOString(),
+            createdAt: like.createdAt.toISOString(),
+            actor: {
+              did: like.userDid,
+              handle: user?.handle || like.userDid,
+              displayName: user?.displayName,
+              avatar: user?.avatarUrl,
+            },
+          };
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting likes:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getRepostedBy(req: Request, res: Response) {
+    try {
+      const params = getRepostedBySchema.parse(req.query);
+      const { reposts, cursor } = await storage.getPostReposts(params.uri, params.limit, params.cursor);
+      
+      res.json({
+        uri: params.uri,
+        cid: params.cid,
+        cursor,
+        repostedBy: await Promise.all(reposts.map(async (repost) => {
+          const user = await storage.getUser(repost.userDid);
+          return {
+            did: repost.userDid,
+            handle: user?.handle || repost.userDid,
+            displayName: user?.displayName,
+            avatar: user?.avatarUrl,
+          };
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting reposts:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getQuotes(req: Request, res: Response) {
+    try {
+      const params = getQuotesSchema.parse(req.query);
+      const viewerDid = (req as any).user?.did;
+      const posts = await storage.getQuotePosts(params.uri, params.limit, params.cursor);
+      
+      const cursor = posts.length > 0 
+        ? posts[posts.length - 1].indexedAt.toISOString()
+        : undefined;
+      
+      res.json({
+        uri: params.uri,
+        cid: params.cid,
+        cursor,
+        posts: await Promise.all(posts.map(post => this.serializePost(post, viewerDid))),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting quotes:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getActorLikes(req: Request, res: Response) {
+    try {
+      const params = getActorLikesSchema.parse(req.query);
+      const viewerDid = (req as any).user?.did;
+      
+      let actorDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        actorDid = user.did;
+      }
+      
+      const { likes, cursor } = await storage.getActorLikes(actorDid, params.limit, params.cursor);
+      
+      res.json({
+        cursor,
+        feed: await Promise.all(likes.map(async (like) => {
+          const post = await storage.getPost(like.postUri);
+          return {
+            post: post ? await this.serializePost(post, viewerDid) : null,
+          };
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting actor likes:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getProfiles(req: Request, res: Response) {
+    try {
+      const params = getProfilesSchema.parse(req.query);
+      
+      const dids: string[] = [];
+      for (const actor of params.actors) {
+        if (actor.startsWith("did:")) {
+          dids.push(actor);
+        } else {
+          const user = await storage.getUserByHandle(actor);
+          if (user) dids.push(user.did);
+        }
+      }
+      
+      const users = await storage.getUsers(dids);
+      
+      res.json({
+        profiles: users.map(user => ({
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName,
+          description: user.description,
+          avatar: user.avatarUrl,
+          indexedAt: user.indexedAt.toISOString(),
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting profiles:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getSuggestions(req: Request, res: Response) {
+    try {
+      const params = getSuggestionsSchema.parse(req.query);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const users = await storage.getSuggestedUsers(userDid, params.limit);
+      
+      res.json({
+        actors: users.map(user => ({
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName,
+          description: user.description,
+          avatar: user.avatarUrl,
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting suggestions:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getPreferences(req: Request, res: Response) {
+    try {
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const prefs = await storage.getUserPreferences(userDid);
+      
+      res.json({
+        preferences: prefs ? [
+          {
+            $type: "app.bsky.actor.defs#adultContentPref",
+            enabled: prefs.adultContent,
+          },
+          {
+            $type: "app.bsky.actor.defs#contentLabelPref",
+            ...(prefs.contentLabels as object),
+          },
+          {
+            $type: "app.bsky.actor.defs#feedViewPref",
+            ...(prefs.feedViewPrefs as object),
+          },
+        ] : [],
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting preferences:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async putPreferences(req: Request, res: Response) {
+    try {
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      const preferences = req.body.preferences || [];
+      
+      const prefs: any = {
+        userDid,
+        adultContent: false,
+        contentLabels: {},
+        feedViewPrefs: {},
+        threadViewPrefs: {},
+        interests: [],
+      };
+      
+      for (const pref of preferences) {
+        if (pref.$type === "app.bsky.actor.defs#adultContentPref") {
+          prefs.adultContent = pref.enabled;
+        } else if (pref.$type === "app.bsky.actor.defs#contentLabelPref") {
+          prefs.contentLabels = pref;
+        } else if (pref.$type === "app.bsky.actor.defs#feedViewPref") {
+          prefs.feedViewPrefs = pref;
+        } else if (pref.$type === "app.bsky.actor.defs#threadViewPref") {
+          prefs.threadViewPrefs = pref;
+        }
+      }
+      
+      await storage.createUserPreferences(prefs);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error putting preferences:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getBlocks(req: Request, res: Response) {
+    try {
+      const params = getBlocksSchema.parse(req.query);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const { blocks, cursor } = await storage.getBlocks(userDid, params.limit, params.cursor);
+      
+      res.json({
+        cursor,
+        blocks: await Promise.all(blocks.map(async (block) => {
+          const user = await storage.getUser(block.blockedDid);
+          return {
+            did: block.blockedDid,
+            handle: user?.handle || block.blockedDid,
+            displayName: user?.displayName,
+            avatar: user?.avatarUrl,
+          };
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting blocks:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getMutes(req: Request, res: Response) {
+    try {
+      const params = getMutesSchema.parse(req.query);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const { mutes, cursor } = await storage.getMutes(userDid, params.limit, params.cursor);
+      
+      res.json({
+        cursor,
+        mutes: await Promise.all(mutes.map(async (mute) => {
+          const user = await storage.getUser(mute.mutedDid);
+          return {
+            did: mute.mutedDid,
+            handle: user?.handle || mute.mutedDid,
+            displayName: user?.displayName,
+            avatar: user?.avatarUrl,
+          };
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting mutes:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async muteActor(req: Request, res: Response) {
+    try {
+      const params = muteActorSchema.parse(req.body);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      let mutedDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        mutedDid = user.did;
+      }
+      
+      await storage.createMute({
+        uri: `at://${userDid}/app.bsky.graph.mute/${Date.now()}`,
+        muterDid: userDid,
+        mutedDid,
+        createdAt: new Date(),
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error muting actor:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async unmuteActor(req: Request, res: Response) {
+    try {
+      const params = muteActorSchema.parse(req.body);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      let mutedDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        mutedDid = user.did;
+      }
+      
+      const { mutes } = await storage.getMutes(userDid, 1000);
+      const mute = mutes.find(m => m.mutedDid === mutedDid);
+      
+      if (mute) {
+        await storage.deleteMute(mute.uri);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[XRPC] Error unmuting actor:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getRelationships(req: Request, res: Response) {
+    try {
+      const params = getRelationshipsSchema.parse(req.query);
+      
+      let actorDid = params.actor;
+      if (!params.actor.startsWith("did:")) {
+        const user = await storage.getUserByHandle(params.actor);
+        if (!user) {
+          return res.status(404).json({ error: "Actor not found" });
+        }
+        actorDid = user.did;
+      }
+      
+      const targetDids = params.others || [];
+      const relationships = await storage.getRelationships(actorDid, targetDids);
+      
+      res.json({
+        actor: params.actor,
+        relationships: Array.from(relationships.entries()).map(([did, rel]) => ({
+          did,
+          following: rel.following ? `at://${actorDid}/app.bsky.graph.follow/${did}` : undefined,
+          followedBy: rel.followedBy ? `at://${did}/app.bsky.graph.follow/${actorDid}` : undefined,
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting relationships:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getListMutes(req: Request, res: Response) {
+    try {
+      const params = getListMutesSchema.parse(req.query);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const { mutes, cursor } = await storage.getListMutes(userDid, params.limit, params.cursor);
+      
+      res.json({
+        cursor,
+        lists: await Promise.all(mutes.map(async (listMute) => {
+          const list = await storage.getList(listMute.listUri);
+          return list ? {
+            uri: list.uri,
+            name: list.name,
+            purpose: list.purpose,
+          } : null;
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting list mutes:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+
+  async getListBlocks(req: Request, res: Response) {
+    try {
+      const params = getListBlocksSchema.parse(req.query);
+      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const { blocks, cursor } = await storage.getListBlocks(userDid, params.limit, params.cursor);
+      
+      res.json({
+        cursor,
+        lists: await Promise.all(blocks.map(async (listBlock) => {
+          const list = await storage.getList(listBlock.listUri);
+          return list ? {
+            uri: list.uri,
+            name: list.name,
+            purpose: list.purpose,
+          } : null;
+        })),
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting list blocks:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
     }
   }

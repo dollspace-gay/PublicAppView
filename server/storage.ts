@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, follows, blocks, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem } from "@shared/schema";
+import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -6,26 +6,31 @@ import { encryptionService } from "./services/encryption";
 export interface IStorage {
   // User operations
   getUser(did: string): Promise<User | undefined>;
+  getUsers(dids: string[]): Promise<User[]>;
   getUserByHandle(handle: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  getSuggestedUsers(viewerDid?: string, limit?: number): Promise<User[]>;
 
   // Post operations
   getPost(uri: string): Promise<Post | undefined>;
+  getPosts(uris: string[]): Promise<Post[]>;
   createPost(post: InsertPost): Promise<Post>;
   deletePost(uri: string): Promise<void>;
   getAuthorPosts(authorDid: string, limit?: number, cursor?: string): Promise<Post[]>;
   getPostThread(uri: string): Promise<Post[]>;
+  getQuotePosts(postUri: string, limit?: number, cursor?: string): Promise<Post[]>;
 
   // Like operations
   createLike(like: InsertLike): Promise<Like>;
   deleteLike(uri: string): Promise<void>;
-  getPostLikes(postUri: string): Promise<Like[]>;
+  getPostLikes(postUri: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
+  getActorLikes(userDid: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
 
   // Repost operations
   createRepost(repost: InsertRepost): Promise<Repost>;
   deleteRepost(uri: string): Promise<void>;
-  getPostReposts(postUri: string): Promise<Repost[]>;
+  getPostReposts(postUri: string, limit?: number, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }>;
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
@@ -37,6 +42,36 @@ export interface IStorage {
   // Block operations
   createBlock(block: InsertBlock): Promise<Block>;
   deleteBlock(uri: string): Promise<void>;
+  getBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: Block[], cursor?: string }>;
+  
+  // Mute operations
+  createMute(mute: InsertMute): Promise<Mute>;
+  deleteMute(uri: string): Promise<void>;
+  getMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: Mute[], cursor?: string }>;
+  
+  // List mute operations
+  createListMute(listMute: InsertListMute): Promise<ListMute>;
+  deleteListMute(uri: string): Promise<void>;
+  getListMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: ListMute[], cursor?: string }>;
+  
+  // List block operations
+  createListBlock(listBlock: InsertListBlock): Promise<ListBlock>;
+  deleteListBlock(uri: string): Promise<void>;
+  getListBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: ListBlock[], cursor?: string }>;
+  
+  // User preferences operations
+  getUserPreferences(userDid: string): Promise<UserPreferences | undefined>;
+  createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
+  updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined>;
+  
+  // Relationship operations
+  getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
+    following: boolean;
+    followedBy: boolean;
+    blocking: boolean;
+    blockedBy: boolean;
+    muting: boolean;
+  }>>;
 
   // Session operations
   createSession(session: InsertSession): Promise<Session>;
@@ -157,6 +192,40 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getUsers(dids: string[]): Promise<User[]> {
+    if (dids.length === 0) return [];
+    return await db.select().from(users).where(inArray(users.did, dids));
+  }
+
+  async getSuggestedUsers(viewerDid?: string, limit = 25): Promise<User[]> {
+    if (viewerDid) {
+      const followedDids = await db
+        .select({ did: follows.followingDid })
+        .from(follows)
+        .where(eq(follows.followerDid, viewerDid));
+      
+      const followedDidList = followedDids.map(f => f.did);
+      
+      if (followedDidList.length > 0) {
+        return await db
+          .select()
+          .from(users)
+          .where(and(
+            sql`${users.did} != ${viewerDid}`,
+            sql`${users.did} NOT IN (${sql.join(followedDidList.map(did => sql`${did}`), sql`, `)})`
+          ))
+          .orderBy(desc(users.createdAt))
+          .limit(limit);
+      }
+    }
+    
+    return await db
+      .select()
+      .from(users)
+      .orderBy(desc(users.createdAt))
+      .limit(limit);
+  }
+
   async getPost(uri: string): Promise<Post | undefined> {
     const [post] = await db.select().from(posts).where(eq(posts.uri, uri));
     return post || undefined;
@@ -203,6 +272,26 @@ export class DatabaseStorage implements IStorage {
     return [rootPost, ...replies.filter(p => p.uri !== uri)];
   }
 
+  async getPosts(uris: string[]): Promise<Post[]> {
+    if (uris.length === 0) return [];
+    return await db.select().from(posts).where(inArray(posts.uri, uris));
+  }
+
+  async getQuotePosts(postUri: string, limit = 50, cursor?: string): Promise<Post[]> {
+    const conditions = [sql`${posts.embed}->>'$type' = 'app.bsky.embed.record' AND ${posts.embed}->'record'->>'uri' = ${postUri}`];
+    
+    if (cursor) {
+      conditions.push(sql`${posts.indexedAt} < ${cursor}`);
+    }
+
+    return await db
+      .select()
+      .from(posts)
+      .where(and(...conditions))
+      .orderBy(desc(posts.indexedAt))
+      .limit(limit);
+  }
+
   async createLike(like: InsertLike): Promise<Like> {
     const [newLike] = await db
       .insert(likes)
@@ -216,8 +305,46 @@ export class DatabaseStorage implements IStorage {
     await db.delete(likes).where(eq(likes.uri, uri));
   }
 
-  async getPostLikes(postUri: string): Promise<Like[]> {
-    return await db.select().from(likes).where(eq(likes.postUri, postUri));
+  async getPostLikes(postUri: string, limit = 100, cursor?: string): Promise<{ likes: Like[], cursor?: string }> {
+    const conditions = [eq(likes.postUri, postUri)];
+    
+    if (cursor) {
+      conditions.push(sql`${likes.indexedAt} < ${cursor}`);
+    }
+
+    const results = await db
+      .select()
+      .from(likes)
+      .where(and(...conditions))
+      .orderBy(desc(likes.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+
+    return { likes: items, cursor: nextCursor };
+  }
+
+  async getActorLikes(userDid: string, limit = 50, cursor?: string): Promise<{ likes: Like[], cursor?: string }> {
+    const conditions = [eq(likes.userDid, userDid)];
+    
+    if (cursor) {
+      conditions.push(sql`${likes.indexedAt} < ${cursor}`);
+    }
+
+    const results = await db
+      .select()
+      .from(likes)
+      .where(and(...conditions))
+      .orderBy(desc(likes.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+
+    return { likes: items, cursor: nextCursor };
   }
 
   async createRepost(repost: InsertRepost): Promise<Repost> {
@@ -233,8 +360,25 @@ export class DatabaseStorage implements IStorage {
     await db.delete(reposts).where(eq(reposts.uri, uri));
   }
 
-  async getPostReposts(postUri: string): Promise<Repost[]> {
-    return await db.select().from(reposts).where(eq(reposts.postUri, postUri));
+  async getPostReposts(postUri: string, limit = 100, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }> {
+    const conditions = [eq(reposts.postUri, postUri)];
+    
+    if (cursor) {
+      conditions.push(sql`${reposts.indexedAt} < ${cursor}`);
+    }
+
+    const results = await db
+      .select()
+      .from(reposts)
+      .where(and(...conditions))
+      .orderBy(desc(reposts.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+
+    return { reposts: items, cursor: nextCursor };
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
@@ -290,6 +434,227 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBlock(uri: string): Promise<void> {
     await db.delete(blocks).where(eq(blocks.uri, uri));
+  }
+
+  async getBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: Block[], cursor?: string }> {
+    const conditions = [eq(blocks.blockerDid, blockerDid)];
+    
+    if (cursor) {
+      conditions.push(sql`${blocks.indexedAt} < ${cursor}`);
+    }
+
+    const results = await db
+      .select()
+      .from(blocks)
+      .where(and(...conditions))
+      .orderBy(desc(blocks.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+
+    return { blocks: items, cursor: nextCursor };
+  }
+
+  async createMute(mute: InsertMute): Promise<Mute> {
+    const [newMute] = await db
+      .insert(mutes)
+      .values(mute)
+      .onConflictDoNothing()
+      .returning();
+    return newMute;
+  }
+
+  async deleteMute(uri: string): Promise<void> {
+    await db.delete(mutes).where(eq(mutes.uri, uri));
+  }
+
+  async getMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: Mute[], cursor?: string }> {
+    const conditions = [eq(mutes.muterDid, muterDid)];
+    
+    if (cursor) {
+      conditions.push(sql`${mutes.indexedAt} < ${cursor}`);
+    }
+
+    const results = await db
+      .select()
+      .from(mutes)
+      .where(and(...conditions))
+      .orderBy(desc(mutes.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+
+    return { mutes: items, cursor: nextCursor };
+  }
+
+  async createListMute(listMute: InsertListMute): Promise<ListMute> {
+    const [newListMute] = await db
+      .insert(listMutes)
+      .values(listMute)
+      .onConflictDoNothing()
+      .returning();
+    return newListMute;
+  }
+
+  async deleteListMute(uri: string): Promise<void> {
+    await db.delete(listMutes).where(eq(listMutes.uri, uri));
+  }
+
+  async getListMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ListMute[]; cursor?: string }> {
+    let query = db
+      .select()
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, muterDid))
+      .orderBy(desc(listMutes.createdAt))
+      .limit(limit + 1);
+
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      query = query.where(
+        and(
+          eq(listMutes.muterDid, muterDid),
+          sql`${listMutes.createdAt} < ${cursorDate}`
+        )
+      ) as any;
+    }
+
+    const results = await query;
+    const hasMore = results.length > limit;
+    const mutes = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? mutes[mutes.length - 1].createdAt.toISOString() : undefined;
+
+    return { mutes, cursor: nextCursor };
+  }
+
+  async createListBlock(listBlock: InsertListBlock): Promise<ListBlock> {
+    const [newListBlock] = await db
+      .insert(listBlocks)
+      .values(listBlock)
+      .onConflictDoNothing()
+      .returning();
+    return newListBlock;
+  }
+
+  async deleteListBlock(uri: string): Promise<void> {
+    await db.delete(listBlocks).where(eq(listBlocks.uri, uri));
+  }
+
+  async getListBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: ListBlock[]; cursor?: string }> {
+    let query = db
+      .select()
+      .from(listBlocks)
+      .where(eq(listBlocks.blockerDid, blockerDid))
+      .orderBy(desc(listBlocks.createdAt))
+      .limit(limit + 1);
+
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      query = query.where(
+        and(
+          eq(listBlocks.blockerDid, blockerDid),
+          sql`${listBlocks.createdAt} < ${cursorDate}`
+        )
+      ) as any;
+    }
+
+    const results = await query;
+    const hasMore = results.length > limit;
+    const blocks = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? blocks[blocks.length - 1].createdAt.toISOString() : undefined;
+
+    return { blocks, cursor: nextCursor };
+  }
+
+  async getUserPreferences(userDid: string): Promise<UserPreferences | undefined> {
+    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userDid, userDid));
+    return prefs || undefined;
+  }
+
+  async createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences> {
+    const [newPrefs] = await db
+      .insert(userPreferences)
+      .values(prefs)
+      .onConflictDoUpdate({
+        target: userPreferences.userDid,
+        set: prefs,
+      })
+      .returning();
+    return newPrefs;
+  }
+
+  async updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined> {
+    const [updated] = await db
+      .update(userPreferences)
+      .set({ ...prefs, updatedAt: new Date() })
+      .where(eq(userPreferences.userDid, userDid))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
+    following: boolean;
+    followedBy: boolean;
+    blocking: boolean;
+    blockedBy: boolean;
+    muting: boolean;
+  }>> {
+    if (targetDids.length === 0) return new Map();
+
+    const [followingList, followersList, blockingList, blockedByList, mutingList] = await Promise.all([
+      db.select({ did: follows.followingDid })
+        .from(follows)
+        .where(and(
+          eq(follows.followerDid, viewerDid),
+          inArray(follows.followingDid, targetDids)
+        )),
+      db.select({ did: follows.followerDid })
+        .from(follows)
+        .where(and(
+          eq(follows.followingDid, viewerDid),
+          inArray(follows.followerDid, targetDids)
+        )),
+      db.select({ did: blocks.blockedDid })
+        .from(blocks)
+        .where(and(
+          eq(blocks.blockerDid, viewerDid),
+          inArray(blocks.blockedDid, targetDids)
+        )),
+      db.select({ did: blocks.blockerDid })
+        .from(blocks)
+        .where(and(
+          eq(blocks.blockedDid, viewerDid),
+          inArray(blocks.blockerDid, targetDids)
+        )),
+      db.select({ did: mutes.mutedDid })
+        .from(mutes)
+        .where(and(
+          eq(mutes.muterDid, viewerDid),
+          inArray(mutes.mutedDid, targetDids)
+        )),
+    ]);
+
+    const followingSet = new Set(followingList.map(f => f.did));
+    const followersSet = new Set(followersList.map(f => f.did));
+    const blockingSet = new Set(blockingList.map(b => b.did));
+    const blockedBySet = new Set(blockedByList.map(b => b.did));
+    const mutingSet = new Set(mutingList.map(m => m.did));
+
+    const relationships = new Map();
+    for (const targetDid of targetDids) {
+      relationships.set(targetDid, {
+        following: followingSet.has(targetDid),
+        followedBy: followersSet.has(targetDid),
+        blocking: blockingSet.has(targetDid),
+        blockedBy: blockedBySet.has(targetDid),
+        muting: mutingSet.has(targetDid),
+      });
+    }
+
+    return relationships;
   }
 
   async getTimeline(userDid: string, limit = 50, cursor?: string): Promise<Post[]> {

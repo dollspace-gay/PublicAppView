@@ -1067,6 +1067,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.graph.getList", xrpcApi.getList.bind(xrpcApi));
   app.get("/xrpc/app.bsky.graph.getLists", xrpcApi.getLists.bind(xrpcApi));
   app.get("/xrpc/app.bsky.graph.getListFeed", xrpcApi.getListFeed.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getListMutes", xrpcApi.getListMutes.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getListBlocks", xrpcApi.getListBlocks.bind(xrpcApi));
+
+  // Post interaction endpoints  
+  app.get("/xrpc/app.bsky.feed.getPosts", xrpcApi.getPosts.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getLikes", xrpcApi.getLikes.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getRepostedBy", xrpcApi.getRepostedBy.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getQuotes", xrpcApi.getQuotes.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.feed.getActorLikes", xrpcApi.getActorLikes.bind(xrpcApi));
+
+  // Enhanced profile endpoints
+  app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.actor.getSuggestions", xrpcApi.getSuggestions.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.actor.getPreferences", xrpcApi.getPreferences.bind(xrpcApi));
+  app.put("/xrpc/app.bsky.actor.putPreferences", xrpcApi.putPreferences.bind(xrpcApi));
+
+  // Graph endpoints
+  app.get("/xrpc/app.bsky.graph.getBlocks", xrpcApi.getBlocks.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getMutes", xrpcApi.getMutes.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.muteActor", xrpcApi.muteActor.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.unmuteActor", xrpcApi.unmuteActor.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getRelationships", xrpcApi.getRelationships.bind(xrpcApi));
 
   // Dashboard API endpoints
   app.get("/api/metrics", async (_req, res) => {
@@ -1088,90 +1110,183 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Get all API endpoints with real performance metrics
+  // Get all API endpoints with real performance metrics - auto-discovers XRPC routes
   app.get("/api/endpoints", (_req, res) => {
     const endpointMetrics = metricsService.getEndpointMetrics();
     
-    const endpoints = [
-      {
-        method: "GET",
-        path: "app.bsky.feed.getTimeline",
-        fullPath: "/xrpc/app.bsky.feed.getTimeline",
+    // Endpoint descriptions for documentation
+    const endpointDescriptions: Record<string, { description: string; params: string[] }> = {
+      "app.bsky.feed.getTimeline": {
         description: "Retrieve a user's main timeline with posts from followed accounts",
         params: ["algorithm: string", "limit: number", "cursor: string"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.feed.getAuthorFeed",
-        fullPath: "/xrpc/app.bsky.feed.getAuthorFeed",
+      "app.bsky.feed.getAuthorFeed": {
         description: "Get posts from a specific user's profile",
         params: ["actor: string (required)", "limit: number", "cursor: string"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.feed.getPostThread",
-        fullPath: "/xrpc/app.bsky.feed.getPostThread",
+      "app.bsky.feed.getPostThread": {
         description: "View a post and its complete reply thread",
         params: ["uri: string (required)", "depth: number"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.feed.searchPosts",
-        fullPath: "/xrpc/app.bsky.feed.searchPosts",
+      "app.bsky.feed.getPosts": {
+        description: "Batch fetch multiple posts by their URIs",
+        params: ["uris: string[] (required)"],
+      },
+      "app.bsky.feed.getLikes": {
+        description: "Get users who liked a specific post",
+        params: ["uri: string (required)", "cid: string", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.getRepostedBy": {
+        description: "Get users who reposted a specific post",
+        params: ["uri: string (required)", "cid: string", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.getQuotes": {
+        description: "Get quote posts that reference a specific post",
+        params: ["uri: string (required)", "cid: string", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.getActorLikes": {
+        description: "Get posts liked by a specific user",
+        params: ["actor: string (required)", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.getListFeed": {
+        description: "Get posts from a curated list",
+        params: ["list: string (required)", "limit: number", "cursor: string"],
+      },
+      "app.bsky.feed.searchPosts": {
         description: "Full-text search for posts with ranking",
         params: ["q: string (required)", "limit: number", "cursor: string"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.actor.getProfile",
-        fullPath: "/xrpc/app.bsky.actor.getProfile",
+      "app.bsky.actor.getProfile": {
         description: "Get detailed profile information for a user",
         params: ["actor: string (required)"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.actor.searchActors",
-        fullPath: "/xrpc/app.bsky.actor.searchActors",
+      "app.bsky.actor.getProfiles": {
+        description: "Batch fetch multiple user profiles",
+        params: ["actors: string[] (required)"],
+      },
+      "app.bsky.actor.getSuggestions": {
+        description: "Get suggested users to follow",
+        params: ["limit: number"],
+      },
+      "app.bsky.actor.getPreferences": {
+        description: "Get user preferences (AT Protocol compliant)",
+        params: [],
+      },
+      "app.bsky.actor.putPreferences": {
+        description: "Update user preferences",
+        params: ["preferences: array (required)"],
+      },
+      "app.bsky.actor.searchActors": {
         description: "Search for user accounts",
         params: ["q: string (required)", "limit: number", "cursor: string"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.actor.searchActorsTypeahead",
-        fullPath: "/xrpc/app.bsky.actor.searchActorsTypeahead",
+      "app.bsky.actor.searchActorsTypeahead": {
         description: "Autocomplete search for user handles",
         params: ["q: string (required)", "limit: number"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.graph.getFollows",
-        fullPath: "/xrpc/app.bsky.graph.getFollows",
+      "app.bsky.graph.getFollows": {
         description: "Get list of accounts a user follows",
-        params: ["actor: string (required)", "limit: number", "cursor: string"],
+        params: ["actor: string (required)", "limit: number"],
       },
-      {
-        method: "GET",
-        path: "app.bsky.graph.getFollowers",
-        fullPath: "/xrpc/app.bsky.graph.getFollowers",
+      "app.bsky.graph.getFollowers": {
         description: "Get list of accounts following a user",
+        params: ["actor: string (required)", "limit: number"],
+      },
+      "app.bsky.graph.getBlocks": {
+        description: "Get users blocked by the authenticated user",
+        params: ["limit: number", "cursor: string"],
+      },
+      "app.bsky.graph.getMutes": {
+        description: "Get users muted by the authenticated user",
+        params: ["limit: number", "cursor: string"],
+      },
+      "app.bsky.graph.muteActor": {
+        description: "Mute a specific user",
+        params: ["actor: string (required)"],
+      },
+      "app.bsky.graph.unmuteActor": {
+        description: "Unmute a specific user",
+        params: ["actor: string (required)"],
+      },
+      "app.bsky.graph.getRelationships": {
+        description: "Get bi-directional relationship information between users",
+        params: ["actor: string (required)", "others: string[]"],
+      },
+      "app.bsky.graph.getList": {
+        description: "Get information about a specific list",
+        params: ["list: string (required)", "limit: number", "cursor: string"],
+      },
+      "app.bsky.graph.getLists": {
+        description: "Get lists created by a user",
         params: ["actor: string (required)", "limit: number", "cursor: string"],
       },
-      {
-        method: "GET",
-        path: "com.atproto.label.queryLabels",
-        fullPath: "/xrpc/com.atproto.label.queryLabels",
+      "app.bsky.graph.getListMutes": {
+        description: "Get lists muted by the authenticated user",
+        params: ["limit: number", "cursor: string"],
+      },
+      "app.bsky.graph.getListBlocks": {
+        description: "Get lists blocked by the authenticated user",
+        params: ["limit: number", "cursor: string"],
+      },
+      "app.bsky.notification.listNotifications": {
+        description: "List notifications for the authenticated user",
+        params: ["limit: number", "cursor: string", "seenAt: string"],
+      },
+      "app.bsky.notification.getUnreadCount": {
+        description: "Get count of unread notifications",
+        params: ["seenAt: string"],
+      },
+      "app.bsky.notification.updateSeen": {
+        description: "Mark notifications as seen",
+        params: ["seenAt: string (required)"],
+      },
+      "com.atproto.label.queryLabels": {
         description: "Query moderation labels for content",
         params: ["uriPatterns: string[]", "sources: string[]", "limit: number", "cursor: string"],
       },
-      {
-        method: "POST",
-        path: "app.bsky.moderation.createReport",
-        fullPath: "/xrpc/app.bsky.moderation.createReport",
+      "app.bsky.moderation.createReport": {
         description: "Submit a moderation report",
         params: ["reasonType: string (required)", "subject: object (required)", "reason: string"],
       },
-    ];
+    };
 
+    // Auto-discover XRPC routes from the Express app
+    const xrpcRoutes: Array<{ method: string; path: string }> = [];
+    
+    // Access the Express router stack to find all XRPC routes
+    app._router.stack.forEach((middleware: any) => {
+      if (middleware.route) {
+        const path = middleware.route.path;
+        if (path.startsWith("/xrpc/")) {
+          const methods = Object.keys(middleware.route.methods);
+          methods.forEach(method => {
+            xrpcRoutes.push({
+              method: method.toUpperCase(),
+              path,
+            });
+          });
+        }
+      }
+    });
+
+    // Build endpoint list from discovered routes
+    const endpoints = xrpcRoutes.map(route => {
+      const nsid = route.path.replace("/xrpc/", "");
+      const doc = endpointDescriptions[nsid] || {
+        description: `AT Protocol endpoint: ${nsid}`,
+        params: [],
+      };
+
+      return {
+        method: route.method,
+        path: nsid,
+        fullPath: route.path,
+        description: doc.description,
+        params: doc.params,
+      };
+    });
+
+    // Add performance metrics to each endpoint
     const endpointsWithMetrics = endpoints.map(endpoint => {
       const metrics = endpointMetrics[endpoint.fullPath] || {
         totalRequests: 0,
