@@ -21,6 +21,7 @@ export class FirehoseClient {
   private isConnected = false;
   private eventCallbacks: EventCallback[] = [];
   private recentEvents: any[] = []; // Keep last 50 events for dashboard
+  private statusHeartbeat: NodeJS.Timeout | null = null;
   
   // Worker distribution for parallel processing
   private workerId: number = 0;
@@ -116,15 +117,18 @@ export class FirehoseClient {
     });
   }
 
-  private updateRedisStatus() {
-    // Store firehose status in Redis for cluster-wide visibility (non-blocking)
-    redisQueue.setFirehoseStatus({
-      connected: this.isConnected,
-      url: this.url,
-      currentCursor: this.currentCursor,
-    }).catch(err => {
+  private async updateRedisStatus() {
+    // Store firehose status in Redis for cluster-wide visibility
+    try {
+      await redisQueue.setFirehoseStatus({
+        connected: this.isConnected,
+        url: this.url,
+        currentCursor: this.currentCursor,
+      });
+      console.log(`[FIREHOSE] Status updated in Redis: connected=${this.isConnected}`);
+    } catch (err) {
       console.error("[FIREHOSE] Error storing status in Redis:", err);
-    });
+    }
   }
 
   private saveCursor(cursor: string) {
@@ -206,7 +210,10 @@ export class FirehoseClient {
         this.isConnected = true;
         this.reconnectDelay = 1000;
         metricsService.updateFirehoseStatus("connected");
+        
+        // Update status immediately and start heartbeat
         this.updateRedisStatus();
+        this.startStatusHeartbeat();
       });
 
       this.client.on("commit", async (commit) => {
@@ -331,6 +338,13 @@ export class FirehoseClient {
         this.isConnected = false;
         metricsService.updateFirehoseStatus("error");
         metricsService.incrementError();
+        
+        // Stop heartbeat on error
+        if (this.statusHeartbeat) {
+          clearInterval(this.statusHeartbeat);
+          this.statusHeartbeat = null;
+        }
+        
         this.updateRedisStatus();
         
         // Attempt reconnection for recoverable errors
@@ -362,10 +376,29 @@ export class FirehoseClient {
     }, this.reconnectDelay);
   }
 
+  private startStatusHeartbeat() {
+    // Clear existing heartbeat
+    if (this.statusHeartbeat) {
+      clearInterval(this.statusHeartbeat);
+    }
+    
+    // Update status every 5 seconds to keep Redis key alive (10s TTL)
+    this.statusHeartbeat = setInterval(() => {
+      if (this.isConnected) {
+        this.updateRedisStatus();
+      }
+    }, 5000);
+  }
+
   disconnect() {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
+    }
+
+    if (this.statusHeartbeat) {
+      clearInterval(this.statusHeartbeat);
+      this.statusHeartbeat = null;
     }
 
     if (this.client) {
