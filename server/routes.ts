@@ -1733,6 +1733,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(events.slice(0, 10));
   });
 
+  // Server-Sent Events endpoint for real-time firehose streaming
+  app.get("/api/events/stream", (_req, res) => {
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+    res.flushHeaders();
+
+    console.log("[SSE] Client connected to event stream");
+
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: "connected", message: "Event stream connected" })}\n\n`);
+
+    // Subscribe to firehose events
+    const eventHandler = (event: any) => {
+      if (res.writable) {
+        try {
+          res.write(`data: ${JSON.stringify({ type: "event", data: event })}\n\n`);
+        } catch (error) {
+          console.error("[SSE] Error sending event:", error);
+        }
+      }
+    };
+
+    firehoseClient.onEvent(eventHandler);
+
+    // Send keepalive every 15 seconds
+    const keepaliveInterval = setInterval(() => {
+      if (res.writable) {
+        res.write(`: keepalive\n\n`);
+      } else {
+        clearInterval(keepaliveInterval);
+      }
+    }, 15000);
+
+    // Send metrics every 2 seconds
+    const metricsInterval = setInterval(async () => {
+      if (res.writable) {
+        try {
+          const stats = await storage.getStats();
+          const metrics = metricsService.getStats();
+          const eventCounts = metricsService.getEventCounts();
+          const systemHealth = await metricsService.getSystemHealth();
+          const firehoseStatus = firehoseClient.getStatus();
+
+          const payload = {
+            type: "metrics",
+            data: {
+              eventsProcessed: metrics.totalEvents,
+              dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
+              apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+              stats,
+              eventCounts,
+              systemHealth,
+              firehoseStatus,
+              errorRate: metrics.errorRate,
+              lastUpdate: metrics.lastUpdate,
+            },
+          };
+
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        } catch (error) {
+          console.error("[SSE] Error sending metrics:", error);
+        }
+      } else {
+        clearInterval(metricsInterval);
+      }
+    }, 2000);
+
+    // Handle client disconnect
+    _req.on("close", () => {
+      console.log("[SSE] Client disconnected from event stream");
+      clearInterval(keepaliveInterval);
+      clearInterval(metricsInterval);
+      firehoseClient.offEvent(eventHandler);
+      res.end();
+    });
+  });
+
   app.get("/api/logs", (_req, res) => {
     const limit = parseInt(_req.query.limit as string) || 100;
     const logs = logCollector.getRecentLogs(limit);

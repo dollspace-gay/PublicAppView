@@ -55,7 +55,7 @@ export default function Dashboard() {
 
   const [events, setEvents] = useState<any[]>([]);
 
-  // Poll for metrics via HTTP (WebSocket has compression issues with Replit proxy)
+  // Initial metrics fetch (SSE stream will update in real-time after connection)
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
@@ -69,17 +69,13 @@ export default function Dashboard() {
       }
     };
 
-    fetchMetrics(); // Initial fetch
-    const interval = setInterval(fetchMetrics, 2000); // Poll every 2s
-    return () => clearInterval(interval);
+    fetchMetrics(); // Initial fetch only
   }, []);
 
-  // Real-time event stream via WebSocket with fallback polling
+  // Real-time event stream via Server-Sent Events (SSE)
   useEffect(() => {
     const recentEvents: any[] = [];
-    let ws: WebSocket | null = null;
-    let pollInterval: NodeJS.Timeout | null = null;
-    let isWsConnected = false;
+    let eventSource: EventSource | null = null;
 
     // Fetch initial events from API
     const fetchInitialEvents = async () => {
@@ -98,27 +94,17 @@ export default function Dashboard() {
     // Start with initial fetch
     fetchInitialEvents();
 
-    // Try WebSocket connection
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    
+    // Connect to SSE stream
     try {
-      ws = new WebSocket(wsUrl);
+      eventSource = new EventSource("/api/events/stream");
 
-      ws.onopen = () => {
-        console.log("[Dashboard] WebSocket connected");
-        isWsConnected = true;
-        // Stop polling if we have WebSocket
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
+      eventSource.onopen = () => {
+        console.log("[Dashboard] SSE stream connected");
       };
 
-      ws.onmessage = (event) => {
+      eventSource.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          console.log("[Dashboard] WebSocket received message:", message.type);
           
           if (message.type === "event" && message.data) {
             // Add new event to the front
@@ -129,58 +115,27 @@ export default function Dashboard() {
             }
             // Update UI with latest 10
             setEvents([...recentEvents.slice(0, 10)]);
+          } else if (message.type === "metrics") {
+            // Update metrics from SSE stream
+            setMetrics(message.data);
           } else if (message.type === "connected") {
-            console.log("[Dashboard] WebSocket confirmed connected:", message.message);
+            console.log("[Dashboard] SSE confirmed connected:", message.message);
           }
         } catch (error) {
-          console.error("[Dashboard] WebSocket message error:", error, "Data:", event.data);
+          console.error("[Dashboard] SSE message error:", error);
         }
       };
 
-      ws.onerror = (error) => {
-        console.error("[Dashboard] WebSocket error:", error);
-        isWsConnected = false;
-      };
-
-      ws.onclose = () => {
-        console.log("[Dashboard] WebSocket disconnected");
-        isWsConnected = false;
-        
-        // Fallback to polling if WebSocket fails
-        if (!pollInterval) {
-          console.log("[Dashboard] Falling back to polling");
-          pollInterval = setInterval(async () => {
-            try {
-              const response = await fetch("/api/events/recent");
-              if (response.ok) {
-                const data = await response.json();
-                setEvents(data.slice(0, 10));
-              }
-            } catch (error) {
-              console.error("[Dashboard] Polling error:", error);
-            }
-          }, 1000); // Poll every 1 second as fallback
-        }
+      eventSource.onerror = (error) => {
+        console.error("[Dashboard] SSE error - reconnecting automatically...", error);
+        // Don't close - let browser handle automatic reconnection
       };
     } catch (error) {
-      console.error("[Dashboard] WebSocket creation failed:", error);
-      // Start polling immediately if WebSocket fails to create
-      pollInterval = setInterval(async () => {
-        try {
-          const response = await fetch("/api/events/recent");
-          if (response.ok) {
-            const data = await response.json();
-            setEvents(data.slice(0, 10));
-          }
-        } catch (error) {
-          console.error("[Dashboard] Polling error:", error);
-        }
-      }, 1000); // Poll every 1 second as fallback
+      console.error("[Dashboard] SSE creation failed:", error);
     }
 
     return () => {
-      if (ws) ws.close();
-      if (pollInterval) clearInterval(pollInterval);
+      if (eventSource) eventSource.close();
     };
   }, []);
 

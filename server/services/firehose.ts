@@ -96,6 +96,13 @@ export class FirehoseClient {
     this.eventCallbacks.push(callback);
   }
 
+  offEvent(callback: EventCallback) {
+    const index = this.eventCallbacks.indexOf(callback);
+    if (index > -1) {
+      this.eventCallbacks.splice(index, 1);
+    }
+  }
+
   private async broadcastEvent(event: any) {
     // Add to recent events history (keep last 50)
     this.recentEvents.unshift(event);

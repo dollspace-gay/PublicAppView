@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-export function useWebSocket<T>(onMessage: (data: T) => void) {
+export function useEventStream<T>(onMessage: (data: T) => void) {
   const [isConnected, setIsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
   const onMessageRef = useRef(onMessage);
 
   useEffect(() => {
@@ -10,42 +10,40 @@ export function useWebSocket<T>(onMessage: (data: T) => void) {
   }, [onMessage]);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const sseUrl = `/api/events/stream`;
+    console.log("[Dashboard] Connecting to SSE stream:", sseUrl);
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    const eventSource = new EventSource(sseUrl);
+    eventSourceRef.current = eventSource;
 
-    ws.onopen = () => {
-      console.log("[Dashboard] WebSocket connected");
+    eventSource.onopen = () => {
+      console.log("[Dashboard] SSE stream connected");
       setIsConnected(true);
     };
 
-    ws.onmessage = (event) => {
+    eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("[Dashboard] WebSocket received message:", data.type);
         onMessageRef.current(data);
       } catch (error) {
-        console.error("[Dashboard] WebSocket parse error:", error);
+        console.error("[Dashboard] SSE parse error:", error);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("[Dashboard] WebSocket error:", error);
+    eventSource.onerror = (error) => {
+      console.error("[Dashboard] SSE error - reconnecting automatically...", error);
       setIsConnected(false);
-    };
-
-    ws.onclose = (event) => {
-      console.log("[Dashboard] WebSocket closed - Code:", event.code, "Reason:", event.reason);
-      setIsConnected(false);
+      // Don't close - let browser handle automatic reconnection
     };
 
     return () => {
-      console.log("[Dashboard] WebSocket cleanup - closing connection");
-      ws.close();
+      console.log("[Dashboard] SSE cleanup - closing connection");
+      eventSource.close();
     };
   }, []);
 
-  return { isConnected, ws: wsRef.current };
+  return { isConnected, eventSource: eventSourceRef.current };
 }
+
+// Keep WebSocket hook for backward compatibility (deprecated - use useEventStream)
+export const useWebSocket = useEventStream;
