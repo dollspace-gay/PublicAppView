@@ -1815,23 +1815,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (res.writable) {
         try {
           const stats = await storage.getStats();
-          const metrics = metricsService.getStats();
-          const eventCounts = metricsService.getEventCounts();
+          const clusterMetrics = await redisQueue.getClusterMetrics();
+          const localMetrics = metricsService.getStats();
           const systemHealth = await metricsService.getSystemHealth();
           const firehoseStatus = await firehoseClient.getStatus();
 
           const payload = {
             type: "metrics",
             data: {
-              eventsProcessed: metrics.totalEvents,
+              eventsProcessed: clusterMetrics.totalEvents,
               dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
-              apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+              apiRequestsPerMinute: localMetrics.apiRequestsPerMinute,
               stats,
-              eventCounts,
+              eventCounts: clusterMetrics.eventCounts,
               systemHealth,
               firehoseStatus,
-              errorRate: metrics.errorRate,
-              lastUpdate: metrics.lastUpdate,
+              errorRate: clusterMetrics.totalEvents > 0 ? (clusterMetrics.errors / clusterMetrics.totalEvents) * 100 : 0,
+              lastUpdate: new Date().toISOString(),
             },
           };
 
