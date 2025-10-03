@@ -205,12 +205,25 @@ class RedisQueue {
       return events;
     } catch (error: any) {
       // Handle NOGROUP error - stream or consumer group was deleted (Redis restart, memory eviction, etc.)
-      if (error.message && error.message.includes('NOGROUP')) {
-        console.warn(`[REDIS] Stream or consumer group missing, recreating...`);
+      const errorMsg = error.message || error.toString() || '';
+      const isNogroupError = errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
+      
+      if (isNogroupError) {
+        console.warn(`[REDIS] Stream/group missing (${errorMsg}), recreating...`);
         try {
-          await this.ensureStreamAndGroup();
-          console.log(`[REDIS] Successfully recreated stream and consumer group`);
-          // Don't retry immediately - let next iteration handle it
+          // Use Redis SET NX as a distributed lock to prevent multiple workers from recreating simultaneously
+          const lockKey = 'firehose:stream:recreate-lock';
+          const lockAcquired = await this.redis.set(lockKey, '1', 'EX', 5, 'NX');
+          
+          if (lockAcquired) {
+            // We got the lock, recreate the stream/group
+            await this.ensureStreamAndGroup();
+            console.log(`[REDIS] Successfully recreated stream and consumer group`);
+          } else {
+            // Another worker is already recreating, wait a bit
+            console.log(`[REDIS] Another worker is recreating stream/group, waiting...`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         } catch (retryError) {
           console.error('[REDIS] Failed to recreate stream/group:', retryError);
         }
@@ -286,7 +299,10 @@ class RedisQueue {
       return events;
     } catch (error: any) {
       // Handle NOGROUP error gracefully
-      if (error.message && error.message.includes('NOGROUP')) {
+      const errorMsg = error.message || error.toString() || '';
+      const isNogroupError = errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
+      
+      if (isNogroupError) {
         console.warn(`[REDIS] Stream/group missing during claim, will be recreated by consume loop`);
       } else {
         console.error("[REDIS] Error claiming pending messages:", error);

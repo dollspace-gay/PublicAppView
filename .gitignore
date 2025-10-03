@@ -9,3 +9,7 @@ vite.config.ts.*
 .env
 .env.local
 .env.*.local
+# WebDID private keys - NEVER commit!
+appview-signing-key.json
+appview-private.pem
+.env.webdid

@@ -138,6 +138,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Run all pipelines concurrently (don't await - let them run in background)
   Promise.allSettled(consumerPipelines);
 
+  // WebDID endpoint - Serve DID document for did:web resolution
+  app.get("/.well-known/did.json", async (_req, res) => {
+    try {
+      const fs = await import('fs/promises');
+      const didDoc = await fs.readFile('public/did.json', 'utf-8');
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.send(didDoc);
+    } catch (error) {
+      // If DID document doesn't exist, return a basic one based on APPVIEW_DID
+      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+      const domain = appviewDid.replace('did:web:', '');
+      
+      const basicDidDoc = {
+        "@context": ["https://www.w3.org/ns/did/v1"],
+        id: appviewDid,
+        service: [{
+          id: `${appviewDid}#appview`,
+          type: "AppView",
+          serviceEndpoint: `https://${domain}`
+        }]
+      };
+      
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.json(basicDidDoc);
+    }
+  });
+
   // Authentication endpoints
   app.post("/api/auth/create-session", async (req, res) => {
     try {
