@@ -1123,6 +1123,22 @@ export class XRPCApi {
       const userDid = "did:plc:demo"; // TODO: Get from auth session
       const preferences = req.body.preferences || [];
       
+      // Ensure demo user exists for testing (use DID-based handle to avoid collisions)
+      let user = await storage.getUser(userDid);
+      if (!user) {
+        const safeHandle = userDid.replace(/[:.]/g, '-') + '-stub';
+        try {
+          await storage.createUser({
+            did: userDid,
+            handle: safeHandle,
+            displayName: "Demo User (Stub)",
+          });
+        } catch (error: any) {
+          // Tolerate concurrent creation attempts or existing user
+          if (error?.code !== '23505') throw error;
+        }
+      }
+      
       const prefs: any = {
         userDid,
         adultContent: false,
@@ -1208,13 +1224,44 @@ export class XRPCApi {
       const params = muteActorSchema.parse(req.body);
       const userDid = "did:plc:demo"; // TODO: Get from auth session
       
+      // Ensure demo user exists for testing (use DID-based handle to avoid collisions)
+      let user = await storage.getUser(userDid);
+      if (!user) {
+        const safeHandle = userDid.replace(/[:.]/g, '-') + '-stub';
+        try {
+          await storage.createUser({
+            did: userDid,
+            handle: safeHandle,
+            displayName: "Demo User (Stub)",
+          });
+        } catch (error: any) {
+          // Tolerate concurrent creation attempts or existing user
+          if (error?.code !== '23505') throw error;
+        }
+      }
+      
       let mutedDid = params.actor;
       if (!params.actor.startsWith("did:")) {
-        const user = await storage.getUserByHandle(params.actor);
-        if (!user) {
+        const targetUser = await storage.getUserByHandle(params.actor);
+        if (!targetUser) {
           return res.status(404).json({ error: "Actor not found" });
         }
-        mutedDid = user.did;
+        mutedDid = targetUser.did;
+      }
+      
+      // Ensure the target user exists (stub with DID-based handle to avoid collisions)
+      let targetUser = await storage.getUser(mutedDid);
+      if (!targetUser) {
+        const targetHandle = mutedDid.replace(/[:.]/g, '-') + '-stub';
+        try {
+          await storage.createUser({
+            did: mutedDid,
+            handle: targetHandle,
+          });
+        } catch (error: any) {
+          // Tolerate concurrent creation or constraint violations
+          if (error?.code !== '23505') throw error;
+        }
       }
       
       await storage.createMute({

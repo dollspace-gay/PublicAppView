@@ -1,8 +1,15 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, index, uniqueIndex, serial, boolean, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, index, uniqueIndex, serial, boolean, integer, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Custom type for PostgreSQL tsvector (full-text search)
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 // Users table - stores AT Protocol user profiles
 export const users = pgTable("users", {
@@ -11,11 +18,13 @@ export const users = pgTable("users", {
   displayName: varchar("display_name", { length: 255 }),
   avatarUrl: text("avatar_url"),
   description: text("description"),
+  searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
   handleIdx: index("idx_users_handle").on(table.handle),
   createdAtIdx: index("idx_users_created_at").on(table.createdAt),
+  searchVectorIdx: index("idx_users_search_vector").using("gin", table.searchVector),
 }));
 
 // Posts table - stores feed posts
@@ -27,6 +36,7 @@ export const posts = pgTable("posts", {
   parentUri: varchar("parent_uri", { length: 512 }),
   rootUri: varchar("root_uri", { length: 512 }),
   embed: jsonb("embed"),
+  searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -34,6 +44,7 @@ export const posts = pgTable("posts", {
   indexedAtIdx: index("idx_posts_indexed_at").on(table.indexedAt),
   parentIdx: index("idx_posts_parent_uri").on(table.parentUri),
   rootIdx: index("idx_posts_root_uri").on(table.rootUri),
+  searchVectorIdx: index("idx_posts_search_vector").using("gin", table.searchVector),
 }));
 
 // Likes table

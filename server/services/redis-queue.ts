@@ -203,8 +203,20 @@ class RedisQueue {
       }
 
       return events;
-    } catch (error) {
-      console.error("[REDIS] Error consuming events:", error);
+    } catch (error: any) {
+      // Handle NOGROUP error - stream or consumer group was deleted (Redis restart, memory eviction, etc.)
+      if (error.message && error.message.includes('NOGROUP')) {
+        console.warn(`[REDIS] Stream or consumer group missing, recreating...`);
+        try {
+          await this.ensureStreamAndGroup();
+          console.log(`[REDIS] Successfully recreated stream and consumer group`);
+          // Don't retry immediately - let next iteration handle it
+        } catch (retryError) {
+          console.error('[REDIS] Failed to recreate stream/group:', retryError);
+        }
+      } else {
+        console.error("[REDIS] Error consuming events:", error);
+      }
       return [];
     }
   }
@@ -272,8 +284,13 @@ class RedisQueue {
       }
 
       return events;
-    } catch (error) {
-      console.error("[REDIS] Error claiming pending messages:", error);
+    } catch (error: any) {
+      // Handle NOGROUP error gracefully
+      if (error.message && error.message.includes('NOGROUP')) {
+        console.warn(`[REDIS] Stream/group missing during claim, will be recreated by consume loop`);
+      } else {
+        console.error("[REDIS] Error claiming pending messages:", error);
+      }
       return [];
     }
   }

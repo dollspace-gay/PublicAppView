@@ -15,6 +15,7 @@ export interface PostSearchResult {
   rootUri: string | null;
   createdAt: Date;
   indexedAt: Date;
+  searchVector: string | null;
   rank: number;
 }
 

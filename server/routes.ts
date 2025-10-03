@@ -1762,6 +1762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         embed: null,
         parentUri: null,
         rootUri: null,
+        searchVector: null,
         createdAt: new Date(),
         indexedAt: new Date(),
       };
