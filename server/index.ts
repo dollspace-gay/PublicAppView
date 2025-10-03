@@ -2,8 +2,34 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { logCollector } from "./services/log-collector";
+import { spawn } from "child_process";
 
 const app = express();
+
+// Start Redis in development
+if (process.env.NODE_ENV === "development") {
+  const redisProcess = spawn("redis-server", [
+    "--port", "6379",
+    "--dir", "/tmp",
+    "--save", "",
+    "--appendonly", "no"
+  ], {
+    stdio: "ignore",
+    detached: true
+  });
+  
+  redisProcess.unref();
+  console.log("[REDIS] Started Redis server process");
+  
+  process.on("SIGTERM", () => {
+    redisProcess.kill();
+  });
+  
+  process.on("SIGINT", () => {
+    redisProcess.kill();
+    process.exit();
+  });
+}
 
 declare module 'http' {
   interface IncomingMessage {
