@@ -1820,29 +1820,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Handle WebSocket connections
   wss.on("connection", (ws: WebSocket, req) => {
     console.log("[WS] Dashboard client connected from", req.headers.origin || req.headers.host);
-
-    // Send a welcome message to confirm connection
-    ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
+    let connectionAlive = true;
 
     // Send keepalive ping every 30 seconds
     const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
+      if (ws.readyState === WebSocket.OPEN && connectionAlive) {
+        try {
+          ws.ping();
+        } catch (error) {
+          console.error("[WS] Error sending ping:", error);
+          connectionAlive = false;
+          clearInterval(pingInterval);
+        }
+      } else {
+        clearInterval(pingInterval);
       }
     }, 30000);
 
+    ws.on("message", (data) => {
+      console.log("[WS] Received message from client:", data.toString());
+    });
+
     ws.on("close", (code, reason) => {
       console.log("[WS] Dashboard client disconnected - Code:", code, "Reason:", reason.toString());
+      connectionAlive = false;
       clearInterval(pingInterval);
     });
 
     ws.on("error", (error) => {
       console.error("[WS] Dashboard client error:", error);
+      connectionAlive = false;
     });
 
     ws.on("pong", () => {
       // Client responded to ping, connection is alive
     });
+
+    // Send welcome message after a tiny delay to ensure connection is fully established
+    setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN && connectionAlive) {
+        try {
+          ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
+          console.log("[WS] Welcome message sent");
+        } catch (error) {
+          console.error("[WS] Error sending welcome message:", error);
+          ws.close();
+        }
+      }
+    }, 100);
   });
 
   // Subscribe firehose events to broadcast to all WebSocket clients

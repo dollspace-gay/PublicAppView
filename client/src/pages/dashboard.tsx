@@ -118,6 +118,7 @@ export default function Dashboard() {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.log("[Dashboard] WebSocket received message:", message.type);
           
           if (message.type === "event" && message.data) {
             // Add new event to the front
@@ -128,9 +129,11 @@ export default function Dashboard() {
             }
             // Update UI with latest 10
             setEvents([...recentEvents.slice(0, 10)]);
+          } else if (message.type === "connected") {
+            console.log("[Dashboard] WebSocket confirmed connected:", message.message);
           }
         } catch (error) {
-          console.error("[Dashboard] WebSocket message error:", error);
+          console.error("[Dashboard] WebSocket message error:", error, "Data:", event.data);
         }
       };
 
