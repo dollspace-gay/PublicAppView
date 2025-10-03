@@ -1681,10 +1681,30 @@ export class DatabaseStorage implements IStorage {
       return;
     }
 
+    this.statsQueryInProgress = true;
+
     try {
-      await this.getStats();
+      // Refresh from Redis first (fast)
+      const { redisQueue } = await import("./services/redis-queue");
+      const redisCounts = await redisQueue.getRecordCounts();
+      
+      if (Object.keys(redisCounts).length > 0) {
+        this.statsCache = {
+          data: {
+            totalUsers: redisCounts.users || 0,
+            totalPosts: redisCounts.posts || 0,
+            totalLikes: redisCounts.likes || 0,
+            totalReposts: redisCounts.reposts || 0,
+            totalFollows: redisCounts.follows || 0,
+            totalBlocks: redisCounts.blocks || 0,
+          },
+          timestamp: Date.now()
+        };
+      }
     } catch (error) {
       // Silent failure - cache will just be stale
+    } finally {
+      this.statsQueryInProgress = false;
     }
   }
 
