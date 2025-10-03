@@ -1817,6 +1817,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     perMessageDeflate: false // Disable compression to avoid RSV1 frame errors
   });
 
+  // Handle WebSocket connections
+  wss.on("connection", (ws: WebSocket, req) => {
+    console.log("[WS] Dashboard client connected from", req.headers.origin || req.headers.host);
+
+    // Send a welcome message to confirm connection
+    ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
+
+    // Send keepalive ping every 30 seconds
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
+
+    ws.on("close", (code, reason) => {
+      console.log("[WS] Dashboard client disconnected - Code:", code, "Reason:", reason.toString());
+      clearInterval(pingInterval);
+    });
+
+    ws.on("error", (error) => {
+      console.error("[WS] Dashboard client error:", error);
+    });
+
+    ws.on("pong", () => {
+      // Client responded to ping, connection is alive
+    });
+  });
+
   // Subscribe firehose events to broadcast to all WebSocket clients
   firehoseClient.onEvent((event) => {
     wss.clients.forEach((client) => {
