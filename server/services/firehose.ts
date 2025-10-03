@@ -87,7 +87,17 @@ export class FirehoseClient {
     if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING) {
       this.processQueuedEvent(task);
     } else {
-      // Queue without any memory checks or event dropping - let it grow unlimited
+      // Add backpressure: limit queue size to prevent memory exhaustion
+      const MAX_QUEUE_SIZE = 10000;
+      
+      if (this.processingQueue.length >= MAX_QUEUE_SIZE) {
+        // Queue is full - log warning and drop oldest events to prevent memory exhaustion
+        console.warn(`[FIREHOSE] Processing queue full (${this.processingQueue.length}), dropping old events to prevent OOM`);
+        metricsService.incrementError();
+        // Drop oldest 20% of queued events
+        this.processingQueue.splice(0, Math.floor(MAX_QUEUE_SIZE * 0.2));
+      }
+      
       this.processingQueue.push(task);
     }
   }
@@ -440,12 +450,44 @@ export class FirehoseClient {
     return "unknown";
   }
 
-  getStatus() {
+  async getStatus() {
+    // If this worker has the firehose connected, return local status
+    if (this.isConnected) {
+      return {
+        isConnected: this.isConnected,
+        connected: this.isConnected,
+        url: this.url,
+        currentCursor: this.currentCursor,
+        queueDepth: this.processingQueue.length,
+        activeProcessing: this.activeProcessing,
+        reconnectDelay: this.reconnectDelay,
+      };
+    }
+
+    // Otherwise, read from Redis to get status from the worker that IS connected
+    try {
+      const redisStatus = await redisQueue.getFirehoseStatus();
+      if (redisStatus) {
+        return {
+          isConnected: redisStatus.connected,
+          connected: redisStatus.connected,
+          url: redisStatus.url,
+          currentCursor: redisStatus.currentCursor,
+          queueDepth: this.processingQueue.length,
+          activeProcessing: this.activeProcessing,
+          reconnectDelay: this.reconnectDelay,
+        };
+      }
+    } catch (error) {
+      console.error("[FIREHOSE] Error reading status from Redis:", error);
+    }
+
+    // Fallback to local disconnected state
     return {
-      isConnected: this.isConnected,
-      connected: this.isConnected,
+      isConnected: false,
+      connected: false,
       url: this.url,
-      currentCursor: this.currentCursor,
+      currentCursor: null,
       queueDepth: this.processingQueue.length,
       activeProcessing: this.activeProcessing,
       reconnectDelay: this.reconnectDelay,

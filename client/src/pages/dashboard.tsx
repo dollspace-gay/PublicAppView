@@ -105,7 +105,6 @@ export default function Dashboard() {
       eventSource.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          console.log("[Dashboard] SSE message type:", message.type);
           
           if (message.type === "event" && message.data) {
             // Add new event to the front
@@ -118,10 +117,9 @@ export default function Dashboard() {
             setEvents([...recentEvents.slice(0, 10)]);
           } else if (message.type === "metrics") {
             // Update metrics from SSE stream
-            console.log("[Dashboard] Received metrics update:", message.data.firehoseStatus);
             setMetrics(message.data);
           } else if (message.type === "connected") {
-            console.log("[Dashboard] SSE confirmed connected:", message.message);
+            console.log("[Dashboard] SSE stream connected");
           }
         } catch (error) {
           console.error("[Dashboard] SSE message error:", error);

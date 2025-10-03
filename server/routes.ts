@@ -1777,7 +1777,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const metrics = metricsService.getStats();
           const eventCounts = metricsService.getEventCounts();
           const systemHealth = await metricsService.getSystemHealth();
-          const firehoseStatus = firehoseClient.getStatus();
+          const firehoseStatus = await firehoseClient.getStatus();
 
           const payload = {
             type: "metrics",
@@ -2035,7 +2035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const metrics = metricsService.getStats();
           const eventCounts = metricsService.getEventCounts();
           const systemHealth = await metricsService.getSystemHealth();
-          const firehoseStatus = firehoseClient.getStatus();
+          const firehoseStatus = await firehoseClient.getStatus();
 
           const payload = {
             type: "metrics",
