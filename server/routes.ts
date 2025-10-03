@@ -197,8 +197,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "@context": ["https://www.w3.org/ns/did/v1"],
         id: appviewDid,
         service: [{
-          id: `${appviewDid}#appview`,
-          type: "AppView",
+          id: "#bsky_appview",
+          type: "BskyAppView",
           serviceEndpoint: `https://${domain}`
         }]
       };
