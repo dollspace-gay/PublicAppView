@@ -74,23 +74,111 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for recent events
+  // Real-time event stream via WebSocket with fallback polling
   useEffect(() => {
-    const fetchEvents = async () => {
+    const recentEvents: any[] = [];
+    let ws: WebSocket | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
+    let isWsConnected = false;
+
+    // Fetch initial events from API
+    const fetchInitialEvents = async () => {
       try {
         const response = await fetch("/api/events/recent");
         if (response.ok) {
           const data = await response.json();
-          setEvents(data);
+          recentEvents.push(...data);
+          setEvents([...data.slice(0, 10)]);
         }
       } catch (error) {
-        console.error("Failed to fetch events:", error);
+        console.error("[Dashboard] Failed to fetch initial events:", error);
       }
     };
 
-    fetchEvents(); // Initial fetch
-    const interval = setInterval(fetchEvents, 3000); // Poll every 3s
-    return () => clearInterval(interval);
+    // Start with initial fetch
+    fetchInitialEvents();
+
+    // Try WebSocket connection
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log("[Dashboard] WebSocket connected");
+        isWsConnected = true;
+        // Stop polling if we have WebSocket
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          
+          if (message.type === "event" && message.data) {
+            // Add new event to the front
+            recentEvents.unshift(message.data);
+            // Keep only last 50 events
+            if (recentEvents.length > 50) {
+              recentEvents.pop();
+            }
+            // Update UI with latest 10
+            setEvents([...recentEvents.slice(0, 10)]);
+          }
+        } catch (error) {
+          console.error("[Dashboard] WebSocket message error:", error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("[Dashboard] WebSocket error:", error);
+        isWsConnected = false;
+      };
+
+      ws.onclose = () => {
+        console.log("[Dashboard] WebSocket disconnected");
+        isWsConnected = false;
+        
+        // Fallback to polling if WebSocket fails
+        if (!pollInterval) {
+          console.log("[Dashboard] Falling back to polling");
+          pollInterval = setInterval(async () => {
+            try {
+              const response = await fetch("/api/events/recent");
+              if (response.ok) {
+                const data = await response.json();
+                setEvents(data.slice(0, 10));
+              }
+            } catch (error) {
+              console.error("[Dashboard] Polling error:", error);
+            }
+          }, 1000); // Poll every 1 second as fallback
+        }
+      };
+    } catch (error) {
+      console.error("[Dashboard] WebSocket creation failed:", error);
+      // Start polling immediately if WebSocket fails to create
+      pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch("/api/events/recent");
+          if (response.ok) {
+            const data = await response.json();
+            setEvents(data.slice(0, 10));
+          }
+        } catch (error) {
+          console.error("[Dashboard] Polling error:", error);
+        }
+      }, 1000); // Poll every 1 second as fallback
+    }
+
+    return () => {
+      if (ws) ws.close();
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, []);
 
   const handleReconnect = async () => {
