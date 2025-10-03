@@ -485,6 +485,37 @@ class RedisQueue {
     this.eventCallbacks = this.eventCallbacks.filter(cb => cb !== callback);
   }
 
+  // Database record counters (faster than COUNT queries)
+  async incrementRecordCount(table: string, delta: number = 1) {
+    if (!this.redis || !this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.redis.hincrby("db:record_counts", table, delta);
+    } catch (error) {
+      console.error("[REDIS] Error incrementing record count:", error);
+    }
+  }
+
+  async getRecordCounts(): Promise<Record<string, number>> {
+    if (!this.redis || !this.isInitialized) {
+      return {};
+    }
+
+    try {
+      const counts = await this.redis.hgetall("db:record_counts");
+      const result: Record<string, number> = {};
+      for (const [key, value] of Object.entries(counts)) {
+        result[key] = parseInt(value) || 0;
+      }
+      return result;
+    } catch (error) {
+      console.error("[REDIS] Error getting record counts:", error);
+      return {};
+    }
+  }
+
   async disconnect() {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);

@@ -1664,17 +1664,76 @@ export class DatabaseStorage implements IStorage {
   }
 
   private statsCache: { data: any, timestamp: number } | null = null;
-  private readonly STATS_CACHE_TTL = 30000; // 30 seconds
+  private readonly STATS_CACHE_TTL = 60000; // 60 seconds (increased for production)
+  private statsQueryInProgress = false;
+  private backgroundRefreshInterval: NodeJS.Timeout | null = null;
 
-  async getStats() {
-    // Return cached stats if still valid
-    if (this.statsCache && (Date.now() - this.statsCache.timestamp) < this.STATS_CACHE_TTL) {
-      return this.statsCache.data;
+  constructor() {
+    // Start background refresh every 30 seconds to keep cache warm
+    this.backgroundRefreshInterval = setInterval(() => {
+      this.refreshStatsInBackground();
+    }, 30000);
+  }
+
+  private async refreshStatsInBackground() {
+    // Skip if query is already in progress
+    if (this.statsQueryInProgress) {
+      return;
     }
 
     try {
-      // Query pg_stat_user_tables for row counts (fast estimate)
-      const result = await db.execute<{ schemaname: string; relname: string; count: number }>(sql`
+      await this.getStats();
+    } catch (error) {
+      // Silent failure - cache will just be stale
+    }
+  }
+
+  async getStats() {
+    // ALWAYS return cache immediately if available (even if stale) - never block the API
+    if (this.statsCache) {
+      // Trigger background refresh if cache is getting stale
+      if ((Date.now() - this.statsCache.timestamp) > this.STATS_CACHE_TTL && !this.statsQueryInProgress) {
+        this.refreshStatsInBackground();
+      }
+      return this.statsCache.data;
+    }
+
+    // No cache yet - try Redis counters first (fast)
+    const { redisQueue } = await import("./services/redis-queue");
+    const redisCounts = await redisQueue.getRecordCounts();
+    
+    if (Object.keys(redisCounts).length > 0) {
+      const data = {
+        totalUsers: redisCounts.users || 0,
+        totalPosts: redisCounts.posts || 0,
+        totalLikes: redisCounts.likes || 0,
+        totalReposts: redisCounts.reposts || 0,
+        totalFollows: redisCounts.follows || 0,
+        totalBlocks: redisCounts.blocks || 0,
+      };
+      // Cache it
+      this.statsCache = { data, timestamp: Date.now() };
+      return data;
+    }
+
+    // No Redis counts - fallback to PostgreSQL query (only on first load)
+    if (this.statsQueryInProgress) {
+      // Another request is already fetching, return zeros
+      return {
+        totalUsers: 0,
+        totalPosts: 0,
+        totalLikes: 0,
+        totalReposts: 0,
+        totalFollows: 0,
+        totalBlocks: 0,
+      };
+    }
+
+    this.statsQueryInProgress = true;
+
+    try {
+      // Add 5 second timeout to prevent blocking
+      const statsPromise = db.execute<{ schemaname: string; relname: string; count: number }>(sql`
         SELECT 
           schemaname,
           relname,
@@ -1683,6 +1742,12 @@ export class DatabaseStorage implements IStorage {
         WHERE schemaname = 'public'
           AND relname IN ('users', 'posts', 'likes', 'reposts', 'follows', 'blocks')
       `);
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Stats query timeout")), 5000);
+      });
+
+      const result = await Promise.race([statsPromise, timeoutPromise]);
 
       const stats: Record<string, number> = {};
       result.rows.forEach((row: any) => {
@@ -1700,9 +1765,13 @@ export class DatabaseStorage implements IStorage {
 
       // Cache the result
       this.statsCache = { data, timestamp: Date.now() };
+      this.statsQueryInProgress = false;
       
       return data;
     } catch (error) {
+      this.statsQueryInProgress = false;
+      console.error("[STORAGE] Error getting stats:", error);
+      
       // If query times out or fails, return cached data if available, otherwise zeros
       if (this.statsCache) {
         return this.statsCache.data;

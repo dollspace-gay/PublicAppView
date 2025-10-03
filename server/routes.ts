@@ -15,6 +15,8 @@ import { moderationService } from "./services/moderation";
 import { z } from "zod";
 import { logCollector } from "./services/log-collector";
 import { schemaIntrospectionService } from "./services/schema-introspection";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -53,6 +55,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Initialize Redis pub/sub for event broadcasting across all workers
   await redisQueue.initializePubSub();
+  
+  // Initialize Redis stat counters from database (one-time sync for fast lookups)
+  const existingCounts = await redisQueue.getRecordCounts();
+  const hasExistingCounts = Object.keys(existingCounts).length > 0;
+  
+  if (!hasExistingCounts) {
+    try {
+      console.log("[REDIS] Initializing record counters from database (may take a moment)...");
+      const stats = await db.execute(sql`
+        SELECT 
+          (SELECT COUNT(*)::text FROM users) as users,
+          (SELECT COUNT(*)::text FROM posts) as posts,
+          (SELECT COUNT(*)::text FROM likes) as likes,
+          (SELECT COUNT(*)::text FROM reposts) as reposts,
+          (SELECT COUNT(*)::text FROM follows) as follows,
+          (SELECT COUNT(*)::text FROM blocks) as blocks
+      `);
+      
+      if (stats.rows.length > 0) {
+        const row: any = stats.rows[0];
+        await Promise.all([
+          redisQueue.incrementRecordCount('users', parseInt(row.users || '0')),
+          redisQueue.incrementRecordCount('posts', parseInt(row.posts || '0')),
+          redisQueue.incrementRecordCount('likes', parseInt(row.likes || '0')),
+          redisQueue.incrementRecordCount('reposts', parseInt(row.reposts || '0')),
+          redisQueue.incrementRecordCount('follows', parseInt(row.follows || '0')),
+          redisQueue.incrementRecordCount('blocks', parseInt(row.blocks || '0')),
+        ]);
+        console.log("[REDIS] Initialized record counters:", row);
+      }
+    } catch (error) {
+      console.error("[REDIS] Failed to initialize record counters:", error);
+    }
+  } else {
+    console.log("[REDIS] Record counters already initialized");
+  }
   
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
