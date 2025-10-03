@@ -644,12 +644,22 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
+    // Check if parent list exists before attempting insert (prevents FK errors in logs)
+    const parentList = await storage.getList(record.list);
+    if (!parentList) {
+      // Queue the list item to be processed when the list arrives
+      this.enqueuePendingListItem(record.list, {
+        payload: listItem,
+        enqueuedAt: Date.now(),
+      });
+      return;
+    }
+
     try {
       await storage.createListItem(listItem);
     } catch (error: any) {
-      // Check if it's a FK constraint error (parent list doesn't exist yet)
+      // Fallback: if FK error still happens (race condition), queue it
       if (error.code === '23503') {
-        // Queue the list item to be processed when the list arrives
         this.enqueuePendingListItem(record.list, {
           payload: listItem,
           enqueuedAt: Date.now(),

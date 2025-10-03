@@ -70,6 +70,184 @@ npm run dev
 
 The server starts on port 5000 with the dashboard at http://localhost:5000
 
+## Docker Installation
+
+### Building the Docker Image
+
+1. **Create a Dockerfile**
+```dockerfile
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including devDependencies for build)
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --production
+
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/client/dist ./client/dist
+
+# Expose port
+EXPOSE 5000
+
+# Start the application
+CMD ["npm", "start"]
+```
+
+2. **Build the Image**
+```bash
+docker build -t at-protocol-appview .
+```
+
+### Running with Docker
+
+**Basic Run**
+```bash
+docker run -d \
+  --name appview \
+  -p 5000:5000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/dbname" \
+  -e SESSION_SECRET="your-secure-secret" \
+  -e NODE_ENV="production" \
+  at-protocol-appview
+```
+
+**With Docker Compose**
+
+Create `docker-compose.yml`:
+```yaml
+version: '3.8'
+
+services:
+  appview:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://user:pass@postgres:5432/appview
+      SESSION_SECRET: ${SESSION_SECRET}
+      NODE_ENV: production
+      APPVIEW_DID: did:web:your-domain.com
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: appview
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+```
+
+Then run:
+```bash
+docker-compose up -d
+```
+
+### Monitoring Docker Container
+
+**View Container Status**
+```bash
+# Check if container is running
+docker ps | grep appview
+
+# View detailed container info
+docker inspect appview
+
+# Check resource usage
+docker stats appview
+```
+
+**View Logs**
+```bash
+# Follow logs in real-time
+docker logs -f appview
+
+# View last 100 lines
+docker logs --tail 100 appview
+
+# View logs with timestamps
+docker logs -t appview
+```
+
+**Health Checks**
+```bash
+# Check health status
+docker inspect --format='{{.State.Health.Status}}' appview
+
+# Manual health check
+curl http://localhost:5000/health
+curl http://localhost:5000/ready
+
+# View health check logs
+docker inspect --format='{{json .State.Health}}' appview | jq
+```
+
+**Performance Monitoring**
+```bash
+# Real-time stats (CPU, memory, network)
+docker stats appview --no-stream
+
+# Export metrics
+docker stats appview --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
+```
+
+**Container Management**
+```bash
+# Stop container
+docker stop appview
+
+# Start container
+docker start appview
+
+# Restart container
+docker restart appview
+
+# Remove container
+docker rm -f appview
+```
+
+**Entering the Container**
+```bash
+# Open shell in running container
+docker exec -it appview sh
+
+# Run commands in container
+docker exec appview npm run db:push
+```
+
 ## Environment Variables
 
 ### Required

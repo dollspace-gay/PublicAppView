@@ -1673,9 +1673,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     try {
-      // Set statement timeout to 2 seconds
-      await db.execute(sql`SET LOCAL statement_timeout = 2000`);
-      
+      // Query pg_stat_user_tables for row counts (fast estimate)
       const result = await db.execute<{ schemaname: string; relname: string; count: number }>(sql`
         SELECT 
           schemaname,
