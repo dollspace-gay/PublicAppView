@@ -1255,7 +1255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/ready", async (_req, res) => {
     try {
       const { pool } = await import("./db");
-      const firehoseStatus = firehoseClient.getStatus();
+      const redisFirehoseStatus = await redisQueue.getFirehoseStatus();
       const systemHealth = await metricsService.getSystemHealth();
       
       // Check database connectivity
@@ -1267,9 +1267,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[HEALTH] Database check failed:", dbError);
       }
       
+      const firehoseConnected = redisFirehoseStatus?.connected ?? false;
       const memoryPercent = systemHealth.memory;
       const isReady = 
-        firehoseStatus.isConnected && 
+        firehoseConnected && 
         dbHealthy &&
         memoryPercent < 95;
       
@@ -1278,12 +1279,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "not ready",
           timestamp: new Date().toISOString(),
           checks: {
-            firehose: firehoseStatus.isConnected ? "connected" : "disconnected",
+            firehose: firehoseConnected ? "connected" : "disconnected",
             database: dbHealthy ? "healthy" : "unhealthy",
             memory: memoryPercent < 95 ? "ok" : "critical",
           },
           details: {
-            firehose: firehoseStatus,
+            firehose: redisFirehoseStatus || { connected: false, url: "unknown", currentCursor: null },
             memory: { percentUsed: memoryPercent },
           }
         });

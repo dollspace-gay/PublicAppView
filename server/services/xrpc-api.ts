@@ -48,7 +48,11 @@ const queryLabelsSchema = z.object({
 });
 
 const createReportSchema = z.object({
-  reasonType: z.enum(["spam", "violation", "misleading", "sexual", "rude", "other"]),
+  reasonType: z.string().transform(val => {
+    // Strip AT Protocol prefix if present (e.g., "com.atproto.moderation.defs#reasonSpam" -> "spam")
+    const match = val.match(/^com\.atproto\.moderation\.defs#reason(.+)$/);
+    return match ? match[1].toLowerCase() : val;
+  }).pipe(z.enum(["spam", "violation", "misleading", "sexual", "rude", "other"])),
   reason: z.string().optional(),
   subject: z.object({
     $type: z.string(),
