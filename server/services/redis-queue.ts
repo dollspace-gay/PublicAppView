@@ -438,10 +438,62 @@ class RedisQueue {
     }
   }
 
+  // Redis pub/sub for broadcasting events to all workers
+  private subscriber: Redis | null = null;
+  private eventCallbacks: Array<(event: any) => void> = [];
+
+  async initializePubSub() {
+    if (this.subscriber) {
+      return;
+    }
+
+    // Create separate Redis client for pub/sub
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    this.subscriber = new Redis(redisUrl);
+
+    this.subscriber.on("message", (_channel: string, message: string) => {
+      try {
+        const event = JSON.parse(message);
+        // Broadcast to all registered callbacks
+        this.eventCallbacks.forEach(callback => callback(event));
+      } catch (error) {
+        console.error("[REDIS] Error parsing pub/sub message:", error);
+      }
+    });
+
+    await this.subscriber.subscribe("firehose:events:broadcast");
+    console.log("[REDIS] Subscribed to event broadcasts");
+  }
+
+  async publishEvent(event: any) {
+    if (!this.redis || !this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.redis.publish("firehose:events:broadcast", JSON.stringify(event));
+    } catch (error) {
+      console.error("[REDIS] Error publishing event:", error);
+    }
+  }
+
+  onEventBroadcast(callback: (event: any) => void) {
+    this.eventCallbacks.push(callback);
+  }
+
+  offEventBroadcast(callback: (event: any) => void) {
+    this.eventCallbacks = this.eventCallbacks.filter(cb => cb !== callback);
+  }
+
   async disconnect() {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
       this.flushInterval = null;
+    }
+    
+    if (this.subscriber) {
+      await this.subscriber.quit();
+      this.subscriber = null;
     }
     
     if (this.redis) {

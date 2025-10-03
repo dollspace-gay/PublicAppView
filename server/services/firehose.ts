@@ -125,6 +125,12 @@ export class FirehoseClient {
       console.error("[FIREHOSE] Error storing events in Redis:", err);
     });
 
+    // Publish to Redis for cluster-wide broadcasting
+    redisQueue.publishEvent(event).catch(err => {
+      console.error("[FIREHOSE] Error publishing event to Redis:", err);
+    });
+
+    // Also call local callbacks
     this.eventCallbacks.forEach(callback => {
       try {
         callback(event);

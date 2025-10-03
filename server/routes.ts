@@ -51,6 +51,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const { redisQueue } = await import("./services/redis-queue");
   await redisQueue.connect();
   
+  // Initialize Redis pub/sub for event broadcasting across all workers
+  await redisQueue.initializePubSub();
+  
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
@@ -1747,7 +1750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Send initial connection message
     res.write(`data: ${JSON.stringify({ type: "connected", message: "Event stream connected" })}\n\n`);
 
-    // Subscribe to firehose events
+    // Subscribe to Redis event broadcasts (works on ALL workers)
     const eventHandler = (event: any) => {
       if (res.writable) {
         try {
@@ -1758,7 +1761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     };
 
-    firehoseClient.onEvent(eventHandler);
+    redisQueue.onEventBroadcast(eventHandler);
 
     // Send keepalive every 15 seconds
     const keepaliveInterval = setInterval(() => {
@@ -1808,7 +1811,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[SSE] Client disconnected from event stream");
       clearInterval(keepaliveInterval);
       clearInterval(metricsInterval);
-      firehoseClient.offEvent(eventHandler);
+      redisQueue.offEventBroadcast(eventHandler);
       res.end();
     });
   });
