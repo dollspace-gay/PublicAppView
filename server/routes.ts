@@ -1856,18 +1856,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Client responded to ping, connection is alive
     });
 
-    // Send welcome message after a tiny delay to ensure connection is fully established
-    setTimeout(() => {
-      if (ws.readyState === WebSocket.OPEN && connectionAlive) {
-        try {
-          ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
-          console.log("[WS] Welcome message sent");
-        } catch (error) {
-          console.error("[WS] Error sending welcome message:", error);
-          ws.close();
-        }
-      }
-    }, 100);
+    // Send welcome message immediately
+    try {
+      ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
+      console.log("[WS] Welcome message sent to", req.headers.origin || req.headers.host);
+    } catch (error) {
+      console.error("[WS] Error sending welcome message:", error);
+      ws.close();
+    }
   });
 
   // Subscribe firehose events to broadcast to all WebSocket clients
