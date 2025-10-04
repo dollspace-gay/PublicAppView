@@ -213,7 +213,6 @@ nslookup appview.yourdomain.com
 # 2. Configure secrets
 export APPVIEW_DID=did:web:appview.example.com
 export SESSION_SECRET=$(openssl rand -base64 32)
-export DASHBOARD_PASSWORD=your-secure-password
 
 # 3. Setup DNS
 # Point appview.example.com → your-server-ip

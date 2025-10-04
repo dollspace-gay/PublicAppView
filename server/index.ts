@@ -43,6 +43,22 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false }));
 
+// CORS configuration - Allow all origins for AppView API
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, atproto-accept-labelers');
+  res.setHeader('Access-Control-Expose-Headers', 'atproto-content-labelers, atproto-repo-rev');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+});
+
 // Logging configuration
 const MAX_LOG_LINE_LENGTH = 80;
 const MAX_LOG_LINE_LENGTH_TRUNCATED = 79;

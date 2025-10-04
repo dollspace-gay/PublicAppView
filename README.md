@@ -36,6 +36,30 @@ A production-ready, self-hostable AT Protocol "App View" service that indexes re
 - **API Documentation**: Live endpoint listing with performance metrics
 - **Logs & Analytics**: Real-time log viewer with filtering
 
+## Design Philosophy: Scale Down, Not Just Up
+
+**True decentralization means scaling to fit your needs - whether that's a personal instance or a full network mirror.**
+
+Most current AppViews default to mirroring everything, but this creates centralized liability risks. This AppView takes a different approach with **configurable retention and backfill**:
+
+### Why Configurable Retention Matters
+
+- **Personal Instances**: Run an instance with just your circles' data (days or weeks, not years)
+- **Topical Communities**: A gaming community keeps 90 days of game-related posts, a news instance keeps 30
+- **Privacy by Design**: Data minimization isn't just good practice - you can't be compelled to hand over data you never stored
+- **Technical Defense**: Against authoritarian data seizure or legal overreach, the best defense is not having the data
+
+### Flexible Deployment Models
+
+Configure `BACKFILL_DAYS` and `DATA_RETENTION_DAYS` to match your use case:
+
+- **Zero-retention ephemeral** (0 days): Real-time only, no history
+- **Personal/community** (7-30 days): Recent activity for small groups  
+- **Topical archive** (90-180 days): Focused collections
+- **Full mirror** (0 = unlimited): Complete network history
+
+This isn't about choosing between centralized or decentralized - it's about **enabling distributed operation at any scale**. Run what you need, store what you want, minimize what you don't.
+
 ## Quick Start
 
 ### Prerequisites
@@ -229,7 +253,6 @@ docker exec -it publicappview-app-1 sh
 - `NODE_ENV`: Environment mode (`development` or `production`)
 - `BACKFILL_DAYS`: Historical backfill in days (0=disabled, >0=backfill X days, default: `0`)
 - `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
-- `DASHBOARD_PASSWORD`: Optional password for dashboard authentication
 - `DB_POOL_SIZE`: Database connection pool size (default: `32`)
 - `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)
 
