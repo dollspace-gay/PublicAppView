@@ -86,7 +86,9 @@ export class BackfillService {
         console.log(`[BACKFILL] Resuming from cursor: ${savedProgress.currentCursor}`);
       }
 
+      console.log("[BACKFILL] About to call runBackfill()...");
       await this.runBackfill();
+      console.log("[BACKFILL] runBackfill() completed");
     } catch (error) {
       console.error("[BACKFILL] Error during backfill:", error);
       logCollector.error("Backfill error", { error });
@@ -109,6 +111,7 @@ export class BackfillService {
       }
 
       this.client = new Firehose(config);
+      console.log("[BACKFILL] Firehose client created, attempting to connect...");
 
       this.client.on("open", () => {
         console.log("[BACKFILL] Connected to relay for backfill");

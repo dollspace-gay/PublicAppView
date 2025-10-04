@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -139,6 +140,19 @@ app.use((req, res, next) => {
     // Initialize data pruning service (if enabled)
     import("./services/data-pruning").then(({ dataPruningService }) => {
       // Service auto-initializes in its constructor
+    });
+    
+    // Initialize backfill service (if enabled)
+    import("./services/backfill").then(({ backfillService }) => {
+      const backfillDays = parseInt(process.env.BACKFILL_DAYS || "0");
+      if (backfillDays > 0) {
+        console.log(`[BACKFILL] Starting ${backfillDays}-day historical backfill...`);
+        backfillService.start().catch(err => {
+          console.error("[BACKFILL] Failed to start:", err);
+        });
+      } else {
+        console.log("[BACKFILL] Disabled (BACKFILL_DAYS=0 or not set)");
+      }
     });
   });
 })();
