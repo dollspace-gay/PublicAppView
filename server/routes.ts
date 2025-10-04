@@ -1214,6 +1214,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Backfill test endpoint - backfill a single repository
+  app.post("/api/backfill/repo", async (req, res) => {
+    try {
+      const schema = z.object({
+        did: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      const { repoBackfillService } = await import("./services/repo-backfill");
+      
+      console.log(`[API] Starting repo backfill for ${data.did}...`);
+      // Skip date check for test endpoint to allow testing even when BACKFILL_DAYS=0
+      await repoBackfillService.backfillSingleRepo(data.did, true);
+      
+      const progress = repoBackfillService.getProgress();
+      res.json({ 
+        success: true, 
+        did: data.did,
+        progress 
+      });
+    } catch (error) {
+      console.error("[API] Repo backfill error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to backfill repo" 
+      });
+    }
+  });
+
   // XRPC API Endpoints
   app.get("/xrpc/app.bsky.feed.getTimeline", xrpcApi.getTimeline.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getAuthorFeed", xrpcApi.getAuthorFeed.bind(xrpcApi));

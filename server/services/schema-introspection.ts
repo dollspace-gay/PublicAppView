@@ -1,4 +1,13 @@
-import { pool } from "../db";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
+
+const databaseUrl = process.env.DATABASE_URL!;
+
+// Configure WebSocket for Neon (required for serverless)
+neonConfig.webSocketConstructor = ws;
+
+// Create a dedicated pool for schema introspection (avoids Drizzle execute() issues with Neon)
+const schemaPool = new Pool({ connectionString: databaseUrl, max: 1 });
 
 export interface TableField {
   name: string;
@@ -125,15 +134,13 @@ class SchemaIntrospectionService {
     if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.CACHE_TTL) {
       return this.cache.data;
     }
-
-    const client = await pool.connect();
     
     try {
       // Get all tables in the public schema
-      const tablesResult = await client.query(`
+      const tablesResult = await schemaPool.query(`
         SELECT 
           t.table_name,
-          pg_stat.n_live_tup as row_estimate,
+          COALESCE(pg_stat.n_live_tup, 0) as row_estimate,
           obj_description((quote_ident(t.table_schema) || '.' || quote_ident(t.table_name))::regclass) as table_comment
         FROM information_schema.tables t
         LEFT JOIN pg_stat_user_tables pg_stat 
@@ -149,7 +156,7 @@ class SchemaIntrospectionService {
         const tableName = tableRow.table_name;
         
         // Get columns
-        const columnsResult = await client.query(`
+        const columnsResult = await schemaPool.query(`
           SELECT 
             c.column_name,
             c.data_type,
@@ -171,7 +178,7 @@ class SchemaIntrospectionService {
         }));
 
         // Get indexes
-        const indexesResult = await client.query(`
+        const indexesResult = await schemaPool.query(`
           SELECT 
             i.indexname,
             i.indexdef,
@@ -209,11 +216,11 @@ class SchemaIntrospectionService {
         });
 
         // Get row count estimate (fast)
-        const rowEstimate = tableRow.row_estimate || 0;
+        const rowEstimate = Number(tableRow.row_estimate) || 0;
         
         schemas.push({
           name: tableName,
-          description: tableRow.table_comment || tableDescriptions[tableName] || `${tableName} table`,
+          description: (tableRow.table_comment as string) || tableDescriptions[tableName] || `${tableName} table`,
           rows: rowEstimate.toLocaleString(),
           color: this.getColorForTable(tableName),
           fields,
@@ -228,8 +235,9 @@ class SchemaIntrospectionService {
       };
 
       return schemas;
-    } finally {
-      client.release();
+    } catch (error) {
+      console.error('[SCHEMA] Failed to introspect database schema:', error);
+      throw error;
     }
   }
 
