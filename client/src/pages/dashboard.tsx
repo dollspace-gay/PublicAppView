@@ -11,7 +11,11 @@ import { LogsPanel } from "@/components/logs-panel";
 import InstancePolicyPage from "@/pages/instance-policy";
 import AdminModerationPage from "@/pages/admin-moderation";
 import UserPanel from "@/pages/user-panel";
+import LoginPage from "@/pages/login";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ShieldAlert } from "lucide-react";
 
 interface MetricsData {
   eventsProcessed: number;
@@ -44,6 +48,12 @@ interface MetricsData {
 
 export default function Dashboard() {
   const [location] = useLocation();
+  
+  const { data: session } = useQuery<{ isAdmin?: boolean }>({
+    queryKey: ['/api/auth/session'],
+    retry: false,
+  });
+  
   const [metrics, setMetrics] = useState<MetricsData>({
     eventsProcessed: 0,
     dbRecords: 0,
@@ -309,8 +319,34 @@ export default function Dashboard() {
           <InstancePolicyPage />
         )}
 
+        {location === "/login" && (
+          <LoginPage />
+        )}
+
         {location === "/admin/moderation" && (
-          <AdminModerationPage />
+          session?.isAdmin ? (
+            <AdminModerationPage />
+          ) : (
+            <section className="p-8">
+              <Card className="border-destructive/50">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-destructive">
+                    <ShieldAlert className="h-6 w-6" />
+                    Access Denied
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground">
+                    You do not have permission to access the Admin Moderation panel. 
+                    This area is restricted to authorized administrators only.
+                  </p>
+                  <p className="text-muted-foreground mt-4">
+                    If you believe you should have access, please contact your instance administrator.
+                  </p>
+                </CardContent>
+              </Card>
+            </section>
+          )
         )}
 
         {location === "/user/panel" && (

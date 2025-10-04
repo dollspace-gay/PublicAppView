@@ -89,10 +89,6 @@ export interface IStorage {
   updateSession(id: string, data: Partial<Pick<InsertSession, 'accessToken' | 'refreshToken' | 'expiresAt'>>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<void>;
   deleteExpiredSessions(): Promise<void>;
-  
-  // OAuth keyset operations
-  getOAuthKeyset(): Promise<any | undefined>;
-  saveOAuthKeyset(keys: any): Promise<void>;
 
   // OAuth state operations
   saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void>;
@@ -990,30 +986,6 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpiredSessions(): Promise<void> {
     await this.db.delete(sessions).where(sql`${sessions.expiresAt} < NOW()`);
-  }
-  
-  async getOAuthKeyset(): Promise<any | undefined> {
-    const { oauthKeyset } = await import('@shared/schema');
-    const [keyset] = await this.db.select().from(oauthKeyset).where(eq(oauthKeyset.id, 'default'));
-    return keyset ? keyset.keys : undefined;
-  }
-  
-  async saveOAuthKeyset(keys: any): Promise<void> {
-    const { oauthKeyset } = await import('@shared/schema');
-    await this.db
-      .insert(oauthKeyset)
-      .values({
-        id: 'default',
-        keys,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: oauthKeyset.id,
-        set: {
-          keys,
-          updatedAt: new Date(),
-        },
-      });
   }
 
   async saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void> {

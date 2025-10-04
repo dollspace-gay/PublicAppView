@@ -179,14 +179,6 @@ export const sessions = pgTable("sessions", {
   expiresIdx: index("idx_sessions_expires_at").on(table.expiresAt),
 }));
 
-// OAuth keyset table - for persisting OAuth signing keys across restarts
-export const oauthKeyset = pgTable("oauth_keyset", {
-  id: varchar("id", { length: 50 }).primaryKey().default('default'),
-  keys: jsonb("keys").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
 // OAuth states table - for persisting OAuth state parameters across restarts
 export const oauthStates = pgTable("oauth_states", {
   state: varchar("state", { length: 255 }).primaryKey(),

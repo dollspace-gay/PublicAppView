@@ -433,7 +433,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const user = await storage.getUser(session.userDid);
-      res.json({ session, user });
+      
+      const { adminAuthService } = await import("./services/admin-authorization");
+      const isAdmin = await adminAuthService.isAdmin(session.userDid);
+      
+      res.json({ session, user, isAdmin });
     } catch (error) {
       res.status(500).json({ error: "Failed to get session" });
     }

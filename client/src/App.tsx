@@ -16,6 +16,7 @@ function Router() {
       <Route path="/lexicons" component={Dashboard} />
       <Route path="/logs" component={Dashboard} />
       <Route path="/policy" component={Dashboard} />
+      <Route path="/login" component={Dashboard} />
       <Route path="/admin/moderation" component={Dashboard} />
       <Route path="/user/panel" component={Dashboard} />
       <Route component={NotFound} />

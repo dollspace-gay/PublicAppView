@@ -1,6 +1,9 @@
 import { Link, useLocation } from "wouter";
-import { Activity, Database, Terminal, Settings, FileText, Zap, BookOpen, Shield, AlertTriangle, User } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Activity, Database, Terminal, Settings, FileText, Zap, BookOpen, Shield, AlertTriangle, User, LogIn, LogOut } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface InstancePolicy {
   enabled: boolean;
@@ -21,12 +24,38 @@ interface InstancePolicy {
 
 export function Sidebar() {
   const [location] = useLocation();
+  const { toast } = useToast();
 
   const { data: policy } = useQuery<InstancePolicy>({
     queryKey: ['/api/instance/policy'],
   });
 
-  const navItems = [
+  const { data: session, isLoading: isSessionLoading } = useQuery<{ isAdmin?: boolean }>({
+    queryKey: ['/api/auth/session'],
+    retry: false,
+  });
+
+  const isAuthenticated = !isSessionLoading && session !== undefined;
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/auth/logout', {});
+      return await res.json();
+    },
+    onSuccess: () => {
+      localStorage.removeItem("dashboard_token");
+      window.location.href = '/';
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Logout Failed",
+        description: error.message || "Failed to logout",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const allNavItems = [
     { path: "/", icon: Activity, label: "Overview" },
     { path: "/firehose", icon: Zap, label: "Firehose Monitor" },
     { path: "/database", icon: Database, label: "Database Schema" },
@@ -34,9 +63,17 @@ export function Sidebar() {
     { path: "/lexicons", icon: BookOpen, label: "Lexicon Validator" },
     { path: "/logs", icon: FileText, label: "Logs & Analytics" },
     { path: "/policy", icon: Shield, label: "Instance Policy" },
-    { path: "/admin/moderation", icon: Shield, label: "Admin Moderation" },
-    { path: "/user/panel", icon: User, label: "User Data Panel" },
+    { path: "/login", icon: LogIn, label: "Login", authHidden: true },
+    { path: "/admin/moderation", icon: Shield, label: "Admin Moderation", adminOnly: true, requiresAuth: true },
+    { path: "/user/panel", icon: User, label: "User Data Panel", requiresAuth: true },
   ];
+
+  const navItems = allNavItems.filter(item => {
+    if (item.authHidden && isAuthenticated) return false;
+    if (item.requiresAuth && !isAuthenticated) return false;
+    if (item.adminOnly && !session?.isAdmin) return false;
+    return true;
+  });
 
   // Check if using default/unedited config
   const isDefaultConfig = policy?.legalContact === 'legal@example.com' || 
@@ -87,7 +124,20 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-border bg-muted/30">
+      <div className="p-4 border-t border-border bg-muted/30 space-y-3">
+        {isAuthenticated && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => logoutMutation.mutate()}
+            disabled={logoutMutation.isPending}
+            className="w-full"
+            data-testid="button-sidebar-logout"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            {logoutMutation.isPending ? "Logging out..." : "Logout"}
+          </Button>
+        )}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span className="font-mono">Status: Active</span>
           <div className="flex items-center space-x-1">

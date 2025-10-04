@@ -136,22 +136,6 @@ class DatabaseSessionStore {
   }
 }
 
-async function generateKeyset() {
-  const keys = [];
-  const keyPems = [];
-  for (let i = 1; i <= 3; i++) {
-    const { privateKey } = generateKeyPairSync('ec', {
-      namedCurve: 'P-256',
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
-    const kid = `key${i}`;
-    keys.push(await JoseKey.fromImportable(privateKey, kid));
-    keyPems.push({ privateKey, kid });
-  }
-  return { keys, keyPems };
-}
-
 export class OAuthService {
   private client: NodeOAuthClient | null = null;
   private initPromise: Promise<void>;
@@ -162,40 +146,25 @@ export class OAuthService {
 
   private async initialize() {
     try {
-      let keyset: any[];
       const keysetPath = process.env.OAUTH_KEYSET_PATH;
       
-      if (keysetPath) {
-        console.log(`[OAUTH] Loading keyset from file: ${keysetPath}`);
-        const fs = await import('fs/promises');
-        const keysetData = JSON.parse(await fs.readFile(keysetPath, 'utf-8'));
-        
-        if (!keysetData.privateKeyPem) {
-          throw new Error('Invalid oauth-keyset.json: missing privateKeyPem');
-        }
-        
-        keyset = [await JoseKey.fromImportable(keysetData.privateKeyPem, 'oauth-key')];
-        console.log('[OAUTH] Loaded keyset from file successfully');
-      } else {
-        console.log('[OAUTH] No OAUTH_KEYSET_PATH set, using database storage (development mode)');
-        const { storage } = await import('../storage');
-        
-        const savedKeys = await storage.getOAuthKeyset();
-        
-        if (savedKeys && Array.isArray(savedKeys) && savedKeys.length > 0) {
-          console.log('[OAUTH] Loading existing keyset from database');
-          keyset = await Promise.all(
-            savedKeys.map((keyData: any) => JoseKey.fromImportable(keyData.privateKey, keyData.kid))
-          );
-        } else {
-          console.log('[OAUTH] Generating new keyset and saving to database');
-          const { keys, keyPems } = await generateKeyset();
-          keyset = keys;
-          
-          await storage.saveOAuthKeyset(keyPems);
-          console.log('[OAUTH] Saved new keyset to database');
-        }
+      if (!keysetPath) {
+        throw new Error(
+          'OAUTH_KEYSET_PATH environment variable is required. ' +
+          'Generate keys using scripts/setup-oauth-keys.sh and mount oauth-keyset.json'
+        );
       }
+      
+      console.log(`[OAUTH] Loading keyset from file: ${keysetPath}`);
+      const fs = await import('fs/promises');
+      const keysetData = JSON.parse(await fs.readFile(keysetPath, 'utf-8'));
+      
+      if (!keysetData.privateKeyPem) {
+        throw new Error('Invalid oauth-keyset.json: missing privateKeyPem');
+      }
+      
+      const keyset = [await JoseKey.fromImportable(keysetData.privateKeyPem, 'oauth-key')];
+      console.log('[OAUTH] Loaded keyset from file successfully');
       
       const sessionStore = new DatabaseSessionStore();
       
