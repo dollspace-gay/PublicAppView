@@ -1523,6 +1523,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Osprey status endpoint (check if Osprey integration is enabled and healthy)
+  app.get("/api/osprey/status", async (_req, res) => {
+    try {
+      const ospreyEnabled = process.env.OSPREY_ENABLED === 'true';
+      
+      if (!ospreyEnabled) {
+        return res.json({
+          enabled: false,
+          detected: false,
+          message: "Osprey integration not enabled"
+        });
+      }
+
+      // Check both bridge and label-effector health
+      const bridgeHost = process.env.OSPREY_BRIDGE_HOST || 'osprey-bridge';
+      const bridgePort = process.env.OSPREY_BRIDGE_PORT || '3001';
+      const effectorHost = process.env.LABEL_EFFECTOR_HOST || 'label-effector';
+      const effectorPort = process.env.LABEL_EFFECTOR_PORT || '3002';
+      
+      const checkService = async (host: string, port: string, serviceName: string) => {
+        try {
+          const response = await fetch(`http://${host}:${port}/health`, {
+            signal: AbortSignal.timeout(5000)
+          });
+          
+          if (response.ok) {
+            return await response.json();
+          } else {
+            return {
+              status: 'unhealthy',
+              error: `${serviceName} returned status ${response.status}`,
+            };
+          }
+        } catch (error) {
+          return {
+            status: 'unhealthy',
+            error: error instanceof Error ? error.message : `Failed to connect to ${serviceName}`,
+          };
+        }
+      };
+
+      const [bridgeHealth, effectorHealth] = await Promise.all([
+        checkService(bridgeHost, bridgePort, 'Bridge'),
+        checkService(effectorHost, effectorPort, 'Label Effector'),
+      ]);
+
+      const allHealthy = bridgeHealth.status === 'healthy' && effectorHealth.status === 'healthy';
+
+      return res.json({
+        enabled: true,
+        healthy: allHealthy,
+        bridge: {
+          healthy: bridgeHealth.status === 'healthy',
+          adapter: bridgeHealth.adapter,
+          kafka: bridgeHealth.kafka,
+          metrics: bridgeHealth.metrics,
+          error: bridgeHealth.error,
+        },
+        effector: {
+          healthy: effectorHealth.status === 'healthy',
+          kafka: effectorHealth.kafka,
+          labels: effectorHealth.labels,
+          database: effectorHealth.database,
+          error: effectorHealth.error,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to check Osprey status" });
+    }
+  });
+
   // Apply instance label (admin only - requires auth)
   app.post("/api/instance/label", requireAuth, async (req: AuthRequest, res) => {
     try {

@@ -57,6 +57,7 @@ services:
       - NODE_ENV=production
       - OAUTH_KEYSET_PATH=/app/oauth-keyset.json
       - ADMIN_DIDS=did:plc:abc123xyz,admin.bsky.social,did:plc:def456uvw
+      - OSPREY_ENABLED=${OSPREY_ENABLED:-false}
     depends_on:
       redis:
         condition: service_healthy

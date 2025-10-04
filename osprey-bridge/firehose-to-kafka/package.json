@@ -1,0 +1,28 @@
+{
+  "name": "firehose-to-kafka",
+  "version": "1.0.0",
+  "description": "Bridge service that ingests AT Protocol firehose and publishes enriched events to Kafka for Osprey consumption",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "@skyware/firehose": "^0.0.16",
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.5",
+    "pg": "^8.11.3",
+    "ioredis": "^5.3.2",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/ws": "^8.5.10",
+    "@types/pg": "^8.10.9",
+    "@types/express": "^4.17.21",
+    "typescript": "^5.5.3",
+    "tsx": "^4.16.0"
+  }
+}

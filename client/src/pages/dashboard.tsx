@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/sidebar";
 import { MetricsCards } from "@/components/metrics-cards";
 import { SystemHealth } from "@/components/system-health";
 import { FirehoseStatus } from "@/components/firehose-status";
+import { OspreyStatus } from "@/components/osprey-status";
 import { EventStream } from "@/components/event-stream";
 import { DatabaseSchema } from "@/components/database-schema";
 import { ApiEndpoints } from "@/components/api-endpoints";
@@ -200,6 +201,10 @@ export default function Dashboard() {
                 errorRate={metrics.errorRate}
                 onReconnect={handleReconnect}
               />
+            </div>
+
+            <div className="grid grid-cols-1 mb-8">
+              <OspreyStatus />
             </div>
 
             <EventStream events={events} />
