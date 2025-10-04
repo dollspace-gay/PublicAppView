@@ -142,17 +142,25 @@ app.use((req, res, next) => {
       // Service auto-initializes in its constructor
     });
     
-    // Initialize backfill service (if enabled)
-    import("./services/backfill").then(({ backfillService }) => {
-      const backfillDays = parseInt(process.env.BACKFILL_DAYS || "0");
-      if (backfillDays > 0) {
-        console.log(`[BACKFILL] Starting ${backfillDays}-day historical backfill...`);
-        backfillService.start().catch(err => {
-          console.error("[BACKFILL] Failed to start:", err);
-        });
-      } else {
-        console.log("[BACKFILL] Disabled (BACKFILL_DAYS=0 or not set)");
-      }
-    });
+    // Initialize backfill service (if enabled) - ONLY on primary worker (worker 0)
+    // In PM2 cluster mode, pm_id indicates the worker number (0, 1, 2, ...)
+    const workerId = process.env.pm_id || process.env.NODE_APP_INSTANCE || "0";
+    const isPrimaryWorker = workerId === "0";
+    
+    if (isPrimaryWorker) {
+      import("./services/backfill").then(({ backfillService }) => {
+        const backfillDays = parseInt(process.env.BACKFILL_DAYS || "0");
+        if (backfillDays > 0) {
+          console.log(`[BACKFILL] Starting ${backfillDays}-day historical backfill...`);
+          backfillService.start().catch(err => {
+            console.error("[BACKFILL] Failed to start:", err);
+          });
+        } else {
+          console.log("[BACKFILL] Disabled (BACKFILL_DAYS=0 or not set)");
+        }
+      });
+    } else {
+      console.log(`[BACKFILL] Skipped on worker ${workerId} (only runs on primary worker)`);
+    }
   });
 })();
