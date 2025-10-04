@@ -1,13 +1,28 @@
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
+import { Pool as PgPool } from "pg";
 import ws from "ws";
 
 const databaseUrl = process.env.DATABASE_URL!;
 
-// Configure WebSocket for Neon (required for serverless)
-neonConfig.webSocketConstructor = ws;
+// Detect if we're using Neon (serverless) or standard PostgreSQL
+const isNeon = databaseUrl.includes('neon.tech') || 
+               databaseUrl.includes('@ep-') || 
+               databaseUrl.includes('neon.') ||
+               databaseUrl.includes('pooler.supabase.com');
 
-// Create a dedicated pool for schema introspection (avoids Drizzle execute() issues with Neon)
-const schemaPool = new Pool({ connectionString: databaseUrl, max: 1 });
+// Create appropriate pool based on database type
+let schemaPool: NeonPool | PgPool;
+
+if (isNeon) {
+  // Configure WebSocket for Neon (required for serverless)
+  neonConfig.webSocketConstructor = ws;
+  schemaPool = new NeonPool({ connectionString: databaseUrl, max: 1 });
+  console.log('[SCHEMA] Using Neon serverless pool for schema introspection');
+} else {
+  // Use standard PostgreSQL pool for traditional databases
+  schemaPool = new PgPool({ connectionString: databaseUrl, max: 1 });
+  console.log('[SCHEMA] Using standard PostgreSQL pool for schema introspection');
+}
 
 export interface TableField {
   name: string;

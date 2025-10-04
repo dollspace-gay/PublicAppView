@@ -1,12 +1,13 @@
 import { AtpAgent } from "@atproto/api";
 import { IdResolver } from "@atproto/identity";
 import { readCar, MemoryBlockstore } from "@atproto/repo";
-import { ReadableRepo } from "@atproto/repo/dist/readable-repo";
+import { ReadableRepo } from "@atproto/repo/dist/readable-repo.js";
 import { EventProcessor } from "./event-processor";
 import { createStorage, type IStorage } from "../storage";
 import { createDbPool } from "../db";
 import { logCollector } from "./log-collector";
 import { sanitizeObject } from "../utils/sanitize";
+import { createHash } from "crypto";
 
 // Create dedicated connection pool for repo backfill
 const repoBackfillPoolSize = parseInt(process.env.BACKFILL_DB_POOL_SIZE || '2');
@@ -18,6 +19,21 @@ const repoEventProcessor = new EventProcessor(repoBackfillStorage);
 
 // Create DID resolver for finding PDS endpoints
 const didResolver = new IdResolver();
+
+/**
+ * Generate a synthetic CID for backfilled records
+ * Creates a deterministic CID based on the record content
+ */
+function generateSyntheticCid(record: any, did: string, path: string): string {
+  // Create a deterministic hash from the record content
+  const recordString = JSON.stringify({ record, did, path });
+  const hash = createHash('sha256').update(recordString).digest();
+  
+  // Format as CID v1 (base32-encoded)
+  // CID format: bafyrei + base32(hash)
+  const base32Hash = hash.toString('base64url').substring(0, 32);
+  return `bafyrei${base32Hash}`;
+}
 
 export interface RepoBackfillProgress {
   lastProcessedDid: string | null;
@@ -237,55 +253,54 @@ export class RepoBackfillService {
         return;
       }
 
-      // Create a blockstore from the blocks
+      // Create a blockstore and load the repo
       const blockstore = new MemoryBlockstore(blocks);
-      
-      // Load the repo using the root CID
       const repo = await ReadableRepo.load(blockstore, roots[0]);
       
-      // Get all contents organized by collection
-      const contents = await repo.getContents();
-
-      console.log(`[REPO_BACKFILL] Extracted ${Object.keys(contents).length} collections from repo`);
-
-      // Extract and process records from contents
+      // Walk through all records in the MST - this gives us CIDs!
       let recordsProcessed = 0;
       let recordsSkipped = 0;
+      const collectionsFound = new Set<string>();
+      const collectionCounts = new Map<string, number>();
 
-      for (const [collection, records] of Object.entries(contents)) {
-        const collectionRecordCount = Object.keys(records).length;
-        console.log(`[REPO_BACKFILL] Processing collection ${collection} (${collectionRecordCount} records)...`);
-        
-        for (const [rkey, record] of Object.entries(records)) {
-          try {
-            // Check cutoff date if configured
-            if (this.cutoffDate && (record as any).createdAt) {
-              const recordDate = new Date((record as any).createdAt);
-              if (recordDate < this.cutoffDate) {
-                recordsSkipped++;
-                continue;
-              }
-            }
+      console.log(`[REPO_BACKFILL] Walking MST to extract records with CIDs...`);
 
-            // Process the record
-            const path = `${collection}/${rkey}`;
-            await this.processRecord(did, path, record);
-            recordsProcessed++;
+      // Use walkRecords() to traverse the MST and get records with their CIDs
+      for await (const { collection, rkey, cid, record } of repo.walkRecords()) {
+        try {
+          collectionsFound.add(collection);
+          collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
 
-            // Log progress every 100 records
-            if (recordsProcessed % 100 === 0) {
-              console.log(`[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`);
-            }
-
-          } catch (error: any) {
-            // Skip unparseable records
-            if (error?.code !== '23505') { // Ignore duplicates
-              console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
+          // Check cutoff date if configured
+          if (this.cutoffDate && (record as any).createdAt) {
+            const recordDate = new Date((record as any).createdAt);
+            if (recordDate < this.cutoffDate) {
+              recordsSkipped++;
+              continue;
             }
           }
+
+          // Process the record with its actual CID from the MST
+          const path = `${collection}/${rkey}`;
+          await this.processRecord(did, path, record, cid);
+          recordsProcessed++;
+
+          // Log progress every 100 records
+          if (recordsProcessed % 100 === 0) {
+            console.log(`[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`);
+          }
+
+        } catch (error: any) {
+          // Skip unparseable records
+          if (error?.code !== '23505') { // Ignore duplicates
+            console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
+          }
         }
-        
-        console.log(`[REPO_BACKFILL] ✓ Completed collection ${collection}`);
+      }
+
+      console.log(`[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`);
+      for (const [collection, count] of collectionCounts.entries()) {
+        console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
       }
 
       // Update progress
@@ -312,7 +327,7 @@ export class RepoBackfillService {
     }
   }
 
-  private async processRecord(did: string, path: string, record: any): Promise<void> {
+  private async processRecord(did: string, path: string, record: any, cid: any): Promise<void> {
     if (!path) return;
 
     // Sanitize record before processing
@@ -325,13 +340,16 @@ export class RepoBackfillService {
 
     if (!collection || !rkey) return;
 
-    // Create commit event structure
+    // Use real CID from MST, or generate synthetic CID as fallback
+    const finalCid = cid?.toString() || generateSyntheticCid(sanitized, did, path);
+
+    // Create commit event structure with CID
     const commitEvent = {
       repo: did,
       ops: [{
         action: 'create' as const,
         path: `${collection}/${rkey}`,
-        cid: null,
+        cid: finalCid,
         record: sanitized,
       }],
     };
