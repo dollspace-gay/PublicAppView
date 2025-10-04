@@ -175,6 +175,8 @@ export class BackfillService {
         service: this.relayUrl,
         unauthenticatedCommits: true, // Disable signature verification for faster backfill
         unauthenticatedHandles: true, // Disable handle verification for faster backfill
+        excludeIdentity: true, // Skip identity events - suspended accounts cause DID resolution failures
+        excludeAccount: false, // Keep account events to track suspensions
         handleEvent: async (evt) => {
           try {
             // Track all received events
@@ -223,12 +225,6 @@ export class BackfillService {
               };
               
               await backfillEventProcessor.processCommit(commitEvent);
-            } else if (evt.event === 'identity') {
-              // Process identity update
-              await backfillEventProcessor.processIdentity({
-                did: evt.did,
-                handle: evt.handle || evt.did,
-              });
             } else if (evt.event === 'account') {
               // Process account status change
               await backfillEventProcessor.processAccount({
@@ -270,23 +266,30 @@ export class BackfillService {
           }
         },
         onError: (err: any) => {
-          // Check if this is a DID resolution error (FirehoseParseError with AbortError)
-          const isDidResolutionError = err?.name === 'FirehoseParseError' && 
-                                       err?.cause?.name === 'AbortError';
+          // Check if this is a DID resolution timeout error
+          const errorName = err?.name || '';
+          const causeName = err?.cause?.name || err?.cause?.constructor?.name || '';
+          const isDidResolutionTimeout = errorName === 'FirehoseParseError' && 
+                                         (causeName === 'AbortError' || causeName === 'DOMException');
           
-          if (isDidResolutionError) {
-            // DID resolution failures are common during backfill of historical data
-            // Log but don't crash - these events may be outdated or DIDs may no longer exist
-            console.warn("[BACKFILL] Skipping event due to DID resolution timeout:", {
-              event: err?.event?.['$type'],
+          if (isDidResolutionTimeout) {
+            // DID resolution timeouts are expected during backfill of suspended/deleted accounts
+            // These events existed historically but the DIDs no longer resolve
+            console.warn(`[BACKFILL] Skipping event due to DID resolution timeout (seq: ${err?.event?.seq}):`, {
+              type: err?.event?.['$type'],
               did: err?.event?.did,
-              seq: err?.event?.seq
+              handle: err?.event?.handle,
+              causeName
             });
             // Don't reject - continue processing other events
           } else {
-            // Other errors should still stop the backfill
+            // Other errors should stop the backfill for investigation
             console.error("[BACKFILL] Fatal Firehose error:", err);
-            logCollector.error("Backfill firehose error", { error: err });
+            logCollector.error("Backfill firehose error", { 
+              error: err,
+              errorName,
+              causeName
+            });
             reject(err);
           }
         },
