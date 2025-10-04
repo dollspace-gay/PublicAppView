@@ -116,7 +116,7 @@ const getListFeedSchema = z.object({
 const getPostsSchema = z.object({
   uris: z.union([z.string(), z.array(z.string())]).transform(val => 
     typeof val === 'string' ? [val] : val
-  ),
+  ).pipe(z.array(z.string()).max(25, "Maximum 25 URIs allowed per AT Protocol spec")),
 });
 
 const getLikesSchema = z.object({
@@ -149,7 +149,7 @@ const getActorLikesSchema = z.object({
 const getProfilesSchema = z.object({
   actors: z.union([z.string(), z.array(z.string())]).transform(val => 
     typeof val === 'string' ? [val] : val
-  ),
+  ).pipe(z.array(z.string()).max(25, "Maximum 25 actors allowed per AT Protocol spec")),
 });
 
 const getSuggestionsSchema = z.object({
