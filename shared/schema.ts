@@ -187,6 +187,16 @@ export const oauthKeyset = pgTable("oauth_keyset", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// OAuth states table - for persisting OAuth state parameters across restarts
+export const oauthStates = pgTable("oauth_states", {
+  state: varchar("state", { length: 255 }).primaryKey(),
+  stateData: jsonb("state_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => ({
+  expiresAtIdx: index("idx_oauth_states_expires_at").on(table.expiresAt),
+}));
+
 // Authorized admins table - stores DIDs of users authorized to access admin panel
 export const authorizedAdmins = pgTable("authorized_admins", {
   did: varchar("did", { length: 255 }).primaryKey(),

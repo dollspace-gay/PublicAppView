@@ -94,6 +94,12 @@ export interface IStorage {
   getOAuthKeyset(): Promise<any | undefined>;
   saveOAuthKeyset(keys: any): Promise<void>;
 
+  // OAuth state operations
+  saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void>;
+  getOAuthState(state: string): Promise<any | undefined>;
+  deleteOAuthState(state: string): Promise<void>;
+  deleteExpiredOAuthStates(): Promise<void>;
+
   // User settings operations
   getUserSettings(userDid: string): Promise<UserSettings | undefined>;
   createUserSettings(settings: InsertUserSettings): Promise<UserSettings>;
@@ -1008,6 +1014,40 @@ export class DatabaseStorage implements IStorage {
           updatedAt: new Date(),
         },
       });
+  }
+
+  async saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void> {
+    const { oauthStates } = await import('@shared/schema');
+    await this.db
+      .insert(oauthStates)
+      .values({
+        state,
+        stateData,
+        expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: oauthStates.state,
+        set: {
+          stateData,
+          expiresAt,
+        },
+      });
+  }
+
+  async getOAuthState(state: string): Promise<any | undefined> {
+    const { oauthStates } = await import('@shared/schema');
+    const [stateRecord] = await this.db.select().from(oauthStates).where(eq(oauthStates.state, state));
+    return stateRecord ? stateRecord.stateData : undefined;
+  }
+
+  async deleteOAuthState(state: string): Promise<void> {
+    const { oauthStates } = await import('@shared/schema');
+    await this.db.delete(oauthStates).where(eq(oauthStates.state, state));
+  }
+
+  async deleteExpiredOAuthStates(): Promise<void> {
+    const { oauthStates } = await import('@shared/schema');
+    await this.db.delete(oauthStates).where(sql`${oauthStates.expiresAt} < NOW()`);
   }
 
   async getUserSettings(userDid: string): Promise<UserSettings | undefined> {

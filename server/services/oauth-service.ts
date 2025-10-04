@@ -22,58 +22,39 @@ const BASE_URL = getBaseUrl();
 const CLIENT_ID = `${BASE_URL}/client-metadata.json`;
 const CALLBACK_URL = `${BASE_URL}/api/auth/callback`;
 
-interface OAuthStateData {
-  state: string;
-  createdAt: number;
-}
-
-class MemoryStateStore {
-  private states = new Map<string, NodeSavedState>();
-  private metadata = new Map<string, OAuthStateData>();
+class DatabaseStateStore {
   private readonly STATE_TTL = 10 * 60 * 1000;
 
   constructor() {
     setInterval(() => this.cleanup(), 60000);
   }
 
-  private cleanup() {
-    const now = Date.now();
-    const expiredStates: string[] = [];
-    
-    for (const [key, data] of Array.from(this.metadata.entries())) {
-      if (now - data.createdAt > this.STATE_TTL) {
-        expiredStates.push(key);
-      }
-    }
-    
-    for (const key of expiredStates) {
-      this.states.delete(key);
-      this.metadata.delete(key);
-    }
+  private async cleanup() {
+    const { storage } = await import('../storage');
+    await storage.deleteExpiredOAuthStates();
   }
 
   async set(key: string, state: NodeSavedState): Promise<void> {
-    this.states.set(key, state);
-    this.metadata.set(key, {
-      state: key,
-      createdAt: Date.now(),
-    });
+    const { storage } = await import('../storage');
+    const expiresAt = new Date(Date.now() + this.STATE_TTL);
+    await storage.saveOAuthState(key, state, expiresAt);
   }
 
   async get(key: string): Promise<NodeSavedState | undefined> {
-    return this.states.get(key);
+    const { storage } = await import('../storage');
+    return await storage.getOAuthState(key);
   }
 
   async del(key: string): Promise<void> {
-    this.states.delete(key);
-    this.metadata.delete(key);
+    const { storage } = await import('../storage');
+    await storage.deleteOAuthState(key);
   }
 }
 
 class DatabaseSessionStore {
   private locks = new Map<string, Promise<void>>();
 
-  async lock<T>(key: string, fn: () => Promise<T> | T): Promise<T> {
+  async lock<T>(key: string, fn: () => T | PromiseLike<T>): Promise<T> {
     while (this.locks.has(key)) {
       await this.locks.get(key);
     }
@@ -210,7 +191,7 @@ export class OAuthService {
       const sessionStore = new DatabaseSessionStore();
       
       // Runtime implementation functions for OAuth client
-      const requestLock = <T>(key: string, fn: () => Promise<T> | T): Promise<T> => {
+      const requestLock = <T>(key: string, fn: () => T | PromiseLike<T>): Promise<T> => {
         return sessionStore.lock(key, fn);
       };
       
@@ -254,7 +235,7 @@ export class OAuthService {
           jwks_uri: `${BASE_URL}/jwks.json`,
         },
         keyset,
-        stateStore: new MemoryStateStore(),
+        stateStore: new DatabaseStateStore(),
         sessionStore,
         runtimeImplementation: {
           requestLock,
