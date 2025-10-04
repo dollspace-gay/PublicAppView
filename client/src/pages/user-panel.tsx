@@ -16,6 +16,14 @@ interface UserSettings {
   lastBackfillAt: string | null;
 }
 
+interface UserStats {
+  posts: number;
+  likes: number;
+  reposts: number;
+  follows: number;
+  totalRecords: number;
+}
+
 export default function UserPanel() {
   const { toast } = useToast();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -91,6 +99,13 @@ export default function UserPanel() {
     enabled: isAuthenticated && !!userDid,
   });
 
+  // Fetch user statistics
+  const { data: stats, refetch: refetchStats } = useQuery<UserStats>({
+    queryKey: ['/api/user/stats'],
+    enabled: isAuthenticated && !!userDid,
+    refetchInterval: 5000, // Refresh every 5 seconds to show real-time changes
+  });
+
   // Backfill mutation
   const backfillMutation = useMutation({
     mutationFn: async (days: number) => {
@@ -103,6 +118,7 @@ export default function UserPanel() {
         description: data.message || `Backfilling ${backfillDays} days of data...`,
       });
       refetchSettings();
+      refetchStats();
     },
     onError: (error: Error) => {
       toast({
@@ -125,6 +141,7 @@ export default function UserPanel() {
         description: data.message || "All your data has been removed from this instance",
       });
       refetchSettings();
+      refetchStats();
     },
     onError: (error: Error) => {
       toast({
@@ -149,6 +166,7 @@ export default function UserPanel() {
           : "This instance can now collect your data from the firehose",
       });
       refetchSettings();
+      refetchStats();
     },
     onError: (error: Error) => {
       toast({
@@ -325,6 +343,53 @@ export default function UserPanel() {
                 </>
               )}
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Data Statistics Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Database className="h-5 w-5 text-primary" />
+            <CardTitle>Your Data on This Instance</CardTitle>
+          </div>
+          <CardDescription>
+            Records currently indexed by this instance from your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-1">Posts</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-stats-posts">
+                {stats?.posts.toLocaleString() || '0'}
+              </p>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-1">Likes</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-stats-likes">
+                {stats?.likes.toLocaleString() || '0'}
+              </p>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-1">Reposts</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-stats-reposts">
+                {stats?.reposts.toLocaleString() || '0'}
+              </p>
+            </div>
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-1">Follows</p>
+              <p className="text-2xl font-bold font-mono" data-testid="text-stats-follows">
+                {stats?.follows.toLocaleString() || '0'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              <span className="font-semibold">Total: {stats?.totalRecords.toLocaleString() || '0'} records</span>
+              {" · "}Updates every 5 seconds to reflect real-time changes
+            </p>
           </div>
         </CardContent>
       </Card>

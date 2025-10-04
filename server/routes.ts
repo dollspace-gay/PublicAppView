@@ -16,7 +16,7 @@ import { z } from "zod";
 import { logCollector } from "./services/log-collector";
 import { schemaIntrospectionService } from "./services/schema-introspection";
 import { db } from "./db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -578,6 +578,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[USER_TOGGLE_COLLECTION] Error:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update setting" });
+    }
+  });
+
+  app.get("/api/user/stats", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const userDid = session.userDid;
+      const { reposts: repostsTable } = await import('@shared/schema');
+
+      const [posts, likes, reposts, follows] = await Promise.all([
+        storage.getAuthorPosts(userDid, 99999),
+        storage.getActorLikes(userDid, 99999),
+        db.select().from(repostsTable).where(eq(repostsTable.userDid, userDid)),
+        storage.getFollows(userDid, 99999),
+      ]);
+
+      res.json({
+        posts: posts.length,
+        likes: likes.likes.length,
+        reposts: reposts.length,
+        follows: follows.length,
+        totalRecords: posts.length + likes.likes.length + reposts.length + follows.length,
+      });
+    } catch (error) {
+      console.error("[USER_STATS] Error:", error);
+      res.status(500).json({ error: "Failed to get user stats" });
     }
   });
 
