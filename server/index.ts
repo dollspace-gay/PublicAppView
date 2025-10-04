@@ -95,6 +95,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize search extensions before registering routes
+  const { initSearchExtensions } = await import("./scripts/init-search-extensions");
+  await initSearchExtensions();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

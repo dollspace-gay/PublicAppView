@@ -99,12 +99,18 @@ class SearchService {
       return { actors: [] };
     }
 
-    // Build SQL query with optional cursor - use plainto_tsquery for safe Unicode handling
+    // Use trigram search for handles (substring matching) combined with full-text search
+    // This allows finding "kawanishi" within "kawanishitakumi.bsky.social"
     const cursorCondition = cursor 
-      ? sql`AND ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) < ${parseFloat(cursor)}`
+      ? sql`AND (
+          GREATEST(
+            similarity(handle, ${trimmedQuery}),
+            ts_rank(search_vector, plainto_tsquery('simple', ${trimmedQuery}))
+          ) < ${parseFloat(cursor)}
+        )`
       : sql``;
 
-    // Execute search using raw SQL
+    // Execute search using trigram similarity + full-text search
     const results = await db.execute(sql`
       SELECT 
         did,
@@ -112,9 +118,14 @@ class SearchService {
         display_name as "displayName",
         avatar_url as "avatarUrl",
         description,
-        ts_rank(search_vector, plainto_tsquery('english', ${trimmedQuery})) as rank
+        GREATEST(
+          similarity(handle, ${trimmedQuery}),
+          ts_rank(search_vector, plainto_tsquery('simple', ${trimmedQuery}))
+        ) as rank
       FROM users
-      WHERE search_vector @@ plainto_tsquery('english', ${trimmedQuery})
+      WHERE 
+        handle % ${trimmedQuery}
+        OR search_vector @@ plainto_tsquery('simple', ${trimmedQuery})
         ${cursorCondition}
       ORDER BY rank DESC
       LIMIT ${limit + 1}
