@@ -22,6 +22,14 @@ export class FirehoseClient {
   private eventCallbacks: EventCallback[] = [];
   private recentEvents: any[] = []; // Keep last 50 events for dashboard
   private statusHeartbeat: NodeJS.Timeout | null = null;
+  private lastEventTime: number = Date.now(); // Track last event for stall detection
+  private readonly STALL_THRESHOLD = 2 * 60 * 1000; // 2 minutes without events = stalled
+  
+  // WebSocket ping/pong keepalive (production-grade zombie connection prevention)
+  private pingInterval: NodeJS.Timeout | null = null;
+  private lastPongTime: number = Date.now();
+  private readonly PING_INTERVAL = 30000; // Send ping every 30s (Bluesky recommended)
+  private readonly PONG_TIMEOUT = 45000; // Expect pong within 45s
   
   // Worker distribution for parallel processing
   private workerId: number = 0;
@@ -234,12 +242,22 @@ export class FirehoseClient {
         this.reconnectDelay = 1000;
         metricsService.updateFirehoseStatus("connected");
         
+        // Reset stall detection timer on new connection
+        this.lastEventTime = Date.now();
+        this.lastPongTime = Date.now();
+        
+        // Start WebSocket ping/pong keepalive (prevents zombie connections)
+        this.startWebSocketKeepalive();
+        
         // Update status immediately and start heartbeat
         this.updateRedisStatus();
         this.startStatusHeartbeat();
       });
 
       this.client.on("commit", async (commit) => {
+        // Update last event time for stall detection
+        this.lastEventTime = Date.now();
+        
         metricsService.incrementEvent("#commit");
         
         // Save cursor for restart recovery (only worker 0)
@@ -293,6 +311,9 @@ export class FirehoseClient {
       });
 
       this.client.on("identity", async (identity) => {
+        // Update last event time for stall detection
+        this.lastEventTime = Date.now();
+        
         metricsService.incrementEvent("#identity");
         
         // Broadcast to WebSocket clients
@@ -320,6 +341,9 @@ export class FirehoseClient {
       });
 
       this.client.on("account", async (account) => {
+        // Update last event time for stall detection
+        this.lastEventTime = Date.now();
+        
         metricsService.incrementEvent("#account");
         
         // Broadcast to WebSocket clients
@@ -399,6 +423,88 @@ export class FirehoseClient {
     }, this.reconnectDelay);
   }
 
+  private startWebSocketKeepalive() {
+    // Clear any existing ping interval
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    
+    // Access underlying WebSocket from @skyware/firehose (exposed as .ws property)
+    const socket = (this.client as any)?.ws;
+    
+    if (!socket || typeof socket.ping !== 'function') {
+      console.warn("[FIREHOSE] Cannot access WebSocket for keepalive - ws not available yet");
+      // Try again in 1 second after connection is fully established
+      setTimeout(() => {
+        const retrySocket = (this.client as any)?.ws;
+        if (retrySocket && typeof retrySocket.ping === 'function') {
+          this.setupWebSocketPingPong(retrySocket);
+        }
+      }, 1000);
+      return;
+    }
+    
+    this.setupWebSocketPingPong(socket);
+  }
+  
+  private setupWebSocketPingPong(socket: any) {
+    console.log("[FIREHOSE] Setting up WebSocket keepalive (ping every 30s, timeout 45s)");
+    
+    // Listen for pong responses from the server
+    socket.on('pong', () => {
+      this.lastPongTime = Date.now();
+    });
+    
+    // Listen for unexpected close events (NAT timeout, TLS timeout, etc.)
+    socket.on('unexpected-response', (req: any, res: any) => {
+      console.error(`[FIREHOSE] Unexpected response from relay: ${res.statusCode}`);
+      logCollector.error(`Firehose unexpected response: ${res.statusCode}`, { url: this.url });
+      this.isConnected = false;
+      this.reconnect();
+    });
+    
+    // Send ping frames every 30s and check for pong responses
+    this.pingInterval = setInterval(() => {
+      if (!this.isConnected || !socket || socket.readyState !== 1) {
+        return;
+      }
+      
+      // Check if we received a pong recently
+      const timeSinceLastPong = Date.now() - this.lastPongTime;
+      
+      if (timeSinceLastPong > this.PONG_TIMEOUT) {
+        // No pong received within timeout - connection is dead (zombie)
+        console.error(`[FIREHOSE] WebSocket zombie detected - no pong for ${Math.floor(timeSinceLastPong / 1000)}s, reconnecting...`);
+        logCollector.error(`WebSocket keepalive failed - terminating zombie connection`, { 
+          timeSinceLastPong: Math.floor(timeSinceLastPong / 1000) 
+        });
+        
+        // Force terminate the dead socket
+        this.isConnected = false;
+        try {
+          socket.terminate();
+        } catch (error) {
+          console.error("[FIREHOSE] Error terminating socket:", error);
+        }
+        
+        // Reconnect
+        this.reconnect();
+        return;
+      }
+      
+      // Send ping frame to keep connection alive
+      try {
+        socket.ping();
+        // Ping sent successfully (no log to avoid clutter - only log issues)
+      } catch (error) {
+        console.error("[FIREHOSE] Error sending ping:", error);
+        this.isConnected = false;
+        this.reconnect();
+      }
+    }, this.PING_INTERVAL);
+  }
+
   private startStatusHeartbeat() {
     // Clear existing heartbeat
     if (this.statusHeartbeat) {
@@ -406,9 +512,34 @@ export class FirehoseClient {
     }
     
     // Update status every 5 seconds to keep Redis key alive (10s TTL)
+    // Also check for stalled connection (no events received)
     this.statusHeartbeat = setInterval(() => {
       if (this.isConnected) {
         this.updateRedisStatus();
+        
+        // Detect stalled connection: no events for STALL_THRESHOLD
+        const timeSinceLastEvent = Date.now() - this.lastEventTime;
+        if (timeSinceLastEvent > this.STALL_THRESHOLD) {
+          console.warn(`[FIREHOSE] Connection stalled - no events for ${Math.floor(timeSinceLastEvent / 1000)}s, reconnecting...`);
+          logCollector.error(`Firehose stalled - no events for ${Math.floor(timeSinceLastEvent / 60000)} minutes, auto-reconnecting`);
+          
+          // Force reconnection
+          this.isConnected = false;
+          if (this.client) {
+            try {
+              this.client.close();
+            } catch (error) {
+              console.error("[FIREHOSE] Error closing stalled client:", error);
+            }
+            this.client = null;
+          }
+          
+          // Reset last event time to prevent immediate re-trigger
+          this.lastEventTime = Date.now();
+          
+          // Reconnect
+          this.reconnect();
+        }
       }
     }, 5000);
   }
@@ -422,6 +553,11 @@ export class FirehoseClient {
     if (this.statusHeartbeat) {
       clearInterval(this.statusHeartbeat);
       this.statusHeartbeat = null;
+    }
+    
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
 
     if (this.client) {
