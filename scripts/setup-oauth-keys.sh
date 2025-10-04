@@ -49,8 +49,8 @@ openssl ec -in oauth-private.pem -pubout -out oauth-public.pem 2>/dev/null
 # Convert private key to PKCS8 format for easier handling
 openssl pkcs8 -topk8 -nocrypt -in oauth-private.pem -out oauth-private-pkcs8.pem 2>/dev/null
 
-# Read the keys
-PRIVATE_KEY=$(cat oauth-private.pem)
+# Read the keys (use PKCS8 format for private key)
+PRIVATE_KEY=$(cat oauth-private-pkcs8.pem)
 PUBLIC_KEY=$(cat oauth-public.pem)
 
 # Extract private key components for JWK format
