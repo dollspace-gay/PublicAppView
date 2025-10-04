@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Activity, Database, Terminal, Settings, FileText, Zap, BookOpen, Shield, AlertTriangle } from "lucide-react";
+import { Activity, Database, Terminal, Settings, FileText, Zap, BookOpen, Shield, AlertTriangle, User } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 interface InstancePolicy {
@@ -34,6 +34,8 @@ export function Sidebar() {
     { path: "/lexicons", icon: BookOpen, label: "Lexicon Validator" },
     { path: "/logs", icon: FileText, label: "Logs & Analytics" },
     { path: "/policy", icon: Shield, label: "Instance Policy" },
+    { path: "/admin/moderation", icon: Shield, label: "Admin Moderation" },
+    { path: "/user/panel", icon: User, label: "User Data Panel" },
   ];
 
   // Check if using default/unedited config

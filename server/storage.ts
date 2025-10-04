@@ -89,11 +89,16 @@ export interface IStorage {
   updateSession(id: string, data: Partial<Pick<InsertSession, 'accessToken' | 'refreshToken' | 'expiresAt'>>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<void>;
   deleteExpiredSessions(): Promise<void>;
+  
+  // OAuth keyset operations
+  getOAuthKeyset(): Promise<any | undefined>;
+  saveOAuthKeyset(keys: any): Promise<void>;
 
   // User settings operations
   getUserSettings(userDid: string): Promise<UserSettings | undefined>;
   createUserSettings(settings: InsertUserSettings): Promise<UserSettings>;
   updateUserSettings(userDid: string, settings: Partial<InsertUserSettings>): Promise<UserSettings | undefined>;
+  deleteUserData(userDid: string): Promise<void>;
 
   // Label operations
   createLabel(label: InsertLabel): Promise<Label>;
@@ -980,6 +985,30 @@ export class DatabaseStorage implements IStorage {
   async deleteExpiredSessions(): Promise<void> {
     await this.db.delete(sessions).where(sql`${sessions.expiresAt} < NOW()`);
   }
+  
+  async getOAuthKeyset(): Promise<any | undefined> {
+    const { oauthKeyset } = await import('@shared/schema');
+    const [keyset] = await this.db.select().from(oauthKeyset).where(eq(oauthKeyset.id, 'default'));
+    return keyset ? keyset.keys : undefined;
+  }
+  
+  async saveOAuthKeyset(keys: any): Promise<void> {
+    const { oauthKeyset } = await import('@shared/schema');
+    await this.db
+      .insert(oauthKeyset)
+      .values({
+        id: 'default',
+        keys,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: oauthKeyset.id,
+        set: {
+          keys,
+          updatedAt: new Date(),
+        },
+      });
+  }
 
   async getUserSettings(userDid: string): Promise<UserSettings | undefined> {
     const [settings] = await this.db.select().from(userSettings).where(eq(userSettings.userDid, userDid));
@@ -1005,7 +1034,65 @@ export class DatabaseStorage implements IStorage {
       .set(settings)
       .where(eq(userSettings.userDid, userDid))
       .returning();
+    
+    // Invalidate cache if dataCollectionForbidden changed
+    if (updated && settings.dataCollectionForbidden !== undefined) {
+      const { eventProcessor } = await import("./services/event-processor");
+      eventProcessor.invalidateDataCollectionCache(userDid);
+    }
+    
     return updated || undefined;
+  }
+
+  async deleteUserData(userDid: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Delete all user-generated content
+      await tx.delete(posts).where(eq(posts.authorDid, userDid));
+      await tx.delete(likes).where(eq(likes.userDid, userDid));
+      await tx.delete(reposts).where(eq(reposts.userDid, userDid));
+      await tx.delete(follows).where(eq(follows.followerDid, userDid));
+      await tx.delete(blocks).where(eq(blocks.blockerDid, userDid));
+      await tx.delete(listItems).where(eq(listItems.subjectDid, userDid));
+      await tx.delete(lists).where(eq(lists.creatorDid, userDid));
+      await tx.delete(userPreferences).where(eq(userPreferences.userDid, userDid));
+      await tx.delete(sessions).where(eq(sessions.userDid, userDid));
+      
+      // Strip user profile to minimum required for moderation (DID + handle only)
+      // Keep the user record so labels can still be applied for moderation
+      await tx.update(users).set({
+        displayName: null,
+        description: null,
+        avatarUrl: null,
+      }).where(eq(users.did, userDid));
+      
+      // Upsert userSettings to ensure dataCollectionForbidden is set even if row doesn't exist
+      // This prevents future data collection
+      await tx.insert(userSettings).values({
+        userDid,
+        dataCollectionForbidden: true,
+        blockedKeywords: [],
+        mutedUsers: [],
+        customLists: [],
+        feedPreferences: {},
+        lastBackfillAt: null,
+      }).onConflictDoUpdate({
+        target: userSettings.userDid,
+        set: {
+          dataCollectionForbidden: true,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+        },
+      });
+      
+      // Note: Labels are NOT deleted - they must be preserved for moderation purposes
+      // This ensures the instance can still apply moderation labels even after data deletion
+    });
+    
+    // Invalidate cache to ensure immediate opt-out enforcement
+    const { eventProcessor } = await import("./services/event-processor");
+    eventProcessor.invalidateDataCollectionCache(userDid);
   }
 
   // Label operations

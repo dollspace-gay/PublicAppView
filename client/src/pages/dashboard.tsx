@@ -9,6 +9,8 @@ import { ApiEndpoints } from "@/components/api-endpoints";
 import { LexiconValidatorPanel } from "@/components/lexicon-validator-panel";
 import { LogsPanel } from "@/components/logs-panel";
 import InstancePolicyPage from "@/pages/instance-policy";
+import AdminModerationPage from "@/pages/admin-moderation";
+import UserPanel from "@/pages/user-panel";
 import { useLocation } from "wouter";
 
 interface MetricsData {
@@ -305,6 +307,14 @@ export default function Dashboard() {
 
         {location === "/policy" && (
           <InstancePolicyPage />
+        )}
+
+        {location === "/admin/moderation" && (
+          <AdminModerationPage />
+        )}
+
+        {location === "/user/panel" && (
+          <UserPanel />
         )}
       </main>
     </div>

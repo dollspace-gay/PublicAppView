@@ -6,7 +6,7 @@ import { metricsService } from "./services/metrics";
 import { lexiconValidator } from "./services/lexicon-validator";
 import { xrpcApi } from "./services/xrpc-api";
 import { storage } from "./storage";
-import { authService, requireAuth, type AuthRequest } from "./services/auth";
+import { authService, requireAuth, requireAdmin, type AuthRequest } from "./services/auth";
 import { contentFilter } from "./services/content-filter";
 import { didResolver } from "./services/did-resolver";
 import { pdsClient } from "./services/pds-client";
@@ -92,20 +92,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log("[REDIS] Record counters already initialized");
   }
   
+  // Initialize admin authorization from ADMIN_DIDS environment variable
+  const { adminAuthService } = await import("./services/admin-authorization");
+  await adminAuthService.initialize();
+  
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
+  // Check if firehose is enabled (default: true)
+  const firehoseEnabled = process.env.FIREHOSE_ENABLED !== 'false';
+  
   // ONLY worker 0 connects to firehose and pushes to Redis
-  if (workerId === 0) {
+  if (firehoseEnabled && workerId === 0) {
     console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Primary worker ingesting firehose → Redis`);
     firehoseClient.connect(workerId, totalWorkers);
+  } else if (!firehoseEnabled) {
+    console.log(`[FIREHOSE] Disabled (FIREHOSE_ENABLED=false)`);
   } else {
     console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Consumer worker (Redis → PostgreSQL)`);
   }
   
-  // ALL workers consume from Redis queue in parallel
+  // ALL workers consume from Redis queue in parallel (only if firehose is enabled)
   const consumerId = `worker-${workerId}`;
-  console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
+  if (firehoseEnabled) {
+    console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
+  }
   
   // Start multiple parallel consumer pipelines per worker for maximum throughput
   const { eventProcessor } = await import("./services/event-processor");
@@ -144,40 +155,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
   
-  // Launch parallel consumer pipelines
-  const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
-    return (async () => {
-      const pipelineConsumerId = `${consumerId}-p${pipelineId}`;
-      let iterationCount = 0;
-      
-      while (true) {
-        try {
-          // Large batch size (300) with short block timeout (100ms) for high throughput
-          let events = await redisQueue.consume(pipelineConsumerId, 300);
-          
-          // Use XAUTOCLAIM every 5 seconds for fast dead consumer recovery
-          if (++iterationCount % 50 === 0) { // ~50 iterations × 100ms = 5 seconds
-            const claimed = await redisQueue.claimPendingMessages(pipelineConsumerId, 10000);
-            if (claimed.length > 0) {
-              console.log(`[REDIS] Worker ${workerId} pipeline ${pipelineId} auto-claimed ${claimed.length} pending messages`);
-              events = [...events, ...claimed];
+  // Launch parallel consumer pipelines (only if firehose is enabled)
+  if (firehoseEnabled) {
+    const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
+      return (async () => {
+        const pipelineConsumerId = `${consumerId}-p${pipelineId}`;
+        let iterationCount = 0;
+        
+        while (true) {
+          try {
+            // Large batch size (300) with short block timeout (100ms) for high throughput
+            let events = await redisQueue.consume(pipelineConsumerId, 300);
+            
+            // Use XAUTOCLAIM every 5 seconds for fast dead consumer recovery
+            if (++iterationCount % 50 === 0) { // ~50 iterations × 100ms = 5 seconds
+              const claimed = await redisQueue.claimPendingMessages(pipelineConsumerId, 10000);
+              if (claimed.length > 0) {
+                console.log(`[REDIS] Worker ${workerId} pipeline ${pipelineId} auto-claimed ${claimed.length} pending messages`);
+                events = [...events, ...claimed];
+              }
             }
+            
+            if (events.length > 0) {
+              // Process all events in batch with Promise.allSettled for fault tolerance
+              await Promise.allSettled(events.map(processEvent));
+            }
+          } catch (error) {
+            console.error(`[REDIS] Worker ${workerId} pipeline ${pipelineId} error:`, error);
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-          
-          if (events.length > 0) {
-            // Process all events in batch with Promise.allSettled for fault tolerance
-            await Promise.allSettled(events.map(processEvent));
-          }
-        } catch (error) {
-          console.error(`[REDIS] Worker ${workerId} pipeline ${pipelineId} error:`, error);
-          await new Promise(resolve => setTimeout(resolve, 1000));
         }
-      }
-    })();
-  });
-  
-  // Run all pipelines concurrently (don't await - let them run in background)
-  Promise.allSettled(consumerPipelines);
+      })();
+    });
+    
+    // Run all pipelines concurrently (don't await - let them run in background)
+    Promise.allSettled(consumerPipelines);
+  }
 
   // WebDID endpoint - Serve DID document for did:web resolution
   app.get("/.well-known/did.json", async (_req, res) => {
@@ -196,11 +209,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const basicDidDoc = {
         "@context": ["https://www.w3.org/ns/did/v1"],
         id: appviewDid,
-        service: [{
-          id: "#bsky_appview",
-          type: "BskyAppView",
-          serviceEndpoint: `https://${domain}`
-        }]
+        service: [
+          {
+            id: "#bsky_appview",
+            type: "BskyAppView",
+            serviceEndpoint: `https://${domain}`
+          },
+          {
+            id: "#atproto_labeler",
+            type: "AtprotoLabeler",
+            serviceEndpoint: `https://${domain}`
+          }
+        ]
       };
       
       res.setHeader('Content-Type', 'application/json');
@@ -210,7 +230,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Authentication endpoints
+  // Authentication endpoints - OAuth 2.0 with AT Protocol
+  
+  // OAuth client metadata endpoint
+  app.get("/client-metadata.json", async (req, res) => {
+    try {
+      const { oauthService } = await import("./services/oauth-service");
+      await oauthService.ensureInitialized();
+      res.json(oauthService.clientMetadata);
+    } catch (error) {
+      console.error("[OAUTH] Failed to get client metadata:", error);
+      res.status(500).json({ error: "OAuth client not initialized" });
+    }
+  });
+
+  // JWKS endpoint for OAuth client
+  app.get("/jwks.json", async (req, res) => {
+    try {
+      const { oauthService } = await import("./services/oauth-service");
+      await oauthService.ensureInitialized();
+      res.json(oauthService.jwks);
+    } catch (error) {
+      console.error("[OAUTH] Failed to get JWKS:", error);
+      res.status(500).json({ error: "OAuth client not initialized" });
+    }
+  });
+
+  // Initiate OAuth login - returns authorization URL
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const schema = z.object({
+        handle: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      
+      const state = authService.generateSessionId();
+      
+      const { oauthService } = await import("./services/oauth-service");
+      const authUrl = await oauthService.initiateLogin(data.handle, state);
+
+      res.json({ authUrl, state });
+    } catch (error) {
+      console.error("[AUTH] Login initiation error:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to initiate login" });
+    }
+  });
+
+  // OAuth callback endpoint
+  app.get("/api/auth/callback", async (req, res) => {
+    try {
+      const params = new URLSearchParams(req.url.split('?')[1]);
+      
+      const { oauthService } = await import("./services/oauth-service");
+      const result = await oauthService.handleCallback(params);
+
+      if (!result.success || !result.session) {
+        return res.redirect(`/?error=${encodeURIComponent(result.error || 'OAuth callback failed')}`);
+      }
+
+      const did = result.session.did;
+      
+      // Ensure user exists in database
+      const existingUser = await storage.getUser(did);
+      if (!existingUser) {
+        const result2 = await didResolver.resolveHandleToPDS(did);
+        const handle = result2?.did === did ? result2.pdsEndpoint.split('@')[1] : did;
+        
+        await storage.createUser({
+          did,
+          handle: handle || did,
+          displayName: null,
+          avatarUrl: null,
+          description: null,
+        });
+      }
+      
+      // Check if user is admin
+      const { adminAuthService } = await import("./services/admin-authorization");
+      const isAdmin = await adminAuthService.isAdmin(did);
+
+      // Create JWT token for frontend
+      const token = authService.createSessionToken(did, did);
+
+      // Redirect to appropriate page based on admin status
+      const redirectPath = isAdmin ? '/admin/moderation' : '/user/panel';
+      res.redirect(`${redirectPath}?token=${token}&did=${did}`);
+    } catch (error) {
+      console.error("[AUTH] Callback error:", error);
+      res.redirect(`/?error=${encodeURIComponent('OAuth callback failed')}`);
+    }
+  });
+  
   app.post("/api/auth/create-session", async (req, res) => {
     try {
       const MAX_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -325,6 +436,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ session, user });
     } catch (error) {
       res.status(500).json({ error: "Failed to get session" });
+    }
+  });
+
+  // User data management endpoints
+  app.get("/api/user/settings", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      let settings = await storage.getUserSettings(session.userDid);
+      if (!settings) {
+        settings = await storage.createUserSettings({
+          userDid: session.userDid,
+          blockedKeywords: [],
+          mutedUsers: [],
+          customLists: [],
+          feedPreferences: {},
+          dataCollectionForbidden: false,
+          lastBackfillAt: null,
+        });
+      }
+
+      res.json(settings);
+    } catch (error) {
+      console.error("[USER_SETTINGS] Error:", error);
+      res.status(500).json({ error: "Failed to get user settings" });
+    }
+  });
+
+  app.post("/api/user/backfill", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const schema = z.object({
+        days: z.number().min(1).max(365),
+      });
+
+      const data = schema.parse(req.body);
+      const userDid = session.userDid;
+
+      if (data.days > 3) {
+        const { repoBackfillService } = await import("./services/repo-backfill");
+        
+        repoBackfillService.processRepository(userDid).then(() => {
+          console.log(`[USER_BACKFILL] Completed repository backfill for ${userDid}`);
+        }).catch((error: Error) => {
+          console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
+        });
+        
+        res.json({ 
+          message: `Backfill started for ${data.days} days. Your complete repository is being imported from your PDS.`,
+          type: "repository"
+        });
+      } else {
+        res.json({ 
+          message: `Recent data backfill (${data.days} days) will be handled by the firehose.`,
+          type: "firehose"
+        });
+      }
+
+      await storage.updateUserSettings(userDid, {
+        lastBackfillAt: new Date(),
+      });
+    } catch (error) {
+      console.error("[USER_BACKFILL] Error:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to start backfill" });
+    }
+  });
+
+  app.post("/api/user/delete-data", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const userDid = session.userDid;
+
+      await storage.deleteUserData(userDid);
+
+      res.json({ 
+        message: "All your data has been deleted from this instance",
+        success: true
+      });
+    } catch (error) {
+      console.error("[USER_DELETE_DATA] Error:", error);
+      res.status(500).json({ error: "Failed to delete data" });
+    }
+  });
+
+  app.post("/api/user/toggle-collection", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const session = await storage.getSession(req.session.sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const schema = z.object({
+        forbidden: z.boolean(),
+      });
+
+      const data = schema.parse(req.body);
+      const userDid = session.userDid;
+
+      await storage.updateUserSettings(userDid, {
+        dataCollectionForbidden: data.forbidden,
+      });
+
+      res.json({ 
+        forbidden: data.forbidden,
+        message: data.forbidden 
+          ? "Data collection has been disabled"
+          : "Data collection has been enabled"
+      });
+    } catch (error) {
+      console.error("[USER_TOGGLE_COLLECTION] Error:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update setting" });
     }
   });
 
@@ -1294,6 +1543,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin Moderation API Endpoints
+  // TODO: Add proper admin authentication/authorization
+  
+  // Apply a label to content or user
+  app.post("/api/admin/labels/apply", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subject: z.string(),
+        label: z.string(),
+        comment: z.string().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+
+      // Apply the label using the label service
+      const createdLabel = await labelService.applyLabel({
+        src: appviewDid,
+        subject: data.subject,
+        val: data.label,
+      });
+
+      res.json({ 
+        success: true, 
+        label: createdLabel,
+        message: `Label '${data.label}' applied successfully` 
+      });
+    } catch (error) {
+      console.error("[ADMIN] Failed to apply label:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to apply label" });
+    }
+  });
+
+  // Query labels for a subject
+  app.get("/api/admin/labels", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subject: z.string().optional(),
+      });
+
+      const params = schema.parse(req.query);
+
+      if (!params.subject) {
+        return res.json([]);
+      }
+
+      const labels = await labelService.getLabelsForSubject(params.subject);
+
+      res.json(labels);
+    } catch (error) {
+      console.error("[ADMIN] Failed to query labels:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to query labels" });
+    }
+  });
+
+  // Remove a label by URI
+  app.delete("/api/admin/labels", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        uri: z.string(),
+      });
+
+      const params = schema.parse(req.query);
+
+      // Get the label to verify it exists
+      const label = await storage.getLabel(params.uri);
+      
+      if (!label) {
+        return res.status(404).json({ error: "Label not found" });
+      }
+
+      await labelService.removeLabel(params.uri);
+
+      console.log(`[ADMIN] Label removed: ${label.val} from ${label.subject}`);
+
+      res.json({ success: true, message: "Label removed successfully" });
+    } catch (error) {
+      console.error("[ADMIN] Failed to remove label:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to remove label" });
+    }
+  });
+
   // Backfill test endpoint - backfill a single repository
   app.post("/api/backfill/repo", async (req, res) => {
     try {
@@ -2043,10 +2374,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // WebSocket server for label subscriptions (com.atproto.label.subscribeLabels)
+  // TODO: Add authentication/authorization - currently open to all clients
+  // Consider implementing app password or JWT token validation
   const labelWss = new WebSocketServer({ 
     server: httpServer, 
     path: "/xrpc/com.atproto.label.subscribeLabels",
     perMessageDeflate: false // Disable compression to avoid RSV1 frame errors
+  });
+
+  // Listen for label events from label service and broadcast to all connected clients
+  const broadcastLabelToClients = (label: any, eventId: number) => {
+    const message = JSON.stringify({
+      seq: eventId,
+      labels: [{
+        ver: 1,
+        src: label.src,
+        uri: label.subject,
+        cid: "",
+        val: label.val,
+        neg: label.neg,
+        cts: label.createdAt instanceof Date ? label.createdAt.toISOString() : label.createdAt,
+      }],
+    });
+
+    labelWss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+  };
+
+  // Subscribe to label service events for real-time broadcasting
+  labelService.on("labelCreated", ({ label, event }) => {
+    console.log(`[LABEL_WS] Broadcasting new label: ${label.val} on ${label.subject}`);
+    broadcastLabelToClients(label, event.id);
+  });
+
+  labelService.on("labelRemoved", ({ label, event }) => {
+    console.log(`[LABEL_WS] Broadcasting removed label: ${label.val} on ${label.subject}`);
+    // Broadcast as negation
+    broadcastLabelToClients({ ...label, neg: true }, event.id);
   });
 
   labelWss.on("connection", (ws: WebSocket) => {
@@ -2087,8 +2454,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Initial stream
     streamLabels();
 
-    // Poll for new label events every 5 seconds
-    const interval = setInterval(streamLabels, 5000);
+    // Poll for new label events every 30 seconds (reduced frequency since we have real-time broadcasting)
+    const interval = setInterval(streamLabels, 30000);
 
     ws.on("close", () => {
       console.log("[LABEL_WS] Client disconnected from label subscription");

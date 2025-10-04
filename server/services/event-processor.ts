@@ -43,10 +43,42 @@ export class EventProcessor {
     pendingListItemsExpired: 0,
     pendingListItemsDropped: 0,
   };
+  private dataCollectionCache = new Map<string, boolean>(); // DID -> dataCollectionForbidden
 
   constructor(storageInstance: IStorage = storage) {
     this.storage = storageInstance;
     this.startTTLSweeper();
+    // Clear cache periodically to respect setting updates
+    setInterval(() => this.dataCollectionCache.clear(), 5 * 60 * 1000); // Clear every 5 minutes
+  }
+  
+  /**
+   * Check if data collection is forbidden for a user
+   * Returns true if collection is forbidden, false otherwise
+   * Caches results to avoid repeated database queries
+   */
+  private async isDataCollectionForbidden(did: string): Promise<boolean> {
+    // Check cache first
+    if (this.dataCollectionCache.has(did)) {
+      return this.dataCollectionCache.get(did)!;
+    }
+    
+    // Query database
+    const settings = await this.storage.getUserSettings(did);
+    const forbidden = settings?.dataCollectionForbidden || false;
+    
+    // Cache the result
+    this.dataCollectionCache.set(did, forbidden);
+    
+    return forbidden;
+  }
+  
+  /**
+   * Invalidate the data collection cache for a specific user
+   * Called when user settings change to ensure immediate effect
+   */
+  invalidateDataCollectionCache(did: string) {
+    this.dataCollectionCache.delete(did);
   }
 
   private startTTLSweeper() {
@@ -388,6 +420,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(authorDid)) {
+      return;
+    }
 
     const post: InsertPost = {
       uri,
@@ -463,6 +500,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(userDid)) {
+      return;
+    }
 
     const postUri = record.subject.uri;
     const like: InsertLike = {
@@ -522,6 +564,11 @@ export class EventProcessor {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
       console.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
+      return;
+    }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(userDid)) {
       return;
     }
 
@@ -597,6 +644,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - users not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(followerDid)) {
+      return;
+    }
 
     const follow: InsertFollow = {
       uri,
@@ -640,6 +692,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - users not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(blockerDid)) {
+      return;
+    }
 
     const block: InsertBlock = {
       uri,
@@ -666,6 +723,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
+      return;
+    }
 
     const list: InsertList = {
       uri,
@@ -690,6 +752,11 @@ export class EventProcessor {
     
     if (!creatorReady || !subjectReady) {
       console.warn(`[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`);
+      return;
+    }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -752,6 +819,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
+      return;
+    }
 
     const feedGenerator: InsertFeedGenerator = {
       uri,
@@ -773,6 +845,11 @@ export class EventProcessor {
       console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready`);
       return;
     }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
+      return;
+    }
 
     const starterPack: InsertStarterPack = {
       uri,
@@ -792,6 +869,11 @@ export class EventProcessor {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
       console.warn(`[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`);
+      return;
+    }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 

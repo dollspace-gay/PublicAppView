@@ -179,6 +179,23 @@ export const sessions = pgTable("sessions", {
   expiresIdx: index("idx_sessions_expires_at").on(table.expiresAt),
 }));
 
+// OAuth keyset table - for persisting OAuth signing keys across restarts
+export const oauthKeyset = pgTable("oauth_keyset", {
+  id: varchar("id", { length: 50 }).primaryKey().default('default'),
+  keys: jsonb("keys").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Authorized admins table - stores DIDs of users authorized to access admin panel
+export const authorizedAdmins = pgTable("authorized_admins", {
+  did: varchar("did", { length: 255 }).primaryKey(),
+  handle: varchar("handle", { length: 255 }).notNull(),
+  addedAt: timestamp("added_at").defaultNow().notNull(),
+}, (table) => ({
+  handleIdx: index("idx_authorized_admins_handle").on(table.handle),
+}));
+
 // User settings table - for custom preferences and moderation
 export const userSettings = pgTable("user_settings", {
   userDid: varchar("user_did", { length: 255 }).primaryKey().references(() => users.did, { onDelete: "cascade" }),
@@ -186,6 +203,8 @@ export const userSettings = pgTable("user_settings", {
   mutedUsers: jsonb("muted_users").default([]).notNull(),
   customLists: jsonb("custom_lists").default([]).notNull(),
   feedPreferences: jsonb("feed_preferences").default({}).notNull(),
+  dataCollectionForbidden: boolean("data_collection_forbidden").default(false).notNull(),
+  lastBackfillAt: timestamp("last_backfill_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -546,6 +565,7 @@ export const insertListBlockSchema = createInsertSchema(listBlocks).omit({ index
 export const insertThreadMuteSchema = createInsertSchema(threadMutes).omit({ indexedAt: true });
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({ createdAt: true, updatedAt: true });
 export const insertSessionSchema = createInsertSchema(sessions).omit({ createdAt: true, updatedAt: true });
+export const insertAuthorizedAdminSchema = createInsertSchema(authorizedAdmins).omit({ addedAt: true });
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({ createdAt: true, updatedAt: true });
 export const insertLabelSchema = createInsertSchema(labels).omit({ indexedAt: true });
 export const insertLabelDefinitionSchema = createInsertSchema(labelDefinitions).omit({ id: true, createdAt: true, updatedAt: true });
@@ -588,6 +608,8 @@ export type UserPreferences = typeof userPreferences.$inferSelect;
 export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
 export type Session = typeof sessions.$inferSelect;
 export type InsertSession = z.infer<typeof insertSessionSchema>;
+export type AuthorizedAdmin = typeof authorizedAdmins.$inferSelect;
+export type InsertAuthorizedAdmin = z.infer<typeof insertAuthorizedAdminSchema>;
 export type UserSettings = typeof userSettings.$inferSelect;
 export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
 export type Label = typeof labels.$inferSelect;

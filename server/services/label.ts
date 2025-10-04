@@ -1,7 +1,11 @@
 import { storage } from "../storage";
 import type { InsertLabel, Label, InsertLabelDefinition, LabelDefinition } from "@shared/schema";
+import { EventEmitter } from "events";
 
-export class LabelService {
+export class LabelService extends EventEmitter {
+  constructor() {
+    super();
+  }
   async applyLabel(params: {
     src: string;
     subject: string;
@@ -22,10 +26,13 @@ export class LabelService {
 
     const createdLabel = await storage.createLabel(label);
     
-    await storage.createLabelEvent({
+    const event = await storage.createLabelEvent({
       labelUri: uri,
       action: "created",
     });
+
+    // Emit label created event for real-time broadcasting
+    this.emit("labelCreated", { label: createdLabel, event });
 
     return createdLabel;
   }
@@ -42,12 +49,19 @@ export class LabelService {
   }
 
   async removeLabel(uri: string): Promise<void> {
-    await storage.createLabelEvent({
+    const label = await storage.getLabel(uri);
+    
+    const event = await storage.createLabelEvent({
       labelUri: uri,
       action: "deleted",
     });
 
     await storage.deleteLabel(uri);
+
+    // Emit label removed event for real-time broadcasting
+    if (label) {
+      this.emit("labelRemoved", { label, event });
+    }
   }
 
   async getLabelsForSubject(subject: string): Promise<Label[]> {

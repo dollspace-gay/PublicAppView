@@ -13,6 +13,7 @@
   "dependencies": {
     "@atproto/api": "^0.17.0",
     "@atproto/identity": "^0.4.9",
+    "@atproto/oauth-client-node": "^0.3.8",
     "@atproto/repo": "^0.8.10",
     "@atproto/sync": "^0.1.35",
     "@hookform/resolvers": "^3.10.0",

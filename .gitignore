@@ -13,3 +13,9 @@ vite.config.ts.*
 appview-signing-key.json
 appview-private.pem
 .env.webdid
+
+# OAuth private keys - NEVER commit!
+oauth-keyset.json
+oauth-private.pem
+oauth-public.pem
+oauth-private-pkcs8.pem

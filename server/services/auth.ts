@@ -108,3 +108,23 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   req.session = payload;
   next();
 }
+
+export async function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  await requireAuth(req, res, async () => {
+    if (!req.session) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const { adminAuthService } = await import("./admin-authorization");
+    const isAdmin = await adminAuthService.isAdmin(req.session.did);
+
+    if (!isAdmin) {
+      return res.status(403).json({ 
+        error: "Admin access required",
+        message: "Your account is not authorized to access admin features. Contact your instance administrator."
+      });
+    }
+
+    next();
+  });
+}
