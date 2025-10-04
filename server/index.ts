@@ -119,5 +119,10 @@ app.use((req, res, next) => {
     logCollector.success(`AT Protocol App View service started on port ${port}`);
     logCollector.info("Database connection initialized");
     logCollector.info("XRPC endpoints registered and ready");
+    
+    // Initialize data pruning service (if enabled)
+    import("./services/data-pruning").then(({ dataPruningService }) => {
+      // Service auto-initializes in its constructor
+    });
   });
 })();
