@@ -110,11 +110,28 @@ export class BackfillService {
         config.cursor = this.progress.currentCursor;
       }
 
+      console.log("[BACKFILL] Creating Firehose client with config:", { 
+        service: this.relayUrl, 
+        cursor: this.progress.currentCursor 
+      });
+
       this.client = new Firehose(config);
       console.log("[BACKFILL] Firehose client created, attempting to connect...");
 
+      // Connection timeout - fail if not connected within 30 seconds
+      const connectionTimeout = setTimeout(() => {
+        console.error("[BACKFILL] Connection timeout after 30 seconds - relay not responding");
+        console.error("[BACKFILL] This may indicate network/firewall issues blocking WebSocket to", this.relayUrl);
+        if (this.client) {
+          this.client.close();
+        }
+        reject(new Error("Backfill connection timeout - relay not responding"));
+      }, 30000);
+
       this.client.on("open", () => {
-        console.log("[BACKFILL] Connected to relay for backfill");
+        clearTimeout(connectionTimeout);
+        console.log("[BACKFILL] ✓ Connected to relay for backfill");
+        logCollector.success("Backfill connected to relay", { relayUrl: this.relayUrl });
       });
 
       this.client.on("commit", async (commit) => {
@@ -230,10 +247,16 @@ export class BackfillService {
         }
       });
 
-      this.client.on("error", (error) => {
+      this.client.on("error", (error: any) => {
+        clearTimeout(connectionTimeout);
         console.error("[BACKFILL] Firehose error:", error);
+        console.error("[BACKFILL] Error details:", {
+          message: error?.message || error?.error?.message || String(error),
+          code: error?.code || error?.error?.code,
+          type: error?.constructor?.name,
+        });
         logCollector.error("Backfill firehose error", { error });
-        reject(error);
+        reject(error?.error || error);
       });
 
       this.client.on("close", () => {
