@@ -113,17 +113,12 @@ export class BackfillService {
     };
 
     try {
-      // Try to load saved progress to resume backfill after restarts
-      const savedProgress = await backfillStorage.getBackfillProgress();
-      if (savedProgress?.currentCursor) {
-        this.progress.currentCursor = parseInt(savedProgress.currentCursor);
-        this.progress.eventsProcessed = savedProgress.eventsProcessed || 0;
-        console.log(`[BACKFILL] Resuming from saved cursor: ${this.progress.currentCursor} (${this.progress.eventsProcessed} events processed)`);
-      } else {
-        this.progress.currentCursor = null;
-        this.progress.eventsProcessed = 0;
-        console.log(`[BACKFILL] Starting fresh backfill from cursor 0`);
-      }
+      // Clear any saved progress when starting a new backfill
+      // This ensures we always start from cursor 0 to get full historical data
+      // Progress will be saved during the run for crash recovery
+      console.log("[BACKFILL] Starting fresh backfill from cursor 0 to fetch full historical window");
+      this.progress.currentCursor = null;
+      this.progress.eventsProcessed = 0;
 
       console.log("[BACKFILL] Initializing @atproto/sync Firehose client...");
       await this.runBackfill();
