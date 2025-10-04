@@ -80,6 +80,15 @@ class DatabaseSessionStore {
       
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       
+      const existingUser = await storage.getUser(sub);
+      if (!existingUser) {
+        await storage.createUser({
+          did: sub,
+          handle: sub,
+        });
+        console.log(`[OAUTH] Created user record for ${sub}`);
+      }
+      
       const existingSession = await storage.getSession(sub);
       
       if (existingSession) {
