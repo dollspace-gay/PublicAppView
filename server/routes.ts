@@ -1352,86 +1352,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AT Protocol server metadata endpoint (required for service discovery)
   app.get("/xrpc/com.atproto.server.describeServer", async (_req, res) => {
     try {
-      // Use hardcoded version to avoid runtime import issues after compilation
-      const version = "1.0.0";
+      const appviewDid = process.env.APPVIEW_DID;
       
+      // In production, APPVIEW_DID is required - fail fast if missing
+      if (process.env.NODE_ENV === 'production' && !appviewDid) {
+        return res.status(500).json({ 
+          error: 'APPVIEW_DID environment variable is required in production' 
+        });
+      }
+      
+      // Return standard AT Protocol response - no custom fields allowed
       res.json({
-        did: process.env.APPVIEW_DID || "did:web:appview.local",
+        did: appviewDid || "did:web:appview.local", // Fallback only for development
         availableUserDomains: [],
         inviteCodeRequired: false,
         phoneVerificationRequired: false,
-        links: {
-          privacyPolicy: undefined,
-          termsOfService: undefined,
-        },
-        contact: {
-          email: undefined,
-        },
-        appview: {
-          version,
-          capabilities: [
-            "app.bsky.feed.getTimeline",
-            "app.bsky.feed.getAuthorFeed",
-            "app.bsky.feed.getPostThread",
-            "app.bsky.feed.getPosts",
-            "app.bsky.feed.getLikes",
-            "app.bsky.feed.getRepostedBy",
-            "app.bsky.feed.getQuotes",
-            "app.bsky.feed.getActorLikes",
-            "app.bsky.feed.getListFeed",
-            "app.bsky.feed.searchPosts",
-            "app.bsky.feed.getFeedGenerator",
-            "app.bsky.feed.getFeedGenerators",
-            "app.bsky.feed.getActorFeeds",
-            "app.bsky.feed.getSuggestedFeeds",
-            "app.bsky.feed.describeFeedGenerator",
-            "app.bsky.feed.getFeed",
-            "app.bsky.actor.getProfile",
-            "app.bsky.actor.getProfiles",
-            "app.bsky.actor.getSuggestions",
-            "app.bsky.actor.searchActors",
-            "app.bsky.actor.searchActorsTypeahead",
-            "app.bsky.actor.getPreferences",
-            "app.bsky.actor.putPreferences",
-            "app.bsky.graph.getFollows",
-            "app.bsky.graph.getFollowers",
-            "app.bsky.graph.getBlocks",
-            "app.bsky.graph.getMutes",
-            "app.bsky.graph.muteActor",
-            "app.bsky.graph.unmuteActor",
-            "app.bsky.graph.getRelationships",
-            "app.bsky.graph.getList",
-            "app.bsky.graph.getLists",
-            "app.bsky.graph.getListMutes",
-            "app.bsky.graph.getListBlocks",
-            "app.bsky.graph.getKnownFollowers",
-            "app.bsky.graph.getSuggestedFollowsByActor",
-            "app.bsky.graph.muteActorList",
-            "app.bsky.graph.unmuteActorList",
-            "app.bsky.graph.getStarterPack",
-            "app.bsky.graph.getStarterPacks",
-            "app.bsky.graph.muteThread",
-            "app.bsky.notification.listNotifications",
-            "app.bsky.notification.getUnreadCount",
-            "app.bsky.notification.updateSeen",
-            "app.bsky.notification.registerPush",
-            "app.bsky.notification.putPreferences",
-            "app.bsky.video.getJobStatus",
-            "app.bsky.video.getUploadLimits",
-            "app.bsky.moderation.createReport",
-            "com.atproto.label.queryLabels",
-            "app.bsky.labeler.getServices",
-          ],
-          features: {
-            "oauth": true,
-            "pds-proxy": true,
-            "content-filtering": true,
-            "custom-feeds": true,
-            "feed-generators": true,
-            "full-text-search": true,
-            "cursor-persistence": true,
-          }
-        }
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to describe server" });
