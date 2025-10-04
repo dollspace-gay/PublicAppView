@@ -113,12 +113,16 @@ export class BackfillService {
     };
 
     try {
-      // For any active backfill (days > 0 or total backfill with -1), always start fresh
-      // Saved progress is not used for backfill to ensure we get historical data from cursor 0
-      if (this.backfillDays > 0 || this.backfillDays === -1) {
+      // Try to load saved progress to resume backfill after restarts
+      const savedProgress = await backfillStorage.getBackfillProgress();
+      if (savedProgress?.currentCursor) {
+        this.progress.currentCursor = parseInt(savedProgress.currentCursor);
+        this.progress.eventsProcessed = savedProgress.eventsProcessed || 0;
+        console.log(`[BACKFILL] Resuming from saved cursor: ${this.progress.currentCursor} (${this.progress.eventsProcessed} events processed)`);
+      } else {
         this.progress.currentCursor = null;
         this.progress.eventsProcessed = 0;
-        console.log(`[BACKFILL] Starting fresh backfill from cursor 0 (ignoring any saved progress)`);
+        console.log(`[BACKFILL] Starting fresh backfill from cursor 0`);
       }
 
       console.log("[BACKFILL] Initializing @atproto/sync Firehose client...");
@@ -300,14 +304,10 @@ export class BackfillService {
       console.log("[BACKFILL] ✓ Connected to relay for backfill");
       logCollector.success("Backfill connected to relay", { relayUrl: this.relayUrl });
 
-      // Handle cleanup on process exit
-      const cleanup = async () => {
-        await this.stop();
-        resolve();
-      };
-
-      process.on('SIGINT', cleanup);
-      process.on('SIGTERM', cleanup);
+      // Note: We do NOT register SIGINT/SIGTERM handlers for backfill
+      // because server restarts would prematurely stop the backfill.
+      // The backfill will naturally stop when it reaches the cutoff date
+      // or when the Firehose connection closes.
     });
   }
 
