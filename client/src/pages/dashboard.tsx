@@ -8,6 +8,7 @@ import { DatabaseSchema } from "@/components/database-schema";
 import { ApiEndpoints } from "@/components/api-endpoints";
 import { LexiconValidatorPanel } from "@/components/lexicon-validator-panel";
 import { LogsPanel } from "@/components/logs-panel";
+import InstancePolicyPage from "@/pages/instance-policy";
 import { useLocation } from "wouter";
 
 interface MetricsData {
@@ -300,6 +301,10 @@ export default function Dashboard() {
             </div>
             <LogsPanel />
           </section>
+        )}
+
+        {location === "/policy" && (
+          <InstancePolicyPage />
         )}
       </main>
     </div>

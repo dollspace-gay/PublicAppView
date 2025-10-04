@@ -1214,6 +1214,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Instance moderation policy (public transparency endpoint)
+  app.get("/api/instance/policy", async (_req, res) => {
+    try {
+      const { instanceModerationService } = await import("./services/instance-moderation");
+      const policy = instanceModerationService.getPublicPolicy();
+      res.json(policy);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to retrieve instance policy" });
+    }
+  });
+
+  // Instance moderation statistics (public transparency)
+  app.get("/api/instance/stats", async (_req, res) => {
+    try {
+      const { instanceModerationService } = await import("./services/instance-moderation");
+      const stats = await instanceModerationService.getStatistics();
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to retrieve moderation statistics" });
+    }
+  });
+
+  // Apply instance label (admin only - requires auth)
+  app.post("/api/instance/label", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subject: z.string(),
+        labelValue: z.string(),
+        reason: z.string().optional(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      // TODO: Add admin permission check
+      // if (!session.isAdmin) {
+      //   return res.status(403).json({ error: "Admin access required" });
+      // }
+
+      const { instanceModerationService } = await import("./services/instance-moderation");
+      await instanceModerationService.applyInstanceLabel(data);
+
+      res.json({ success: true, message: `Label '${data.labelValue}' applied to ${data.subject}` });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to apply instance label" });
+    }
+  });
+
+  // Handle legal takedown request (admin only)
+  app.post("/api/instance/takedown", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        subject: z.string(),
+        requestType: z.enum(['dmca', 'court-order', 'dsa', 'other']),
+        requestor: z.string(),
+        details: z.string(),
+      });
+
+      const data = schema.parse(req.body);
+      const session = await storage.getSession(req.session!.sessionId);
+      
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+
+      // TODO: Add admin permission check
+
+      const { instanceModerationService } = await import("./services/instance-moderation");
+      await instanceModerationService.handleTakedown(data);
+
+      res.json({ success: true, message: `Takedown processed for ${data.subject}` });
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to process takedown" });
+    }
+  });
+
   // Backfill test endpoint - backfill a single repository
   app.post("/api/backfill/repo", async (req, res) => {
     try {

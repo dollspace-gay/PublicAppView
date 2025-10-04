@@ -15,6 +15,7 @@ function Router() {
       <Route path="/api" component={Dashboard} />
       <Route path="/lexicons" component={Dashboard} />
       <Route path="/logs" component={Dashboard} />
+      <Route path="/policy" component={Dashboard} />
       <Route component={NotFound} />
     </Switch>
   );
