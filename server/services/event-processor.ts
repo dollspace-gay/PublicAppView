@@ -261,7 +261,7 @@ export class EventProcessor {
     };
   }
 
-  private async ensureUser(did: string): Promise<void> {
+  private async ensureUser(did: string): Promise<boolean> {
     try {
       const user = await storage.getUser(did);
       if (!user) {
@@ -270,8 +270,14 @@ export class EventProcessor {
           handle: did,
         });
       }
-    } catch (error) {
+      return true;
+    } catch (error: any) {
+      // Ignore unique constraint violations (user already exists from parallel insert)
+      if (error.code === '23505') {
+        return true;
+      }
       console.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
+      return false;
     }
   }
 
@@ -375,7 +381,11 @@ export class EventProcessor {
   }
 
   private async processPost(uri: string, cid: string, authorDid: string, record: any) {
-    await this.ensureUser(authorDid);
+    const authorReady = await this.ensureUser(authorDid);
+    if (!authorReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
+      return;
+    }
 
     const post: InsertPost = {
       uri,
@@ -446,7 +456,11 @@ export class EventProcessor {
   }
 
   private async processLike(uri: string, userDid: string, record: any) {
-    await this.ensureUser(userDid);
+    const userReady = await this.ensureUser(userDid);
+    if (!userReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready`);
+      return;
+    }
 
     const postUri = record.subject.uri;
     const like: InsertLike = {
@@ -503,7 +517,11 @@ export class EventProcessor {
   }
 
   private async processRepost(uri: string, userDid: string, record: any) {
-    await this.ensureUser(userDid);
+    const userReady = await this.ensureUser(userDid);
+    if (!userReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
+      return;
+    }
 
     const postUri = record.subject.uri;
     const repost: InsertRepost = {
@@ -570,8 +588,13 @@ export class EventProcessor {
   }
 
   private async processFollow(uri: string, followerDid: string, record: any) {
-    await this.ensureUser(followerDid);
-    await this.ensureUser(record.subject);
+    const followerReady = await this.ensureUser(followerDid);
+    const followingReady = await this.ensureUser(record.subject);
+
+    if (!followerReady || !followingReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - users not ready`);
+      return;
+    }
 
     const follow: InsertFollow = {
       uri,
@@ -580,7 +603,16 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createFollow(follow);
+    try {
+      await storage.createFollow(follow);
+    } catch (error: any) {
+      // Handle foreign key constraint violations gracefully
+      if (error.code === '23503') {
+        console.warn(`[EVENT_PROCESSOR] Foreign key violation for follow ${uri} - will retry later`);
+        return;
+      }
+      throw error;
+    }
     
     // Create notification for follow
     try {
@@ -599,8 +631,13 @@ export class EventProcessor {
   }
 
   private async processBlock(uri: string, blockerDid: string, record: any) {
-    await this.ensureUser(blockerDid);
-    await this.ensureUser(record.subject);
+    const blockerReady = await this.ensureUser(blockerDid);
+    const blockedReady = await this.ensureUser(record.subject);
+
+    if (!blockerReady || !blockedReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - users not ready`);
+      return;
+    }
 
     const block: InsertBlock = {
       uri,
@@ -609,11 +646,24 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createBlock(block);
+    try {
+      await storage.createBlock(block);
+    } catch (error: any) {
+      // Handle foreign key constraint violations gracefully
+      if (error.code === '23503') {
+        console.warn(`[EVENT_PROCESSOR] Foreign key violation for block ${uri} - will retry later`);
+        return;
+      }
+      throw error;
+    }
   }
 
   private async processList(uri: string, cid: string, creatorDid: string, record: any) {
-    await this.ensureUser(creatorDid);
+    const creatorReady = await this.ensureUser(creatorDid);
+    if (!creatorReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`);
+      return;
+    }
 
     const list: InsertList = {
       uri,
@@ -633,8 +683,13 @@ export class EventProcessor {
   }
 
   private async processListItem(uri: string, cid: string, creatorDid: string, record: any) {
-    await this.ensureUser(creatorDid);
-    await this.ensureUser(record.subject);
+    const creatorReady = await this.ensureUser(creatorDid);
+    const subjectReady = await this.ensureUser(record.subject);
+    
+    if (!creatorReady || !subjectReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`);
+      return;
+    }
 
     const listItem: InsertListItem = {
       uri,
@@ -690,7 +745,11 @@ export class EventProcessor {
   }
 
   private async processFeedGenerator(uri: string, cid: string, creatorDid: string, record: any) {
-    await this.ensureUser(creatorDid);
+    const creatorReady = await this.ensureUser(creatorDid);
+    if (!creatorReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`);
+      return;
+    }
 
     const feedGenerator: InsertFeedGenerator = {
       uri,
@@ -707,7 +766,11 @@ export class EventProcessor {
   }
 
   private async processStarterPack(uri: string, cid: string, creatorDid: string, record: any) {
-    await this.ensureUser(creatorDid);
+    const creatorReady = await this.ensureUser(creatorDid);
+    if (!creatorReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready`);
+      return;
+    }
 
     const starterPack: InsertStarterPack = {
       uri,
@@ -724,7 +787,11 @@ export class EventProcessor {
   }
 
   private async processLabelerService(uri: string, cid: string, creatorDid: string, record: any) {
-    await this.ensureUser(creatorDid);
+    const creatorReady = await this.ensureUser(creatorDid);
+    if (!creatorReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`);
+      return;
+    }
 
     const labelerService: InsertLabelerService = {
       uri,
