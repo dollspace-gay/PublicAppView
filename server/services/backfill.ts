@@ -1,12 +1,12 @@
-import { Firehose } from "@skyware/firehose";
-import WebSocket from "ws";
+import { Firehose, MemoryRunner } from "@atproto/sync";
+import { IdResolver } from "@atproto/identity";
 import { eventProcessor } from "./event-processor";
 import { storage } from "../storage";
 import { logCollector } from "./log-collector";
 
 export interface BackfillProgress {
-  startCursor: string | null;
-  currentCursor: string | null;
+  startCursor: number | null;
+  currentCursor: number | null;
   eventsProcessed: number;
   startTime: Date;
   lastUpdateTime: Date;
@@ -27,25 +27,27 @@ export class BackfillService {
     isRunning: false,
   };
   
-  private readonly BATCH_SIZE = 100; // Process in batches for memory efficiency
   private readonly PROGRESS_SAVE_INTERVAL = 1000; // Save progress every 1000 events
-  private readonly MAX_EVENTS_PER_RUN = 100000; // Limit for safety
+  private readonly MAX_EVENTS_PER_RUN = 1000000; // Increased safety limit for total backfill
   private readonly backfillDays: number;
   private cutoffDate: Date | null = null;
+  private idResolver: IdResolver;
   
   constructor(
     private relayUrl: string = process.env.RELAY_URL || "wss://bsky.network"
   ) {
-    // 0 or not set = backfill disabled, >0 = backfill X days of historical data
+    // 0 = backfill disabled, -1 = total backfill (all available history), >0 = backfill X days
     const backfillDaysRaw = parseInt(process.env.BACKFILL_DAYS || "0");
-    this.backfillDays = !isNaN(backfillDaysRaw) && backfillDaysRaw >= 0 ? backfillDaysRaw : 0;
+    this.backfillDays = !isNaN(backfillDaysRaw) && backfillDaysRaw >= -1 ? backfillDaysRaw : 0;
     
     if (process.env.BACKFILL_DAYS && isNaN(backfillDaysRaw)) {
       console.warn(`[BACKFILL] Invalid BACKFILL_DAYS value "${process.env.BACKFILL_DAYS}" - using default (0)`);
     }
+    
+    this.idResolver = new IdResolver();
   }
 
-  async start(startCursor?: string): Promise<void> {
+  async start(startCursor?: number): Promise<void> {
     if (this.isRunning) {
       throw new Error("Backfill is already running");
     }
@@ -55,21 +57,33 @@ export class BackfillService {
       return;
     }
 
-    // Calculate cutoff date - only backfill data from the last X days
-    this.cutoffDate = new Date();
-    this.cutoffDate.setDate(this.cutoffDate.getDate() - this.backfillDays);
+    // Configure backfill mode
+    let backfillMode: string;
+    if (this.backfillDays === -1) {
+      backfillMode = "TOTAL (entire available history)";
+      this.cutoffDate = null; // No cutoff for total backfill
+    } else {
+      backfillMode = `${this.backfillDays} days`;
+      this.cutoffDate = new Date();
+      this.cutoffDate.setDate(this.cutoffDate.getDate() - this.backfillDays);
+    }
 
-    console.log(`[BACKFILL] Starting historical backfill for last ${this.backfillDays} days (since ${this.cutoffDate.toISOString()})...`);
+    console.log(`[BACKFILL] Starting ${backfillMode} historical backfill...`);
+    if (this.cutoffDate) {
+      console.log(`[BACKFILL] Cutoff date: ${this.cutoffDate.toISOString()}`);
+    }
+    
     logCollector.info("Starting historical backfill", { 
       startCursor, 
       backfillDays: this.backfillDays,
-      cutoffDate: this.cutoffDate.toISOString()
+      cutoffDate: this.cutoffDate?.toISOString() || "none (total backfill)",
+      mode: backfillMode
     });
 
     this.isRunning = true;
     this.progress = {
-      startCursor: startCursor || null,
-      currentCursor: startCursor || null,
+      startCursor: startCursor ?? null,
+      currentCursor: startCursor ?? null,
       eventsProcessed: 0,
       startTime: new Date(),
       lastUpdateTime: new Date(),
@@ -81,14 +95,17 @@ export class BackfillService {
       // Load progress from database if resuming
       const savedProgress = await storage.getBackfillProgress();
       if (savedProgress && !startCursor) {
-        this.progress.currentCursor = savedProgress.currentCursor;
-        this.progress.eventsProcessed = savedProgress.eventsProcessed;
-        console.log(`[BACKFILL] Resuming from cursor: ${savedProgress.currentCursor}`);
+        const savedCursor = savedProgress.currentCursor ? parseInt(savedProgress.currentCursor) : null;
+        if (savedCursor) {
+          this.progress.currentCursor = savedCursor;
+          this.progress.eventsProcessed = savedProgress.eventsProcessed;
+          console.log(`[BACKFILL] Resuming from cursor: ${savedCursor}`);
+        }
       }
 
-      console.log("[BACKFILL] About to call runBackfill()...");
+      console.log("[BACKFILL] Initializing @atproto/sync Firehose client...");
       await this.runBackfill();
-      console.log("[BACKFILL] runBackfill() completed");
+      console.log("[BACKFILL] Backfill completed successfully");
     } catch (error) {
       console.error("[BACKFILL] Error during backfill:", error);
       logCollector.error("Backfill error", { error });
@@ -100,171 +117,149 @@ export class BackfillService {
 
   private async runBackfill(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const config: any = {
-        service: this.relayUrl,
-        ws: WebSocket as any,
-      };
-
-      // Start from saved cursor if available
-      if (this.progress.currentCursor) {
-        config.cursor = this.progress.currentCursor;
+      // Configure start cursor
+      // startCursor: 0 = fetch entire rollback window (total backfill)
+      // startCursor: number = resume from that sequence
+      // startCursor: undefined = start from current position
+      let startCursor: number | undefined;
+      
+      if (this.backfillDays === -1) {
+        // Total backfill: start from oldest available (seq 0)
+        startCursor = 0;
+        console.log("[BACKFILL] Using startCursor=0 for total backfill (entire rollback window)");
+      } else if (this.progress.currentCursor !== null) {
+        // Resume from saved position
+        startCursor = this.progress.currentCursor;
+        console.log(`[BACKFILL] Resuming from saved cursor: ${startCursor}`);
+      } else {
+        // Start from oldest available within server's rollback window
+        startCursor = 0;
+        console.log("[BACKFILL] Using startCursor=0 to fetch available history");
       }
 
-      console.log("[BACKFILL] Creating Firehose client with config:", { 
-        service: this.relayUrl, 
-        cursor: this.progress.currentCursor 
-      });
-
-      this.client = new Firehose(config);
-      console.log("[BACKFILL] Firehose client created, attempting to connect...");
-
-      // Connection timeout - fail if not connected within 30 seconds
-      const connectionTimeout = setTimeout(() => {
-        console.error("[BACKFILL] Connection timeout after 30 seconds - relay not responding");
-        console.error("[BACKFILL] This may indicate network/firewall issues blocking WebSocket to", this.relayUrl);
-        if (this.client) {
-          this.client.close();
-        }
-        reject(new Error("Backfill connection timeout - relay not responding"));
-      }, 30000);
-
-      this.client.on("open", () => {
-        clearTimeout(connectionTimeout);
-        console.log("[BACKFILL] ✓ Connected to relay for backfill");
-        logCollector.success("Backfill connected to relay", { relayUrl: this.relayUrl });
-      });
-
-      this.client.on("commit", async (commit) => {
-        try {
-          // Save cursor position
-          if ((commit as any).seq) {
-            this.progress.currentCursor = String((commit as any).seq);
+      // MemoryRunner handles cursor persistence and provides it to Firehose
+      const runner = new MemoryRunner({
+        startCursor,
+        setCursor: async (cursor: number) => {
+          this.progress.currentCursor = cursor;
+          // Save to database periodically
+          if (this.progress.eventsProcessed % this.PROGRESS_SAVE_INTERVAL === 0) {
+            await this.saveProgress();
           }
+        },
+      });
 
-          // Check if any record is older than cutoff date (stop backfilling if so)
-          if (this.cutoffDate) {
-            for (const op of commit.ops) {
-              if (op.action !== 'delete' && 'record' in op && op.record) {
-                const record = op.record as any;
+      console.log("[BACKFILL] Creating Firehose with @atproto/sync...");
+
+      this.client = new Firehose({
+        idResolver: this.idResolver,
+        runner,
+        service: this.relayUrl,
+        unauthenticatedCommits: true, // Disable signature verification for faster backfill
+        unauthenticatedHandles: true, // Disable handle verification for faster backfill
+        handleEvent: async (evt) => {
+          try {
+            // Track sequence number
+            if ('seq' in evt && typeof evt.seq === 'number') {
+              this.progress.currentCursor = evt.seq;
+            }
+
+            // Handle different event types
+            if (evt.event === 'create' || evt.event === 'update') {
+              // Check cutoff date if configured
+              if (this.cutoffDate && evt.record && typeof evt.record === 'object') {
+                const record = evt.record as any;
                 if (record.createdAt) {
                   const recordDate = new Date(record.createdAt);
                   if (recordDate < this.cutoffDate) {
                     console.log(`[BACKFILL] Reached cutoff date (${this.cutoffDate.toISOString()}). Stopping backfill.`);
-                    logCollector.info("Backfill reached cutoff date", { 
-                      recordDate: recordDate.toISOString(),
-                      cutoffDate: this.cutoffDate.toISOString(),
-                      eventsProcessed: this.progress.eventsProcessed
-                    });
                     await this.stop();
                     resolve();
                     return;
                   }
                 }
               }
-            }
-          }
 
-          const event = {
-            repo: commit.repo,
-            ops: commit.ops.map((op) => {
-              const baseOp: any = {
-                action: op.action,
-                path: op.path,
+              // Process create/update as commit event
+              const commitEvent = {
+                repo: evt.did,
+                ops: [{
+                  action: evt.event === 'create' ? 'create' : 'update',
+                  path: `${evt.collection}/${evt.rkey}`,
+                  cid: evt.cid?.toString() || "",
+                  record: evt.record,
+                }],
               };
               
-              if (op.action !== 'delete' && 'cid' in op) {
-                baseOp.cid = op.cid?.toString() || "";
-              }
-              if (op.action !== 'delete' && 'record' in op) {
-                baseOp.record = op.record;
-              }
+              await eventProcessor.processCommit(commitEvent);
+            } else if (evt.event === 'delete') {
+              // Process delete event
+              const commitEvent = {
+                repo: evt.did,
+                ops: [{
+                  action: 'delete',
+                  path: `${evt.collection}/${evt.rkey}`,
+                }],
+              };
               
-              return baseOp;
-            }),
-          };
+              await eventProcessor.processCommit(commitEvent);
+            } else if (evt.event === 'identity') {
+              // Process identity update
+              await eventProcessor.processIdentity({
+                did: evt.did,
+                handle: evt.handle || evt.did,
+              });
+            } else if (evt.event === 'account') {
+              // Process account status change
+              await eventProcessor.processAccount({
+                did: evt.did,
+                active: evt.active,
+              });
+            }
 
-          await eventProcessor.processCommit(event);
-          
-          this.progress.eventsProcessed++;
-          this.progress.lastUpdateTime = new Date();
+            this.progress.eventsProcessed++;
+            this.progress.lastUpdateTime = new Date();
 
-          // Save progress periodically
-          if (this.progress.eventsProcessed % this.PROGRESS_SAVE_INTERVAL === 0) {
-            await this.saveProgress();
-            console.log(`[BACKFILL] Progress: ${this.progress.eventsProcessed} events processed`);
-          }
+            // Log progress periodically
+            if (this.progress.eventsProcessed % this.PROGRESS_SAVE_INTERVAL === 0) {
+              console.log(`[BACKFILL] Progress: ${this.progress.eventsProcessed} events processed`);
+            }
 
-          // Check if we've hit the safety limit
-          if (this.progress.eventsProcessed >= this.MAX_EVENTS_PER_RUN) {
-            console.log(`[BACKFILL] Reached safety limit of ${this.MAX_EVENTS_PER_RUN} events`);
-            await this.stop();
-            resolve();
+            // Check if we've hit the safety limit
+            if (this.progress.eventsProcessed >= this.MAX_EVENTS_PER_RUN) {
+              console.log(`[BACKFILL] Reached safety limit of ${this.MAX_EVENTS_PER_RUN} events`);
+              await this.stop();
+              resolve();
+            }
+          } catch (error: any) {
+            if (error?.code === '23505') {
+              // Duplicate key - skip silently
+            } else {
+              console.error("[BACKFILL] Error processing event:", error);
+              logCollector.error("Backfill event processing error", { error, event: evt });
+            }
           }
-        } catch (error: any) {
-          if (error?.code === '23505') {
-            console.log(`[BACKFILL] Skipped duplicate event`);
-          } else {
-            console.error("[BACKFILL] Error processing commit:", error);
-          }
-        }
+        },
+        onError: (err) => {
+          console.error("[BACKFILL] Firehose error:", err);
+          logCollector.error("Backfill firehose error", { error: err });
+          reject(err);
+        },
       });
 
-      this.client.on("identity", async (identity) => {
-        try {
-          if ((identity as any).seq) {
-            this.progress.currentCursor = String((identity as any).seq);
-          }
+      console.log("[BACKFILL] Starting Firehose client...");
+      this.client.start();
+      console.log("[BACKFILL] ✓ Connected to relay for backfill");
+      logCollector.success("Backfill connected to relay", { relayUrl: this.relayUrl });
 
-          await eventProcessor.processIdentity({
-            did: identity.did,
-            handle: identity.handle || identity.did,
-          });
-        } catch (error: any) {
-          if (error?.code === '23505') {
-            console.log(`[BACKFILL] Skipped duplicate identity`);
-          } else {
-            console.error("[BACKFILL] Error processing identity:", error);
-          }
-        }
-      });
-
-      this.client.on("account", async (account) => {
-        try {
-          if ((account as any).seq) {
-            this.progress.currentCursor = String((account as any).seq);
-          }
-
-          await eventProcessor.processAccount({
-            did: account.did,
-            active: account.active,
-          });
-        } catch (error: any) {
-          if (error?.code === '23505') {
-            console.log(`[BACKFILL] Skipped duplicate account`);
-          } else {
-            console.error("[BACKFILL] Error processing account:", error);
-          }
-        }
-      });
-
-      this.client.on("error", (error: any) => {
-        clearTimeout(connectionTimeout);
-        console.error("[BACKFILL] Firehose error:", error);
-        console.error("[BACKFILL] Error details:", {
-          message: error?.message || error?.error?.message || String(error),
-          code: error?.code || error?.error?.code,
-          type: error?.constructor?.name,
-        });
-        logCollector.error("Backfill firehose error", { error });
-        reject(error?.error || error);
-      });
-
-      this.client.on("close", () => {
-        console.log("[BACKFILL] Connection closed");
-        this.isRunning = false;
-        this.progress.isRunning = false;
+      // Handle cleanup on process exit
+      const cleanup = async () => {
+        await this.stop();
         resolve();
-      });
+      };
+
+      process.on('SIGINT', cleanup);
+      process.on('SIGTERM', cleanup);
     });
   }
 
@@ -273,14 +268,9 @@ export class BackfillService {
     
     if (this.client) {
       try {
-        if (typeof (this.client as any).removeAllListeners === 'function') {
-          (this.client as any).removeAllListeners();
-        }
-        if (typeof (this.client as any).close === 'function') {
-          (this.client as any).close();
-        }
+        await this.client.destroy();
       } catch (error) {
-        console.error("[BACKFILL] Error closing client:", error);
+        console.error("[BACKFILL] Error destroying client:", error);
       }
       this.client = null;
     }
@@ -290,13 +280,16 @@ export class BackfillService {
     this.progress.isRunning = false;
     
     console.log("[BACKFILL] Backfill stopped");
-    logCollector.info("Backfill stopped", { progress: this.progress });
+    logCollector.info("Backfill stopped", { 
+      progress: this.progress,
+      eventsProcessed: this.progress.eventsProcessed
+    });
   }
 
   private async saveProgress(): Promise<void> {
     try {
       await storage.saveBackfillProgress({
-        currentCursor: this.progress.currentCursor,
+        currentCursor: this.progress.currentCursor?.toString() || null,
         eventsProcessed: this.progress.eventsProcessed,
         lastUpdateTime: this.progress.lastUpdateTime,
       });
@@ -307,10 +300,6 @@ export class BackfillService {
 
   getProgress(): BackfillProgress {
     return { ...this.progress };
-  }
-
-  isBackfillRunning(): boolean {
-    return this.isRunning;
   }
 }
 
