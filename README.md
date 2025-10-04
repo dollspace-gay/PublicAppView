@@ -40,6 +40,7 @@ A production-ready, self-hostable AT Protocol "App View" service that indexes re
 
 ### Prerequisites
 - PostgreSQL database
+- Redis (for caching and metrics)
 - Node.js 20+
 - (Optional) Domain for `did:web` identifier
 
@@ -47,8 +48,8 @@ A production-ready, self-hostable AT Protocol "App View" service that indexes re
 
 1. **Clone and Install**
 ```bash
-git clone <your-repo>
-cd at-protocol-appview
+git clone <your-repo> PublicAppView
+cd PublicAppView
 npm install
 ```
 
@@ -74,184 +75,151 @@ The server starts on port 5000 with the dashboard at http://localhost:5000
 
 ### Building the Docker Image
 
-1. **Create a Dockerfile**
-```dockerfile
-FROM node:20-alpine AS builder
+The Dockerfile is already included in the repository. It uses a multi-stage build with:
+- Node.js 20-slim base image
+- PM2 cluster mode for multi-worker deployment
+- Automatic database migrations on startup
+- Health checks and production optimizations
 
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install all dependencies (including devDependencies for build)
-RUN npm ci
-
-# Copy source code
-COPY . .
-
-# Build the application
-RUN npm run build
-
-# Production stage
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --production
-
-# Copy built application from builder
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/client/dist ./client/dist
-
-# Expose port
-EXPOSE 5000
-
-# Start the application
-CMD ["npm", "start"]
-```
-
-2. **Build the Image**
+**Build the Image**
 ```bash
-docker build -t at-protocol-appview .
+# Build all services (use --no-cache for clean build)
+sudo docker-compose build --no-cache
+
+# Or build without cache flag
+sudo docker-compose build
 ```
 
 ### Running with Docker
 
-**Basic Run**
+**Basic Run (requires external PostgreSQL and Redis)**
 ```bash
 docker run -d \
-  --name appview \
+  --name at-protocol-appview \
   -p 5000:5000 \
   -e DATABASE_URL="postgresql://user:pass@host:5432/dbname" \
+  -e REDIS_URL="redis://host:6379" \
   -e SESSION_SECRET="your-secure-secret" \
   -e NODE_ENV="production" \
   at-protocol-appview
 ```
 
-**With Docker Compose**
+**With Docker Compose (Recommended)**
 
-Create `docker-compose.yml`:
-```yaml
-version: '3.8'
+A complete `docker-compose.yml` is included in the repository with:
+- **Redis** service (in-memory caching and metrics)
+- **PostgreSQL** service (database with production tuning)
+- **App** service (AppView with all dependencies)
 
-services:
-  appview:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      DATABASE_URL: postgresql://user:pass@postgres:5432/appview
-      SESSION_SECRET: ${SESSION_SECRET}
-      NODE_ENV: production
-      APPVIEW_DID: did:web:your-domain.com
-    restart: unless-stopped
-    depends_on:
-      - postgres
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: appview
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-```
-
-Then run:
+Start all services:
 ```bash
 docker-compose up -d
 ```
 
-### Monitoring Docker Container
+The docker-compose setup includes:
+- PostgreSQL 14 with 5000 max connections and 20GB shared buffers
+- Redis 7 with 8GB memory and LRU eviction
+- Health checks for all services
+- Automatic dependency ordering
+- Volume persistence for database
 
-**View Container Status**
+### Monitoring Docker Services
+
+**View Service Status**
 ```bash
-# Check if container is running
-docker ps | grep appview
+# Check all services
+docker-compose ps
 
-# View detailed container info
-docker inspect appview
+# View detailed service info
+docker-compose logs
 
 # Check resource usage
-docker stats appview
+docker stats
 ```
 
 **View Logs**
 ```bash
-# Follow logs in real-time
-docker logs -f appview
+# Follow all logs in real-time
+docker-compose logs -f
+
+# Follow specific service logs
+docker-compose logs -f app
+docker-compose logs -f db
+docker-compose logs -f redis
 
 # View last 100 lines
-docker logs --tail 100 appview
+docker-compose logs --tail 100 app
 
-# View logs with timestamps
-docker logs -t appview
+# Or use container names directly
+docker logs -f publicappview-app-1
+docker logs --tail 100 publicappview-db-1
 ```
 
 **Health Checks**
 ```bash
-# Check health status
-docker inspect --format='{{.State.Health.Status}}' appview
+# Check service health
+docker-compose ps
 
 # Manual health check
 curl http://localhost:5000/health
 curl http://localhost:5000/ready
 
-# View health check logs
-docker inspect --format='{{json .State.Health}}' appview | jq
+# View health status
+docker inspect --format='{{.State.Health.Status}}' publicappview-app-1
 ```
 
 **Performance Monitoring**
 ```bash
-# Real-time stats (CPU, memory, network)
-docker stats appview --no-stream
+# Real-time stats (all services)
+docker stats
 
-# Export metrics
-docker stats appview --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
+# Specific containers
+docker stats publicappview-app-1 publicappview-db-1 publicappview-redis-1
 ```
 
-**Container Management**
+**Service Management**
 ```bash
-# Stop container
-docker stop appview
+# Stop all services
+docker-compose stop
 
-# Start container
-docker start appview
+# Start all services
+docker-compose start
 
-# Restart container
-docker restart appview
+# Restart all services
+docker-compose restart
 
-# Remove container
-docker rm -f appview
+# Restart specific service
+docker-compose restart app
+
+# Remove all services
+docker-compose down
+
+# Remove with volumes (WARNING: deletes data)
+docker-compose down -v
 ```
 
 **Entering the Container**
 ```bash
-# Open shell in running container
-docker exec -it appview sh
+# Open shell in app container
+docker-compose exec app sh
 
 # Run commands in container
-docker exec appview npm run db:push
+docker-compose exec app npm run db:push
+
+# Or use container name directly (note: Docker Compose uses directory name as prefix)
+docker exec -it publicappview-app-1 sh
 ```
+
+**Note:** Docker Compose creates container names using the pattern `{directory-name}-{service-name}-{number}`. Since this repo is cloned to `PublicAppView`, the actual container names are:
+- `publicappview-app-1` (main AppView service)
+- `publicappview-db-1` (PostgreSQL database)
+- `publicappview-redis-1` (Redis cache)
 
 ## Environment Variables
 
 ### Required
 - `DATABASE_URL`: PostgreSQL connection string
+- `REDIS_URL`: Redis connection string (default: `redis://localhost:6379`)
 - `SESSION_SECRET`: JWT secret (generate with `openssl rand -base64 32`)
 
 ### Optional
@@ -259,7 +227,11 @@ docker exec appview npm run db:push
 - `APPVIEW_DID`: DID for this AppView instance (default: `did:web:appview.local`)
 - `PORT`: Server port (default: `5000`)
 - `NODE_ENV`: Environment mode (`development` or `production`)
-- `ENABLE_BACKFILL`: Enable historical backfill (**NOT recommended**, default: `false`)
+- `BACKFILL_DAYS`: Historical backfill in days (0=disabled, >0=backfill X days, default: `0`)
+- `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
+- `DASHBOARD_PASSWORD`: Optional password for dashboard authentication
+- `DB_POOL_SIZE`: Database connection pool size (default: `32`)
+- `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)
 
 ## Production Deployment
 

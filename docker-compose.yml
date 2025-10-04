@@ -43,7 +43,8 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
       - APPVIEW_DID=${APPVIEW_DID:-did:web:appview.local}
-      - ENABLE_BACKFILL=${ENABLE_BACKFILL:-false}
+      - BACKFILL_DAYS=${BACKFILL_DAYS:-0}
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-0}
       - DB_POOL_SIZE=100
       - MAX_CONCURRENT_OPS=80
       - PORT=5000

@@ -30,23 +30,41 @@ export class BackfillService {
   private readonly BATCH_SIZE = 100; // Process in batches for memory efficiency
   private readonly PROGRESS_SAVE_INTERVAL = 1000; // Save progress every 1000 events
   private readonly MAX_EVENTS_PER_RUN = 100000; // Limit for safety
+  private readonly backfillDays: number;
+  private cutoffDate: Date | null = null;
   
   constructor(
     private relayUrl: string = process.env.RELAY_URL || "wss://bsky.network"
-  ) {}
+  ) {
+    // 0 or not set = backfill disabled, >0 = backfill X days of historical data
+    const backfillDaysRaw = parseInt(process.env.BACKFILL_DAYS || "0");
+    this.backfillDays = !isNaN(backfillDaysRaw) && backfillDaysRaw >= 0 ? backfillDaysRaw : 0;
+    
+    if (process.env.BACKFILL_DAYS && isNaN(backfillDaysRaw)) {
+      console.warn(`[BACKFILL] Invalid BACKFILL_DAYS value "${process.env.BACKFILL_DAYS}" - using default (0)`);
+    }
+  }
 
   async start(startCursor?: string): Promise<void> {
     if (this.isRunning) {
       throw new Error("Backfill is already running");
     }
 
-    if (process.env.ENABLE_BACKFILL !== "true") {
-      console.warn("[BACKFILL] Backfill is disabled. Set ENABLE_BACKFILL=true to enable.");
+    if (this.backfillDays === 0) {
+      console.log("[BACKFILL] Backfill is disabled (BACKFILL_DAYS=0)");
       return;
     }
 
-    console.log("[BACKFILL] Starting historical backfill...");
-    logCollector.info("Starting historical backfill", { startCursor });
+    // Calculate cutoff date - only backfill data from the last X days
+    this.cutoffDate = new Date();
+    this.cutoffDate.setDate(this.cutoffDate.getDate() - this.backfillDays);
+
+    console.log(`[BACKFILL] Starting historical backfill for last ${this.backfillDays} days (since ${this.cutoffDate.toISOString()})...`);
+    logCollector.info("Starting historical backfill", { 
+      startCursor, 
+      backfillDays: this.backfillDays,
+      cutoffDate: this.cutoffDate.toISOString()
+    });
 
     this.isRunning = true;
     this.progress = {
@@ -101,6 +119,29 @@ export class BackfillService {
           // Save cursor position
           if ((commit as any).seq) {
             this.progress.currentCursor = String((commit as any).seq);
+          }
+
+          // Check if any record is older than cutoff date (stop backfilling if so)
+          if (this.cutoffDate) {
+            for (const op of commit.ops) {
+              if (op.action !== 'delete' && 'record' in op && op.record) {
+                const record = op.record as any;
+                if (record.createdAt) {
+                  const recordDate = new Date(record.createdAt);
+                  if (recordDate < this.cutoffDate) {
+                    console.log(`[BACKFILL] Reached cutoff date (${this.cutoffDate.toISOString()}). Stopping backfill.`);
+                    logCollector.info("Backfill reached cutoff date", { 
+                      recordDate: recordDate.toISOString(),
+                      cutoffDate: this.cutoffDate.toISOString(),
+                      eventsProcessed: this.progress.eventsProcessed
+                    });
+                    await this.stop();
+                    resolve();
+                    return;
+                  }
+                }
+              }
+            }
           }
 
           const event = {
@@ -206,10 +247,11 @@ export class BackfillService {
     
     if (this.client) {
       try {
-        this.client.removeAllListeners();
-        // @ts-ignore
-        if (typeof this.client.close === 'function') {
-          this.client.close();
+        if (typeof (this.client as any).removeAllListeners === 'function') {
+          (this.client as any).removeAllListeners();
+        }
+        if (typeof (this.client as any).close === 'function') {
+          (this.client as any).close();
         }
       } catch (error) {
         console.error("[BACKFILL] Error closing client:", error);

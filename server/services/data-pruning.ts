@@ -10,7 +10,12 @@ export class DataPruningService {
 
   constructor() {
     // 0 = keep forever, >0 = prune after X days
-    this.retentionDays = parseInt(process.env.DATA_RETENTION_DAYS || "0");
+    const retentionDaysRaw = parseInt(process.env.DATA_RETENTION_DAYS || "0");
+    this.retentionDays = !isNaN(retentionDaysRaw) && retentionDaysRaw >= 0 ? retentionDaysRaw : 0;
+    
+    if (process.env.DATA_RETENTION_DAYS && isNaN(retentionDaysRaw)) {
+      console.warn(`[DATA_PRUNING] Invalid DATA_RETENTION_DAYS value "${process.env.DATA_RETENTION_DAYS}" - using default (0)`);
+    }
     
     if (this.retentionDays > 0) {
       console.log(`[DATA_PRUNING] Enabled - will prune content older than ${this.retentionDays} days`);
