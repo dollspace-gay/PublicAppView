@@ -269,10 +269,26 @@ export class BackfillService {
             }
           }
         },
-        onError: (err) => {
-          console.error("[BACKFILL] Firehose error:", err);
-          logCollector.error("Backfill firehose error", { error: err });
-          reject(err);
+        onError: (err: any) => {
+          // Check if this is a DID resolution error (FirehoseParseError with AbortError)
+          const isDidResolutionError = err?.name === 'FirehoseParseError' && 
+                                       err?.cause?.name === 'AbortError';
+          
+          if (isDidResolutionError) {
+            // DID resolution failures are common during backfill of historical data
+            // Log but don't crash - these events may be outdated or DIDs may no longer exist
+            console.warn("[BACKFILL] Skipping event due to DID resolution timeout:", {
+              event: err?.event?.['$type'],
+              did: err?.event?.did,
+              seq: err?.event?.seq
+            });
+            // Don't reject - continue processing other events
+          } else {
+            // Other errors should still stop the backfill
+            console.error("[BACKFILL] Fatal Firehose error:", err);
+            logCollector.error("Backfill firehose error", { error: err });
+            reject(err);
+          }
         },
       });
 

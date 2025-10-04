@@ -2,6 +2,7 @@ import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBl
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
+import { sanitizeObject } from "./utils/sanitize";
 
 export interface IStorage {
   // User operations
@@ -236,16 +237,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db
+    const sanitized = sanitizeObject(insertUser);
+    const [user] = await this.db
       .insert(users)
-      .values(insertUser)
+      .values(sanitized)
       .onConflictDoUpdate({
         target: users.did,
         set: {
-          handle: insertUser.handle,
-          displayName: insertUser.displayName,
-          avatarUrl: insertUser.avatarUrl,
-          description: insertUser.description,
+          handle: sanitized.handle,
+          displayName: sanitized.displayName,
+          avatarUrl: sanitized.avatarUrl,
+          description: sanitized.description,
         },
       })
       .returning();
@@ -301,9 +303,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPost(post: InsertPost): Promise<Post> {
-    const [newPost] = await db
+    const sanitized = sanitizeObject(post);
+    const [newPost] = await this.db
       .insert(posts)
-      .values(post)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newPost;
@@ -362,9 +365,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLike(like: InsertLike): Promise<Like> {
-    const [newLike] = await db
+    const sanitized = sanitizeObject(like);
+    const [newLike] = await this.db
       .insert(likes)
-      .values(like)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newLike;
@@ -417,9 +421,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createRepost(repost: InsertRepost): Promise<Repost> {
-    const [newRepost] = await db
+    const sanitized = sanitizeObject(repost);
+    const [newRepost] = await this.db
       .insert(reposts)
-      .values(repost)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newRepost;
@@ -451,9 +456,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
-    const [newFollow] = await db
+    const sanitized = sanitizeObject(follow);
+    const [newFollow] = await this.db
       .insert(follows)
-      .values(follow)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newFollow;
@@ -493,9 +499,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createBlock(block: InsertBlock): Promise<Block> {
-    const [newBlock] = await db
+    const sanitized = sanitizeObject(block);
+    const [newBlock] = await this.db
       .insert(blocks)
-      .values(block)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newBlock;
@@ -527,9 +534,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createMute(mute: InsertMute): Promise<Mute> {
-    const [newMute] = await db
+    const sanitized = sanitizeObject(mute);
+    const [newMute] = await this.db
       .insert(mutes)
-      .values(mute)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newMute;
@@ -561,9 +569,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createListMute(listMute: InsertListMute): Promise<ListMute> {
-    const [newListMute] = await db
+    const sanitized = sanitizeObject(listMute);
+    const [newListMute] = await this.db
       .insert(listMutes)
-      .values(listMute)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newListMute;
@@ -574,22 +583,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getListMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ListMute[]; cursor?: string }> {
-    let query = db
-      .select()
-      .from(listMutes)
-      .where(eq(listMutes.muterDid, muterDid))
-      .orderBy(desc(listMutes.createdAt))
-      .limit(limit + 1);
-
+    const conditions = [eq(listMutes.muterDid, muterDid)];
+    
     if (cursor) {
       const cursorDate = new Date(cursor);
-      query = query.where(
-        and(
-          eq(listMutes.muterDid, muterDid),
-          sql`${listMutes.createdAt} < ${cursorDate}`
-        )
-      ) as any;
+      conditions.push(sql`${listMutes.createdAt} < ${cursorDate}`);
     }
+
+    const query = this.db
+      .select()
+      .from(listMutes)
+      .where(and(...conditions))
+      .orderBy(desc(listMutes.createdAt))
+      .limit(limit + 1);
 
     const results = await query;
     const hasMore = results.length > limit;
@@ -600,9 +606,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createListBlock(listBlock: InsertListBlock): Promise<ListBlock> {
-    const [newListBlock] = await db
+    const sanitized = sanitizeObject(listBlock);
+    const [newListBlock] = await this.db
       .insert(listBlocks)
-      .values(listBlock)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newListBlock;
@@ -613,22 +620,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getListBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: ListBlock[]; cursor?: string }> {
-    let query = db
-      .select()
-      .from(listBlocks)
-      .where(eq(listBlocks.blockerDid, blockerDid))
-      .orderBy(desc(listBlocks.createdAt))
-      .limit(limit + 1);
-
+    const conditions = [eq(listBlocks.blockerDid, blockerDid)];
+    
     if (cursor) {
       const cursorDate = new Date(cursor);
-      query = query.where(
-        and(
-          eq(listBlocks.blockerDid, blockerDid),
-          sql`${listBlocks.createdAt} < ${cursorDate}`
-        )
-      ) as any;
+      conditions.push(sql`${listBlocks.createdAt} < ${cursorDate}`);
     }
+
+    const query = this.db
+      .select()
+      .from(listBlocks)
+      .where(and(...conditions))
+      .orderBy(desc(listBlocks.createdAt))
+      .limit(limit + 1);
 
     const results = await query;
     const hasMore = results.length > limit;
@@ -639,9 +643,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute> {
-    const [newThreadMute] = await db
+    const sanitized = sanitizeObject(threadMute);
+    const [newThreadMute] = await this.db
       .insert(threadMutes)
-      .values(threadMute)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newThreadMute;
@@ -652,22 +657,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getThreadMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ThreadMute[]; cursor?: string }> {
-    let query = db
-      .select()
-      .from(threadMutes)
-      .where(eq(threadMutes.muterDid, muterDid))
-      .orderBy(desc(threadMutes.createdAt))
-      .limit(limit + 1);
-
+    const conditions = [eq(threadMutes.muterDid, muterDid)];
+    
     if (cursor) {
       const cursorDate = new Date(cursor);
-      query = query.where(
-        and(
-          eq(threadMutes.muterDid, muterDid),
-          sql`${threadMutes.createdAt} < ${cursorDate}`
-        )
-      ) as any;
+      conditions.push(sql`${threadMutes.createdAt} < ${cursorDate}`);
     }
+
+    const query = this.db
+      .select()
+      .from(threadMutes)
+      .where(and(...conditions))
+      .orderBy(desc(threadMutes.createdAt))
+      .limit(limit + 1);
 
     const results = await query;
     const hasMore = results.length > limit;
@@ -692,12 +694,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences> {
-    const [newPrefs] = await db
+    const sanitized = sanitizeObject(prefs);
+    const [newPrefs] = await this.db
       .insert(userPreferences)
-      .values(prefs)
+      .values(sanitized)
       .onConflictDoUpdate({
         target: userPreferences.userDid,
-        set: prefs,
+        set: sanitized,
       })
       .returning();
     return newPrefs;
@@ -799,6 +802,8 @@ export class DatabaseStorage implements IStorage {
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
       description: row.description,
+      searchVector: null,
+      createdAt: new Date(),
       indexedAt: row.indexed_at,
     }));
     
@@ -874,14 +879,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createSession(session: InsertSession): Promise<Session> {
+    // Sanitize before encryption to remove any null bytes
+    const sanitized = sanitizeObject(session);
     // Encrypt tokens before storing
     const encryptedSession = {
-      ...session,
-      accessToken: encryptionService.encrypt(session.accessToken),
-      refreshToken: session.refreshToken ? encryptionService.encrypt(session.refreshToken) : null,
+      ...sanitized,
+      accessToken: encryptionService.encrypt(sanitized.accessToken),
+      refreshToken: sanitized.refreshToken ? encryptionService.encrypt(sanitized.refreshToken) : null,
     };
     
-    const [newSession] = await db
+    const [newSession] = await this.db
       .insert(sessions)
       .values(encryptedSession)
       .returning();
@@ -980,12 +987,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUserSettings(settings: InsertUserSettings): Promise<UserSettings> {
-    const [newSettings] = await db
+    const sanitized = sanitizeObject(settings);
+    const [newSettings] = await this.db
       .insert(userSettings)
-      .values(settings)
+      .values(sanitized)
       .onConflictDoUpdate({
         target: userSettings.userDid,
-        set: settings,
+        set: sanitized,
       })
       .returning();
     return newSettings;
@@ -1002,9 +1010,10 @@ export class DatabaseStorage implements IStorage {
 
   // Label operations
   async createLabel(label: InsertLabel): Promise<Label> {
-    const [newLabel] = await db
+    const sanitized = sanitizeObject(label);
+    const [newLabel] = await this.db
       .insert(labels)
-      .values(label)
+      .values(sanitized)
       .onConflictDoNothing()
       .returning();
     return newLabel;
@@ -1058,12 +1067,13 @@ export class DatabaseStorage implements IStorage {
 
   // Label definition operations
   async createLabelDefinition(definition: InsertLabelDefinition): Promise<LabelDefinition> {
-    const [newDef] = await db
+    const sanitized = sanitizeObject(definition);
+    const [newDef] = await this.db
       .insert(labelDefinitions)
-      .values(definition)
+      .values(sanitized)
       .onConflictDoUpdate({
         target: labelDefinitions.value,
-        set: definition,
+        set: sanitized,
       })
       .returning();
     return newDef;
@@ -1089,9 +1099,10 @@ export class DatabaseStorage implements IStorage {
 
   // Label event operations
   async createLabelEvent(event: InsertLabelEvent): Promise<LabelEvent> {
-    const [newEvent] = await db
+    const sanitized = sanitizeObject(event);
+    const [newEvent] = await this.db
       .insert(labelEvents)
-      .values(event)
+      .values(sanitized)
       .returning();
     return newEvent;
   }
@@ -1108,9 +1119,10 @@ export class DatabaseStorage implements IStorage {
 
   // Moderation report operations
   async createModerationReport(report: InsertModerationReport): Promise<ModerationReport> {
-    const [newReport] = await db
+    const sanitized = sanitizeObject(report);
+    const [newReport] = await this.db
       .insert(moderationReports)
-      .values(report)
+      .values(sanitized)
       .returning();
     return newReport;
   }
@@ -1157,9 +1169,10 @@ export class DatabaseStorage implements IStorage {
 
   // Moderation action operations
   async createModerationAction(action: InsertModerationAction): Promise<ModerationAction> {
-    const [newAction] = await db
+    const sanitized = sanitizeObject(action);
+    const [newAction] = await this.db
       .insert(moderationActions)
-      .values(action)
+      .values(sanitized)
       .returning();
     return newAction;
   }
