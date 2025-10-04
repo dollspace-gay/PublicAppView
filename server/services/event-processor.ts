@@ -1,4 +1,4 @@
-import { storage } from "../storage";
+import { storage, type IStorage } from "../storage";
 import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
@@ -25,6 +25,7 @@ interface PendingListItem {
 }
 
 export class EventProcessor {
+  private storage: IStorage;
   private pendingOps: Map<string, PendingOp[]> = new Map();
   private pendingOpIndex: Map<string, string> = new Map(); // opUri -> postUri
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
@@ -43,7 +44,8 @@ export class EventProcessor {
     pendingListItemsDropped: 0,
   };
 
-  constructor() {
+  constructor(storageInstance: IStorage = storage) {
+    this.storage = storageInstance;
     this.startTTLSweeper();
   }
 
@@ -152,10 +154,10 @@ export class EventProcessor {
     for (const op of ops) {
       try {
         if (op.type === 'like') {
-          await storage.createLike(op.payload as InsertLike);
+          await this.storage.createLike(op.payload as InsertLike);
           this.metrics.pendingFlushed++;
         } else if (op.type === 'repost') {
-          await storage.createRepost(op.payload as InsertRepost);
+          await this.storage.createRepost(op.payload as InsertRepost);
           this.metrics.pendingFlushed++;
         }
         
@@ -238,7 +240,7 @@ export class EventProcessor {
 
     for (const item of items) {
       try {
-        await storage.createListItem(item.payload);
+        await this.storage.createListItem(item.payload);
         this.metrics.pendingListItemsFlushed++;
         
         // Remove from index
@@ -263,9 +265,9 @@ export class EventProcessor {
 
   private async ensureUser(did: string): Promise<boolean> {
     try {
-      const user = await storage.getUser(did);
+      const user = await this.storage.getUser(did);
       if (!user) {
-        await storage.createUser({
+        await this.storage.createUser({
           did,
           handle: did,
         });
@@ -361,9 +363,9 @@ export class EventProcessor {
     const { did, handle } = event;
     
     try {
-      const existingUser = await storage.getUser(did);
+      const existingUser = await this.storage.getUser(did);
       if (existingUser) {
-        await storage.updateUser(did, { handle });
+        await this.storage.updateUser(did, { handle });
         console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
       }
     } catch (error: any) {
@@ -398,14 +400,14 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createPost(post);
+    await this.storage.createPost(post);
     
     // Create notification for reply
     if (record.reply?.parent.uri) {
       try {
-        const parentPost = await storage.getPost(record.reply.parent.uri);
+        const parentPost = await this.storage.getPost(record.reply.parent.uri);
         if (parentPost && parentPost.authorDid !== authorDid) {
-          await storage.createNotification({
+          await this.storage.createNotification({
             uri: `${uri}/notification/reply`,
             recipientDid: parentPost.authorDid,
             authorDid,
@@ -433,9 +435,9 @@ export class EventProcessor {
           continue;
         }
         
-        const mentionedUser = await storage.getUserByHandle(handle);
+        const mentionedUser = await this.storage.getUserByHandle(handle);
         if (mentionedUser && mentionedUser.did !== authorDid) {
-          await storage.createNotification({
+          await this.storage.createNotification({
             uri: `${uri}/notification/mention/${mentionedUser.did}`,
             recipientDid: mentionedUser.did,
             authorDid,
@@ -471,7 +473,7 @@ export class EventProcessor {
     };
 
     // Check if post exists
-    const post = await storage.getPost(postUri);
+    const post = await this.storage.getPost(postUri);
     if (!post) {
       // Enqueue for later
       this.enqueuePending(postUri, {
@@ -484,12 +486,12 @@ export class EventProcessor {
 
     // Post exists, try to create like
     try {
-      await storage.createLike(like);
+      await this.storage.createLike(like);
       
       // Create notification for like
       if (post.authorDid !== userDid) {
         try {
-          await storage.createNotification({
+          await this.storage.createNotification({
             uri: `${uri}/notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
@@ -532,7 +534,7 @@ export class EventProcessor {
     };
 
     // Check if post exists
-    const post = await storage.getPost(postUri);
+    const post = await this.storage.getPost(postUri);
     if (!post) {
       // Enqueue for later
       this.enqueuePending(postUri, {
@@ -545,12 +547,12 @@ export class EventProcessor {
 
     // Post exists, try to create repost
     try {
-      await storage.createRepost(repost);
+      await this.storage.createRepost(repost);
       
       // Create notification for repost
       if (post.authorDid !== userDid) {
         try {
-          await storage.createNotification({
+          await this.storage.createNotification({
             uri: `${uri}/notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
@@ -578,7 +580,7 @@ export class EventProcessor {
   }
 
   private async processProfile(did: string, record: any) {
-    await storage.createUser({
+    await this.storage.createUser({
       did,
       handle: did,
       displayName: sanitizeText(record.displayName),
@@ -604,7 +606,7 @@ export class EventProcessor {
     };
 
     try {
-      await storage.createFollow(follow);
+      await this.storage.createFollow(follow);
     } catch (error: any) {
       // Handle foreign key constraint violations gracefully
       if (error.code === '23503') {
@@ -616,7 +618,7 @@ export class EventProcessor {
     
     // Create notification for follow
     try {
-      await storage.createNotification({
+      await this.storage.createNotification({
         uri: `${uri}/notification`,
         recipientDid: record.subject,
         authorDid: followerDid,
@@ -647,7 +649,7 @@ export class EventProcessor {
     };
 
     try {
-      await storage.createBlock(block);
+      await this.storage.createBlock(block);
     } catch (error: any) {
       // Handle foreign key constraint violations gracefully
       if (error.code === '23503') {
@@ -676,7 +678,7 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createList(list);
+    await this.storage.createList(list);
     
     // Flush any pending list items that were waiting for this list
     await this.flushPendingListItems(uri);
@@ -700,7 +702,7 @@ export class EventProcessor {
     };
 
     // Check if parent list exists before attempting insert (prevents FK errors in logs)
-    const parentList = await storage.getList(record.list);
+    const parentList = await this.storage.getList(record.list);
     if (!parentList) {
       // Queue the list item to be processed when the list arrives
       this.enqueuePendingListItem(record.list, {
@@ -711,7 +713,7 @@ export class EventProcessor {
     }
 
     try {
-      await storage.createListItem(listItem);
+      await this.storage.createListItem(listItem);
     } catch (error: any) {
       // Fallback: if FK error still happens (race condition), queue it
       if (error.code === '23503') {
@@ -762,7 +764,7 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createFeedGenerator(feedGenerator);
+    await this.storage.createFeedGenerator(feedGenerator);
   }
 
   private async processStarterPack(uri: string, cid: string, creatorDid: string, record: any) {
@@ -783,7 +785,7 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createStarterPack(starterPack);
+    await this.storage.createStarterPack(starterPack);
   }
 
   private async processLabelerService(uri: string, cid: string, creatorDid: string, record: any) {
@@ -801,7 +803,7 @@ export class EventProcessor {
       createdAt: new Date(record.createdAt),
     };
 
-    await storage.createLabelerService(labelerService);
+    await this.storage.createLabelerService(labelerService);
     console.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
   }
 
@@ -827,34 +829,34 @@ export class EventProcessor {
     
     switch (collection) {
       case "app.bsky.feed.post":
-        await storage.deletePost(uri);
+        await this.storage.deletePost(uri);
         break;
       case "app.bsky.feed.like":
-        await storage.deleteLike(uri);
+        await this.storage.deleteLike(uri);
         break;
       case "app.bsky.feed.repost":
-        await storage.deleteRepost(uri);
+        await this.storage.deleteRepost(uri);
         break;
       case "app.bsky.graph.follow":
-        await storage.deleteFollow(uri);
+        await this.storage.deleteFollow(uri);
         break;
       case "app.bsky.graph.block":
-        await storage.deleteBlock(uri);
+        await this.storage.deleteBlock(uri);
         break;
       case "app.bsky.graph.list":
-        await storage.deleteList(uri);
+        await this.storage.deleteList(uri);
         break;
       case "app.bsky.graph.listitem":
-        await storage.deleteListItem(uri);
+        await this.storage.deleteListItem(uri);
         break;
       case "app.bsky.feed.generator":
-        await storage.deleteFeedGenerator(uri);
+        await this.storage.deleteFeedGenerator(uri);
         break;
       case "app.bsky.graph.starterpack":
-        await storage.deleteStarterPack(uri);
+        await this.storage.deleteStarterPack(uri);
         break;
       case "app.bsky.labeler.service":
-        await storage.deleteLabelerService(uri);
+        await this.storage.deleteLabelerService(uri);
         break;
       case "com.atproto.label.label":
         await labelService.removeLabel(uri);

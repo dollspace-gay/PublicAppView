@@ -1,5 +1,5 @@
 import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor } from "@shared/schema";
-import { db, pool } from "./db";
+import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
 
@@ -210,13 +210,28 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private db: DbConnection;
+  private statsCache: { data: any, timestamp: number } | null = null;
+  private readonly STATS_CACHE_TTL = 60000;
+  private statsQueryInProgress = false;
+  private backgroundRefreshInterval: NodeJS.Timeout | null = null;
+
+  constructor(dbConnection?: DbConnection) {
+    this.db = dbConnection || db;
+    
+    // Start background refresh every 30 seconds to keep cache warm
+    this.backgroundRefreshInterval = setInterval(() => {
+      this.refreshStatsInBackground();
+    }, 30000);
+  }
+
   async getUser(did: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.did, did));
+    const [user] = await this.db.select().from(users).where(eq(users.did, did));
     return user || undefined;
   }
 
   async getUserByHandle(handle: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.handle, handle));
+    const [user] = await this.db.select().from(users).where(eq(users.handle, handle));
     return user || undefined;
   }
 
@@ -248,7 +263,7 @@ export class DatabaseStorage implements IStorage {
 
   async getUsers(dids: string[]): Promise<User[]> {
     if (dids.length === 0) return [];
-    return await db.select().from(users).where(inArray(users.did, dids));
+    return await this.db.select().from(users).where(inArray(users.did, dids));
   }
 
   async getSuggestedUsers(viewerDid?: string, limit = 25): Promise<User[]> {
@@ -281,7 +296,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPost(uri: string): Promise<Post | undefined> {
-    const [post] = await db.select().from(posts).where(eq(posts.uri, uri));
+    const [post] = await this.db.select().from(posts).where(eq(posts.uri, uri));
     return post || undefined;
   }
 
@@ -295,7 +310,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePost(uri: string): Promise<void> {
-    await db.delete(posts).where(eq(posts.uri, uri));
+    await this.db.delete(posts).where(eq(posts.uri, uri));
   }
 
   async getAuthorPosts(authorDid: string, limit = 50, cursor?: string): Promise<Post[]> {
@@ -328,7 +343,7 @@ export class DatabaseStorage implements IStorage {
 
   async getPosts(uris: string[]): Promise<Post[]> {
     if (uris.length === 0) return [];
-    return await db.select().from(posts).where(inArray(posts.uri, uris));
+    return await this.db.select().from(posts).where(inArray(posts.uri, uris));
   }
 
   async getQuotePosts(postUri: string, limit = 50, cursor?: string): Promise<Post[]> {
@@ -356,7 +371,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteLike(uri: string): Promise<void> {
-    await db.delete(likes).where(eq(likes.uri, uri));
+    await this.db.delete(likes).where(eq(likes.uri, uri));
   }
 
   async getPostLikes(postUri: string, limit = 100, cursor?: string): Promise<{ likes: Like[], cursor?: string }> {
@@ -411,7 +426,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteRepost(uri: string): Promise<void> {
-    await db.delete(reposts).where(eq(reposts.uri, uri));
+    await this.db.delete(reposts).where(eq(reposts.uri, uri));
   }
 
   async getPostReposts(postUri: string, limit = 100, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }> {
@@ -445,7 +460,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteFollow(uri: string): Promise<void> {
-    await db.delete(follows).where(eq(follows.uri, uri));
+    await this.db.delete(follows).where(eq(follows.uri, uri));
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
@@ -487,7 +502,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteBlock(uri: string): Promise<void> {
-    await db.delete(blocks).where(eq(blocks.uri, uri));
+    await this.db.delete(blocks).where(eq(blocks.uri, uri));
   }
 
   async getBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: Block[], cursor?: string }> {
@@ -521,7 +536,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteMute(uri: string): Promise<void> {
-    await db.delete(mutes).where(eq(mutes.uri, uri));
+    await this.db.delete(mutes).where(eq(mutes.uri, uri));
   }
 
   async getMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: Mute[], cursor?: string }> {
@@ -555,7 +570,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteListMute(uri: string): Promise<void> {
-    await db.delete(listMutes).where(eq(listMutes.uri, uri));
+    await this.db.delete(listMutes).where(eq(listMutes.uri, uri));
   }
 
   async getListMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ListMute[]; cursor?: string }> {
@@ -594,7 +609,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteListBlock(uri: string): Promise<void> {
-    await db.delete(listBlocks).where(eq(listBlocks.uri, uri));
+    await this.db.delete(listBlocks).where(eq(listBlocks.uri, uri));
   }
 
   async getListBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: ListBlock[]; cursor?: string }> {
@@ -633,7 +648,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteThreadMute(uri: string): Promise<void> {
-    await db.delete(threadMutes).where(eq(threadMutes.uri, uri));
+    await this.db.delete(threadMutes).where(eq(threadMutes.uri, uri));
   }
 
   async getThreadMutes(muterDid: string, limit = 100, cursor?: string): Promise<{ mutes: ThreadMute[]; cursor?: string }> {
@@ -672,7 +687,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserPreferences(userDid: string): Promise<UserPreferences | undefined> {
-    const [prefs] = await db.select().from(userPreferences).where(eq(userPreferences.userDid, userDid));
+    const [prefs] = await this.db.select().from(userPreferences).where(eq(userPreferences.userDid, userDid));
     return prefs || undefined;
   }
 
@@ -707,31 +722,31 @@ export class DatabaseStorage implements IStorage {
     if (targetDids.length === 0) return new Map();
 
     const [followingList, followersList, blockingList, blockedByList, mutingList] = await Promise.all([
-      db.select({ did: follows.followingDid })
+      this.db.select({ did: follows.followingDid })
         .from(follows)
         .where(and(
           eq(follows.followerDid, viewerDid),
           inArray(follows.followingDid, targetDids)
         )),
-      db.select({ did: follows.followerDid })
+      this.db.select({ did: follows.followerDid })
         .from(follows)
         .where(and(
           eq(follows.followingDid, viewerDid),
           inArray(follows.followerDid, targetDids)
         )),
-      db.select({ did: blocks.blockedDid })
+      this.db.select({ did: blocks.blockedDid })
         .from(blocks)
         .where(and(
           eq(blocks.blockerDid, viewerDid),
           inArray(blocks.blockedDid, targetDids)
         )),
-      db.select({ did: blocks.blockerDid })
+      this.db.select({ did: blocks.blockerDid })
         .from(blocks)
         .where(and(
           eq(blocks.blockedDid, viewerDid),
           inArray(blocks.blockerDid, targetDids)
         )),
-      db.select({ did: mutes.mutedDid })
+      this.db.select({ did: mutes.mutedDid })
         .from(mutes)
         .where(and(
           eq(mutes.muterDid, viewerDid),
@@ -766,7 +781,7 @@ export class DatabaseStorage implements IStorage {
     // Use raw SQL with proper table aliasing for the self-join
     const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
     
-    const results = await db.execute(sql`
+    const results = await this.db.execute(sql`
       SELECT u.did, u.handle, u.display_name, u.avatar_url, u.description, u.indexed_at
       FROM users u
       INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
@@ -880,7 +895,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSession(id: string): Promise<Session | undefined> {
-    const [session] = await db.select().from(sessions).where(eq(sessions.id, id));
+    const [session] = await this.db.select().from(sessions).where(eq(sessions.id, id));
     if (!session) return undefined;
     
     // Decrypt tokens before returning
@@ -893,13 +908,13 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       // Decryption failed (corrupted data) - delete the session
       console.error(`[STORAGE] Failed to decrypt session ${id}, deleting corrupted session`);
-      await db.delete(sessions).where(eq(sessions.id, id));
+      await this.db.delete(sessions).where(eq(sessions.id, id));
       return undefined;
     }
   }
 
   async getUserSessions(userDid: string): Promise<Session[]> {
-    const sessionList = await db.select().from(sessions).where(eq(sessions.userDid, userDid));
+    const sessionList = await this.db.select().from(sessions).where(eq(sessions.userDid, userDid));
     
     // Decrypt tokens for each session, skipping corrupted ones
     const decryptedSessions: Session[] = [];
@@ -913,7 +928,7 @@ export class DatabaseStorage implements IStorage {
       } catch (error) {
         // Decryption failed - delete corrupted session
         console.error(`[STORAGE] Failed to decrypt session ${session.id}, deleting corrupted session`);
-        await db.delete(sessions).where(eq(sessions.id, session.id));
+        await this.db.delete(sessions).where(eq(sessions.id, session.id));
       }
     }
     return decryptedSessions;
@@ -952,15 +967,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteSession(id: string): Promise<void> {
-    await db.delete(sessions).where(eq(sessions.id, id));
+    await this.db.delete(sessions).where(eq(sessions.id, id));
   }
 
   async deleteExpiredSessions(): Promise<void> {
-    await db.delete(sessions).where(sql`${sessions.expiresAt} < NOW()`);
+    await this.db.delete(sessions).where(sql`${sessions.expiresAt} < NOW()`);
   }
 
   async getUserSettings(userDid: string): Promise<UserSettings | undefined> {
-    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userDid, userDid));
+    const [settings] = await this.db.select().from(userSettings).where(eq(userSettings.userDid, userDid));
     return settings || undefined;
   }
 
@@ -996,21 +1011,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLabel(uri: string): Promise<Label | undefined> {
-    const [label] = await db.select().from(labels).where(eq(labels.uri, uri));
+    const [label] = await this.db.select().from(labels).where(eq(labels.uri, uri));
     return label || undefined;
   }
 
   async getLabelsForSubject(subject: string): Promise<Label[]> {
-    return await db.select().from(labels).where(eq(labels.subject, subject));
+    return await this.db.select().from(labels).where(eq(labels.subject, subject));
   }
 
   async getLabelsForSubjects(subjects: string[]): Promise<Label[]> {
     if (subjects.length === 0) return [];
-    return await db.select().from(labels).where(inArray(labels.subject, subjects));
+    return await this.db.select().from(labels).where(inArray(labels.subject, subjects));
   }
 
   async deleteLabel(uri: string): Promise<void> {
-    await db.delete(labels).where(eq(labels.uri, uri));
+    await this.db.delete(labels).where(eq(labels.uri, uri));
   }
 
   async queryLabels(params: { sources?: string[], subjects?: string[], values?: string[], limit?: number }): Promise<Label[]> {
@@ -1026,7 +1041,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(inArray(labels.val, params.values));
     }
 
-    let query = db.select().from(labels);
+    let query = this.db.select().from(labels);
     
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
@@ -1055,12 +1070,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLabelDefinition(value: string): Promise<LabelDefinition | undefined> {
-    const [def] = await db.select().from(labelDefinitions).where(eq(labelDefinitions.value, value));
+    const [def] = await this.db.select().from(labelDefinitions).where(eq(labelDefinitions.value, value));
     return def || undefined;
   }
 
   async getAllLabelDefinitions(): Promise<LabelDefinition[]> {
-    return await db.select().from(labelDefinitions).orderBy(labelDefinitions.value);
+    return await this.db.select().from(labelDefinitions).orderBy(labelDefinitions.value);
   }
 
   async updateLabelDefinition(value: string, data: Partial<InsertLabelDefinition>): Promise<LabelDefinition | undefined> {
@@ -1082,7 +1097,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecentLabelEvents(limit = 100, since?: Date): Promise<LabelEvent[]> {
-    let query = db.select().from(labelEvents);
+    let query = this.db.select().from(labelEvents);
     
     if (since) {
       query = query.where(sql`${labelEvents.createdAt} > ${since}`) as any;
@@ -1101,7 +1116,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getModerationReport(id: number): Promise<ModerationReport | undefined> {
-    const [report] = await db.select().from(moderationReports).where(eq(moderationReports.id, id));
+    const [report] = await this.db.select().from(moderationReports).where(eq(moderationReports.id, id));
     return report || undefined;
   }
 
@@ -1271,11 +1286,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteList(uri: string): Promise<void> {
-    await db.delete(lists).where(eq(lists.uri, uri));
+    await this.db.delete(lists).where(eq(lists.uri, uri));
   }
 
   async getList(uri: string): Promise<List | undefined> {
-    const [list] = await db.select().from(lists).where(eq(lists.uri, uri));
+    const [list] = await this.db.select().from(lists).where(eq(lists.uri, uri));
     return list || undefined;
   }
 
@@ -1298,7 +1313,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteListItem(uri: string): Promise<void> {
-    await db.delete(listItems).where(eq(listItems.uri, uri));
+    await this.db.delete(listItems).where(eq(listItems.uri, uri));
   }
 
   async getListItems(listUri: string, limit = 100): Promise<ListItem[]> {
@@ -1354,17 +1369,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteFeedGenerator(uri: string): Promise<void> {
-    await db.delete(feedGenerators).where(eq(feedGenerators.uri, uri));
+    await this.db.delete(feedGenerators).where(eq(feedGenerators.uri, uri));
   }
 
   async getFeedGenerator(uri: string): Promise<FeedGenerator | undefined> {
-    const [generator] = await db.select().from(feedGenerators).where(eq(feedGenerators.uri, uri));
+    const [generator] = await this.db.select().from(feedGenerators).where(eq(feedGenerators.uri, uri));
     return generator || undefined;
   }
 
   async getFeedGenerators(uris: string[]): Promise<FeedGenerator[]> {
     if (uris.length === 0) return [];
-    return await db.select().from(feedGenerators).where(inArray(feedGenerators.uri, uris));
+    return await this.db.select().from(feedGenerators).where(inArray(feedGenerators.uri, uris));
   }
 
   async getActorFeeds(actorDid: string, limit = 50, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }> {
@@ -1445,17 +1460,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteStarterPack(uri: string): Promise<void> {
-    await db.delete(starterPacks).where(eq(starterPacks.uri, uri));
+    await this.db.delete(starterPacks).where(eq(starterPacks.uri, uri));
   }
 
   async getStarterPack(uri: string): Promise<StarterPack | undefined> {
-    const [pack] = await db.select().from(starterPacks).where(eq(starterPacks.uri, uri));
+    const [pack] = await this.db.select().from(starterPacks).where(eq(starterPacks.uri, uri));
     return pack || undefined;
   }
 
   async getStarterPacks(uris: string[]): Promise<StarterPack[]> {
     if (uris.length === 0) return [];
-    return await db.select().from(starterPacks).where(inArray(starterPacks.uri, uris));
+    return await this.db.select().from(starterPacks).where(inArray(starterPacks.uri, uris));
   }
 
   // Labeler service operations
@@ -1477,21 +1492,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteLabelerService(uri: string): Promise<void> {
-    await db.delete(labelerServices).where(eq(labelerServices.uri, uri));
+    await this.db.delete(labelerServices).where(eq(labelerServices.uri, uri));
   }
 
   async getLabelerService(uri: string): Promise<LabelerService | undefined> {
-    const [service] = await db.select().from(labelerServices).where(eq(labelerServices.uri, uri));
+    const [service] = await this.db.select().from(labelerServices).where(eq(labelerServices.uri, uri));
     return service || undefined;
   }
 
   async getLabelerServices(uris: string[]): Promise<LabelerService[]> {
     if (uris.length === 0) return [];
-    return await db.select().from(labelerServices).where(inArray(labelerServices.uri, uris));
+    return await this.db.select().from(labelerServices).where(inArray(labelerServices.uri, uris));
   }
 
   async getLabelerServicesByCreator(creatorDid: string): Promise<LabelerService[]> {
-    return await db.select().from(labelerServices).where(eq(labelerServices.creatorDid, creatorDid));
+    return await this.db.select().from(labelerServices).where(eq(labelerServices.creatorDid, creatorDid));
   }
 
   async updateLabelerService(uri: string, data: Partial<InsertLabelerService>): Promise<LabelerService | undefined> {
@@ -1524,11 +1539,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePushSubscription(id: number): Promise<void> {
-    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
+    await this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
   }
 
   async deletePushSubscriptionByToken(token: string): Promise<void> {
-    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.token, token));
+    await this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.token, token));
   }
 
   async getUserPushSubscriptions(userDid: string): Promise<PushSubscription[]> {
@@ -1594,11 +1609,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteVideoJob(jobId: string): Promise<void> {
-    await db.delete(videoJobs).where(eq(videoJobs.jobId, jobId));
+    await this.db.delete(videoJobs).where(eq(videoJobs.jobId, jobId));
   }
 
   async getFirehoseCursor(service: string): Promise<FirehoseCursor | undefined> {
-    const [cursor] = await db.select().from(firehoseCursor).where(eq(firehoseCursor.service, service));
+    const [cursor] = await this.db.select().from(firehoseCursor).where(eq(firehoseCursor.service, service));
     return cursor || undefined;
   }
 
@@ -1622,7 +1637,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBackfillProgress(): Promise<{ currentCursor: string | null; eventsProcessed: number; lastUpdateTime: Date } | undefined> {
-    const [record] = await db.select().from(firehoseCursor).where(eq(firehoseCursor.service, "backfill"));
+    const [record] = await this.db.select().from(firehoseCursor).where(eq(firehoseCursor.service, "backfill"));
     if (!record) return undefined;
     
     // Parse cursor field which contains both cursor and eventsProcessed encoded as "cursor|eventsProcessed"
@@ -1646,7 +1661,7 @@ export class DatabaseStorage implements IStorage {
     // Encode both cursor and eventsProcessed in the cursor field as "cursor|eventsProcessed"
     const encodedCursor = `${progress.currentCursor || ''}|${progress.eventsProcessed}`;
     
-    await db
+    await this.db
       .insert(firehoseCursor)
       .values({
         service: "backfill",
@@ -1661,18 +1676,6 @@ export class DatabaseStorage implements IStorage {
           updatedAt: new Date(),
         },
       });
-  }
-
-  private statsCache: { data: any, timestamp: number } | null = null;
-  private readonly STATS_CACHE_TTL = 60000; // 60 seconds (increased for production)
-  private statsQueryInProgress = false;
-  private backgroundRefreshInterval: NodeJS.Timeout | null = null;
-
-  constructor() {
-    // Start background refresh every 30 seconds to keep cache warm
-    this.backgroundRefreshInterval = setInterval(() => {
-      this.refreshStatsInBackground();
-    }, 30000);
   }
 
   private async refreshStatsInBackground() {
@@ -1753,7 +1756,7 @@ export class DatabaseStorage implements IStorage {
 
     try {
       // Add 5 second timeout to prevent blocking
-      const statsPromise = db.execute<{ schemaname: string; relname: string; count: number }>(sql`
+      const statsPromise = this.db.execute<{ schemaname: string; relname: string; count: number }>(sql`
         SELECT 
           schemaname,
           relname,
@@ -1809,4 +1812,10 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
+// Factory function to create storage instance with optional custom db connection
+export function createStorage(dbConnection?: DbConnection): IStorage {
+  return new DatabaseStorage(dbConnection);
+}
+
+// Main application storage instance (uses default db connection pool)
 export const storage = new DatabaseStorage();

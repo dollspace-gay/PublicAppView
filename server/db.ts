@@ -18,45 +18,56 @@ const isNeonDatabase = databaseUrl.includes('.neon.tech') ||
                         databaseUrl.includes('neon.tech') ||
                         databaseUrl.includes('pooler.supabase.com'); // Neon-based services
 
-// Pool size optimized for parallel pipelines and PostgreSQL connection limits
-// 32 workers × 32 connections = 1024 total connections (within PostgreSQL max_connections)
-// Each worker runs 5 parallel pipelines consuming batches of 300 events
-// This provides enough concurrency without overwhelming the database
-// Override with DB_POOL_SIZE environment variable if needed
-const maxPoolSize = parseInt(process.env.DB_POOL_SIZE || '32');
+// Type for database connection
+export type DbConnection = NeonDatabase<typeof schema> | NodePgDatabase<typeof schema>;
 
-console.log(`[DB] Connection pool size per process/worker: ${maxPoolSize}`);
-
-let pool: NeonPool | PgPool;
-let db: NeonDatabase<typeof schema> | NodePgDatabase<typeof schema>;
-
-if (isNeonDatabase) {
-  // Use Neon serverless driver for Neon cloud databases (Replit default)
-  console.log('[DB] Using Neon serverless driver for cloud database');
-  neonConfig.webSocketConstructor = ws;
+/**
+ * Factory function to create a database connection pool
+ * @param poolSize - Maximum number of connections in the pool
+ * @param label - Label for logging (e.g., "main", "backfill")
+ */
+export function createDbPool(poolSize: number, label: string = "pool"): DbConnection {
+  console.log(`[DB] Creating ${label} connection pool: ${poolSize} connections`);
   
-  const neonPool = new NeonPool({ 
-    connectionString: databaseUrl,
-    max: maxPoolSize,
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 60000, // Increased from 30s to 60s
-  });
-  
-  pool = neonPool;
-  db = drizzle(neonPool, { schema });
-} else {
-  // Use standard pg driver for local PostgreSQL (Docker, self-hosted)
-  console.log('[DB] Using standard PostgreSQL driver for local database');
-  
-  const pgPool = new PgPool({ 
-    connectionString: databaseUrl,
-    max: maxPoolSize,
-    idleTimeoutMillis: 10000,
-    connectionTimeoutMillis: 60000, // Increased from 30s to 60s
-  });
-  
-  pool = pgPool;
-  db = drizzlePg(pgPool, { schema });
+  if (isNeonDatabase) {
+    // Configure WebSocket for Neon (only needs to be set once, but safe to set multiple times)
+    neonConfig.webSocketConstructor = ws;
+    
+    const neonPool = new NeonPool({ 
+      connectionString: databaseUrl,
+      max: poolSize,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 60000,
+    });
+    
+    return drizzle(neonPool, { schema });
+  } else {
+    const pgPool = new PgPool({ 
+      connectionString: databaseUrl,
+      max: poolSize,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 60000,
+    });
+    
+    return drizzlePg(pgPool, { schema });
+  }
 }
 
-export { pool, db };
+// Main application pool size
+// Default: 4 connections for Neon serverless (respects connection limits)
+// For self-hosted PostgreSQL, increase via DB_POOL_SIZE env var
+// Note: Total connections (main + backfill) must stay within database limits:
+//   - Neon Free: ~10 connections
+//   - Neon Pro: ~100 connections  
+//   - Self-hosted: depends on max_connections setting
+const mainPoolSize = parseInt(process.env.DB_POOL_SIZE || '4');
+
+// Create main database connection pool
+const db = createDbPool(mainPoolSize, isNeonDatabase ? "main (Neon)" : "main (PostgreSQL)");
+
+// For backwards compatibility, export a pool variable (though the actual pool is internal to drizzle)
+// This is used by some legacy code that checks pool status
+export const pool = db as any;
+
+// Export main db connection
+export { db };

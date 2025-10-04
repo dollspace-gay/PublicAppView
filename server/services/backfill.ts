@@ -1,13 +1,26 @@
 import { Firehose, MemoryRunner } from "@atproto/sync";
 import { IdResolver } from "@atproto/identity";
-import { eventProcessor } from "./event-processor";
-import { storage } from "../storage";
+import { EventProcessor } from "./event-processor";
+import { createStorage, type IStorage } from "../storage";
+import { createDbPool } from "../db";
 import { logCollector } from "./log-collector";
+
+// Create dedicated connection pool for backfill to prevent overwhelming main pool
+// Default to 2 connections (configurable via BACKFILL_DB_POOL_SIZE env var)
+// Keep total connections (main + backfill) within database limits
+const backfillPoolSize = parseInt(process.env.BACKFILL_DB_POOL_SIZE || '2');
+const backfillDb = createDbPool(backfillPoolSize, "backfill");
+const backfillStorage = createStorage(backfillDb);
+
+// Create dedicated event processor for backfill that uses the backfill storage
+const backfillEventProcessor = new EventProcessor(backfillStorage);
 
 export interface BackfillProgress {
   startCursor: number | null;
   currentCursor: number | null;
   eventsProcessed: number;
+  eventsSkipped: number;
+  eventsReceived: number;
   startTime: Date;
   lastUpdateTime: Date;
   estimatedCompletion: Date | null;
@@ -21,6 +34,8 @@ export class BackfillService {
     startCursor: null,
     currentCursor: null,
     eventsProcessed: 0,
+    eventsSkipped: 0,
+    eventsReceived: 0,
     startTime: new Date(),
     lastUpdateTime: new Date(),
     estimatedCompletion: null,
@@ -29,9 +44,12 @@ export class BackfillService {
   
   private readonly PROGRESS_SAVE_INTERVAL = 1000; // Save progress every 1000 events
   private readonly MAX_EVENTS_PER_RUN = 1000000; // Increased safety limit for total backfill
+  private readonly BATCH_SIZE = 10; // Process this many events before delay
+  private readonly BATCH_DELAY_MS = 500; // Wait this long between batches (milliseconds)
   private readonly backfillDays: number;
   private cutoffDate: Date | null = null;
   private idResolver: IdResolver;
+  private batchCounter = 0;
   
   constructor(
     private relayUrl: string = process.env.RELAY_URL || "wss://bsky.network"
@@ -81,10 +99,13 @@ export class BackfillService {
     });
 
     this.isRunning = true;
+    this.batchCounter = 0; // Reset batch counter for new run
     this.progress = {
       startCursor: startCursor ?? null,
       currentCursor: startCursor ?? null,
       eventsProcessed: 0,
+      eventsSkipped: 0,
+      eventsReceived: 0,
       startTime: new Date(),
       lastUpdateTime: new Date(),
       estimatedCompletion: null,
@@ -92,15 +113,12 @@ export class BackfillService {
     };
 
     try {
-      // Load progress from database if resuming
-      const savedProgress = await storage.getBackfillProgress();
-      if (savedProgress && !startCursor) {
-        const savedCursor = savedProgress.currentCursor ? parseInt(savedProgress.currentCursor) : null;
-        if (savedCursor) {
-          this.progress.currentCursor = savedCursor;
-          this.progress.eventsProcessed = savedProgress.eventsProcessed;
-          console.log(`[BACKFILL] Resuming from cursor: ${savedCursor}`);
-        }
+      // For any active backfill (days > 0 or total backfill with -1), always start fresh
+      // Saved progress is not used for backfill to ensure we get historical data from cursor 0
+      if (this.backfillDays > 0 || this.backfillDays === -1) {
+        this.progress.currentCursor = null;
+        this.progress.eventsProcessed = 0;
+        console.log(`[BACKFILL] Starting fresh backfill from cursor 0 (ignoring any saved progress)`);
       }
 
       console.log("[BACKFILL] Initializing @atproto/sync Firehose client...");
@@ -159,6 +177,9 @@ export class BackfillService {
         unauthenticatedHandles: true, // Disable handle verification for faster backfill
         handleEvent: async (evt) => {
           try {
+            // Track all received events
+            this.progress.eventsReceived++;
+            
             // Track sequence number
             if ('seq' in evt && typeof evt.seq === 'number') {
               this.progress.currentCursor = evt.seq;
@@ -166,15 +187,14 @@ export class BackfillService {
 
             // Handle different event types
             if (evt.event === 'create' || evt.event === 'update') {
-              // Check cutoff date if configured
+              // Check cutoff date if configured (skip events before cutoff, keep recent ones)
               if (this.cutoffDate && evt.record && typeof evt.record === 'object') {
                 const record = evt.record as any;
                 if (record.createdAt) {
                   const recordDate = new Date(record.createdAt);
                   if (recordDate < this.cutoffDate) {
-                    console.log(`[BACKFILL] Reached cutoff date (${this.cutoffDate.toISOString()}). Stopping backfill.`);
-                    await this.stop();
-                    resolve();
+                    // Skip events older than cutoff - don't process or count them
+                    this.progress.eventsSkipped++;
                     return;
                   }
                 }
@@ -191,7 +211,7 @@ export class BackfillService {
                 }],
               };
               
-              await eventProcessor.processCommit(commitEvent);
+              await backfillEventProcessor.processCommit(commitEvent);
             } else if (evt.event === 'delete') {
               // Process delete event
               const commitEvent = {
@@ -202,16 +222,16 @@ export class BackfillService {
                 }],
               };
               
-              await eventProcessor.processCommit(commitEvent);
+              await backfillEventProcessor.processCommit(commitEvent);
             } else if (evt.event === 'identity') {
               // Process identity update
-              await eventProcessor.processIdentity({
+              await backfillEventProcessor.processIdentity({
                 did: evt.did,
                 handle: evt.handle || evt.did,
               });
             } else if (evt.event === 'account') {
               // Process account status change
-              await eventProcessor.processAccount({
+              await backfillEventProcessor.processAccount({
                 did: evt.did,
                 active: evt.active,
               });
@@ -219,10 +239,19 @@ export class BackfillService {
 
             this.progress.eventsProcessed++;
             this.progress.lastUpdateTime = new Date();
+            this.batchCounter++;
+
+            // Add delay between batches to prevent database overload
+            if (this.batchCounter >= this.BATCH_SIZE) {
+              await new Promise(resolve => setTimeout(resolve, this.BATCH_DELAY_MS));
+              this.batchCounter = 0;
+            }
 
             // Log progress periodically
-            if (this.progress.eventsProcessed % this.PROGRESS_SAVE_INTERVAL === 0) {
-              console.log(`[BACKFILL] Progress: ${this.progress.eventsProcessed} events processed`);
+            if (this.progress.eventsReceived % this.PROGRESS_SAVE_INTERVAL === 0) {
+              const elapsed = Date.now() - this.progress.startTime.getTime();
+              const rate = this.progress.eventsReceived / (elapsed / 1000);
+              console.log(`[BACKFILL] Progress: ${this.progress.eventsReceived} received, ${this.progress.eventsProcessed} processed, ${this.progress.eventsSkipped} skipped (${rate.toFixed(0)} evt/s)`);
             }
 
             // Check if we've hit the safety limit
@@ -288,7 +317,7 @@ export class BackfillService {
 
   private async saveProgress(): Promise<void> {
     try {
-      await storage.saveBackfillProgress({
+      await backfillStorage.saveBackfillProgress({
         currentCursor: this.progress.currentCursor?.toString() || null,
         eventsProcessed: this.progress.eventsProcessed,
         lastUpdateTime: this.progress.lastUpdateTime,
