@@ -56,43 +56,38 @@ export class AuthService {
       const header = decoded.header;
       const payload = decoded.payload;
       
-      // Debug: Show actual token structure
-      console.log(`[AUTH] Token header: ${JSON.stringify(header)}`);
-      console.log(`[AUTH] Token payload keys: ${JSON.stringify(Object.keys(payload))}`);
-      console.log(`[AUTH] Token payload: ${JSON.stringify(payload)}`);
+      // AT Protocol supports two token formats:
+      // 1. OAuth access tokens (RFC 9068): sub=userDID, iss=authServer, aud=resourceServer
+      // 2. Service auth tokens: iss=userDID, aud=targetService, lxm=method
       
-      // AT Protocol access tokens per RFC 9068:
-      // - Header typ should be "at+jwt" (but some implementations may use "JWT")
-      // - Payload must have: sub (user DID), iss (authorization server), aud (resource server)
-      // - Optional but expected: scope, client_id, exp, iat
+      let userDid: string | null = null;
       
-      // Check for AT Protocol access token structure
-      const hasRequiredFields = 
-        payload.sub && 
-        typeof payload.sub === 'string' &&
-        payload.sub.startsWith("did:") &&
-        payload.iss &&
-        payload.aud;
-
-      if (!hasRequiredFields) {
-        console.log(`[AUTH] Not an AT Protocol token - missing required fields (sub=${!!payload.sub}, iss=${!!payload.iss}, aud=${!!payload.aud})`);
+      // Check for OAuth access token format (sub field with DID)
+      if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith("did:")) {
+        userDid = payload.sub;
+        console.log(`[AUTH] ✓ OAuth access token accepted for DID: ${userDid} (from ${payload.iss})`);
+      }
+      // Check for AT Protocol service auth token format (iss field with DID, lxm field present)
+      else if (payload.iss && typeof payload.iss === 'string' && payload.iss.startsWith("did:") && payload.lxm) {
+        userDid = payload.iss;
+        console.log(`[AUTH] ✓ AT Protocol service token accepted for DID: ${userDid} (method: ${payload.lxm})`);
+      }
+      else {
+        console.log(`[AUTH] Not an AT Protocol token - invalid structure`);
+        console.log(`[AUTH] Token header: ${JSON.stringify(header)}`);
+        console.log(`[AUTH] Token payload: ${JSON.stringify(payload)}`);
         return null;
       }
 
-      // Verify token type if present (some implementations use "at+jwt", others "JWT")
-      const isAccessToken = !header.typ || header.typ === "JWT" || header.typ === "at+jwt";
-      
-      if (!isAccessToken) {
-        console.log(`[AUTH] Not an access token (typ=${header.typ})`);
-        return null;
-      }
-
-      // For now, we accept AT Protocol tokens without PDS signature verification
+      // For now, we accept AT Protocol tokens without signature verification
       // This is a security tradeoff for compatibility with third-party clients
-      // TODO: Implement full PDS public key verification using the PDS's public keys
-      console.log(`[AUTH] ✓ AT Protocol access token accepted for DID: ${payload.sub} (from ${payload.iss})`);
+      // TODO: Implement full signature verification using the issuer's public keys
       
-      return { did: payload.sub };
+      if (!userDid) {
+        return null;
+      }
+      
+      return { did: userDid };
     } catch (error) {
       console.error("[AUTH] AT Protocol token verification failed:", error instanceof Error ? error.message : error);
       return null;
