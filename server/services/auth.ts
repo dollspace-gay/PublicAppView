@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { randomBytes } from "crypto";
+import { randomBytes, createPublicKey } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 if (!process.env.SESSION_SECRET) {
@@ -41,7 +41,7 @@ export class AuthService {
 
   /**
    * Verify AT Protocol OAuth access token from third-party clients
-   * Per RFC 9068 and AT Protocol OAuth spec
+   * With full cryptographic signature verification
    */
   async verifyAtProtoToken(token: string): Promise<{ did: string } | null> {
     try {
@@ -61,36 +61,87 @@ export class AuthService {
       // 2. Service auth tokens: iss=userDID, aud=targetService, lxm=method
       
       let userDid: string | null = null;
+      let signingDid: string | null = null;
       
       // Check for OAuth access token format (sub field with DID)
       if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith("did:")) {
         userDid = payload.sub;
-        console.log(`[AUTH] ✓ OAuth access token accepted for DID: ${userDid} (from ${payload.iss})`);
+        signingDid = payload.iss; // Token signed by authorization server
       }
       // Check for AT Protocol service auth token format (iss field with DID, lxm field present)
       else if (payload.iss && typeof payload.iss === 'string' && payload.iss.startsWith("did:") && payload.lxm) {
         userDid = payload.iss;
-        console.log(`[AUTH] ✓ AT Protocol service token accepted for DID: ${userDid} (method: ${payload.lxm})`);
+        signingDid = payload.iss; // Token signed by user's DID
       }
       else {
         console.log(`[AUTH] Not an AT Protocol token - invalid structure`);
-        console.log(`[AUTH] Token header: ${JSON.stringify(header)}`);
-        console.log(`[AUTH] Token payload: ${JSON.stringify(payload)}`);
         return null;
       }
 
-      // For now, we accept AT Protocol tokens without signature verification
-      // This is a security tradeoff for compatibility with third-party clients
-      // TODO: Implement full signature verification using the issuer's public keys
-      
-      if (!userDid) {
+      if (!userDid || !signingDid) {
         return null;
       }
+
+      // Verify signature using signing DID's public keys
+      const verified = await this.verifyJWTSignature(token, signingDid, header.alg);
       
+      if (!verified) {
+        console.error(`[AUTH] Signature verification failed for DID: ${signingDid}`);
+        return null;
+      }
+
+      console.log(`[AUTH] ✓ AT Protocol token verified for DID: ${userDid} (signed by: ${signingDid})`);
       return { did: userDid };
     } catch (error) {
       console.error("[AUTH] AT Protocol token verification failed:", error instanceof Error ? error.message : error);
       return null;
+    }
+  }
+
+  /**
+   * Verify JWT signature using DID's public key
+   */
+  private async verifyJWTSignature(token: string, signingDid: string, algorithm: string): Promise<boolean> {
+    try {
+      const { didResolver } = await import("./did-resolver");
+      
+      // Resolve DID to get public keys
+      const didDocument = await didResolver.resolveDID(signingDid);
+      
+      if (!didDocument || !didDocument.verificationMethod) {
+        console.error(`[AUTH] No verification methods found for DID: ${signingDid}`);
+        return false;
+      }
+
+      // Try each verification method until one works
+      for (const method of didDocument.verificationMethod) {
+        if (!method.publicKeyJwk) continue;
+
+        try {
+          // Convert JWK to PEM format for jwt.verify
+          const publicKey = createPublicKey({
+            key: method.publicKeyJwk,
+            format: 'jwk'
+          });
+
+          // Verify JWT signature
+          jwt.verify(token, publicKey, { 
+            algorithms: [algorithm as jwt.Algorithm] 
+          });
+
+          console.log(`[AUTH] Signature verified using key: ${method.id}`);
+          return true;
+        } catch (err) {
+          // Try next key if this one doesn't work
+          continue;
+        }
+      }
+
+      console.error(`[AUTH] No valid signing key found for DID: ${signingDid}`);
+      return false;
+    } catch (error) {
+      console.error(`[AUTH] Error verifying signature:`, error);
+      return false;
     }
   }
 
