@@ -40,8 +40,8 @@ export class AuthService {
   }
 
   /**
-   * Verify AT Protocol access token from third-party clients
-   * These tokens are signed by the user's PDS with ES256K
+   * Verify AT Protocol OAuth access token from third-party clients
+   * Per RFC 9068 and AT Protocol OAuth spec
    */
   async verifyAtProtoToken(token: string): Promise<{ did: string } | null> {
     try {
@@ -53,27 +53,39 @@ export class AuthService {
         return null;
       }
 
+      const header = decoded.header;
       const payload = decoded.payload;
       
-      // Check if this has AT Protocol token structure:
-      // - 'sub' field containing a DID
-      // - 'scope' field (typically "com.atproto.access")
-      // - 'iss' field (PDS endpoint)
-      const isAtProtoToken = 
+      // AT Protocol access tokens per RFC 9068:
+      // - Header typ should be "at+jwt" (but some implementations may use "JWT")
+      // - Payload must have: sub (user DID), iss (authorization server), aud (resource server)
+      // - Optional but expected: scope, client_id, exp, iat
+      
+      // Check for AT Protocol access token structure
+      const hasRequiredFields = 
         payload.sub && 
+        typeof payload.sub === 'string' &&
         payload.sub.startsWith("did:") &&
-        payload.scope &&
-        payload.iss;
+        payload.iss &&
+        payload.aud;
 
-      if (!isAtProtoToken) {
-        console.log(`[AUTH] Not an AT Protocol token structure (has sub=${!!payload.sub}, scope=${!!payload.scope}, iss=${!!payload.iss})`);
+      if (!hasRequiredFields) {
+        console.log(`[AUTH] Not an AT Protocol token - missing required fields (sub=${!!payload.sub}, iss=${!!payload.iss}, aud=${!!payload.aud})`);
+        return null;
+      }
+
+      // Verify token type if present (some implementations use "at+jwt", others "JWT")
+      const isAccessToken = !header.typ || header.typ === "JWT" || header.typ === "at+jwt";
+      
+      if (!isAccessToken) {
+        console.log(`[AUTH] Not an access token (typ=${header.typ})`);
         return null;
       }
 
       // For now, we accept AT Protocol tokens without PDS signature verification
       // This is a security tradeoff for compatibility with third-party clients
-      // TODO: Implement full PDS public key verification in the future
-      console.log(`[AUTH] ✓ AT Protocol token accepted for DID: ${payload.sub} (from ${payload.iss})`);
+      // TODO: Implement full PDS public key verification using the PDS's public keys
+      console.log(`[AUTH] ✓ AT Protocol access token accepted for DID: ${payload.sub} (from ${payload.iss})`);
       
       return { did: payload.sub };
     } catch (error) {
