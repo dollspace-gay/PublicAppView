@@ -45,31 +45,35 @@ export class AuthService {
    */
   async verifyAtProtoToken(token: string): Promise<{ did: string } | null> {
     try {
-      // Decode without verification to check token type and get claims
+      // Decode without verification to check token structure
       const decoded = jwt.decode(token, { complete: true }) as any;
       
-      if (!decoded || !decoded.header) {
-        console.log("[AUTH] Failed to decode AT Protocol token");
+      if (!decoded || !decoded.payload) {
+        console.log("[AUTH] Failed to decode token");
         return null;
       }
 
-      // Check if this is an AT Protocol access token
-      if (decoded.header.typ !== "at+jwt") {
-        console.log(`[AUTH] Not an AT Protocol token (typ=${decoded.header.typ})`);
-        return null;
-      }
-
-      const payload = decoded.payload as AtProtoTokenPayload;
+      const payload = decoded.payload;
       
-      if (!payload.sub || !payload.sub.startsWith("did:")) {
-        console.log("[AUTH] AT Protocol token missing valid DID in 'sub' claim");
+      // Check if this has AT Protocol token structure:
+      // - 'sub' field containing a DID
+      // - 'scope' field (typically "com.atproto.access")
+      // - 'iss' field (PDS endpoint)
+      const isAtProtoToken = 
+        payload.sub && 
+        payload.sub.startsWith("did:") &&
+        payload.scope &&
+        payload.iss;
+
+      if (!isAtProtoToken) {
+        console.log(`[AUTH] Not an AT Protocol token structure (has sub=${!!payload.sub}, scope=${!!payload.scope}, iss=${!!payload.iss})`);
         return null;
       }
 
-      // For now, we accept AT Protocol tokens without PDS verification
+      // For now, we accept AT Protocol tokens without PDS signature verification
       // This is a security tradeoff for compatibility with third-party clients
       // TODO: Implement full PDS public key verification in the future
-      console.log(`[AUTH] ✓ AT Protocol token accepted for DID: ${payload.sub}`);
+      console.log(`[AUTH] ✓ AT Protocol token accepted for DID: ${payload.sub} (from ${payload.iss})`);
       
       return { did: payload.sub };
     } catch (error) {
