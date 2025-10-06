@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 import { BskyAgent } from "@atproto/api";
 
-const APPVIEW_URL = process.env.APPVIEW_URL || "https://appview.dollspace.gay";
+const APPVIEW_URL = process.env.APPVIEW_URL || "http://localhost:5000";
+const VERBOSE = process.env.VERBOSE === "true";
 
 interface TestResult {
   name: string;
@@ -16,6 +17,7 @@ class AppViewTester {
 
   constructor(serviceUrl: string) {
     this.agent = new BskyAgent({ service: serviceUrl });
+    console.log(`[DEBUG] BskyAgent initialized with service: ${serviceUrl}`);
   }
 
   private logResult(result: TestResult) {
@@ -32,6 +34,10 @@ class AppViewTester {
     console.log(`\n[TEST] Searching for actors: "${query}"`);
     try {
       const response = await this.agent.api.app.bsky.actor.searchActors({ q: query, limit: 5 });
+      
+      if (VERBOSE) {
+        console.log("[DEBUG] Response:", JSON.stringify(response, null, 2));
+      }
       
       if (!response.data.actors) {
         this.logResult({
@@ -50,7 +56,7 @@ class AppViewTester {
 
       if (response.data.actors.length > 0) {
         const firstActor = response.data.actors[0];
-        const hasRequiredFields = firstActor.did && firstActor.handle;
+        const hasRequiredFields = !!(firstActor.did && firstActor.handle);
         
         this.logResult({
           name: "Actor Data Fields",
@@ -68,6 +74,8 @@ class AppViewTester {
         });
       }
     } catch (error: any) {
+      console.error("[ERROR] Actor search failed:", error);
+      if (error.cause) console.error("[ERROR] Cause:", error.cause);
       this.logResult({
         name: "Actor Search",
         passed: false,
@@ -81,7 +89,7 @@ class AppViewTester {
     try {
       const response = await this.agent.api.app.bsky.actor.getProfile({ actor: identifier });
       
-      const hasRequiredFields = response.data.did && response.data.handle;
+      const hasRequiredFields = !!(response.data.did && response.data.handle);
       
       this.logResult({
         name: "Get Profile",
@@ -99,6 +107,9 @@ class AppViewTester {
         }
       });
     } catch (error: any) {
+      console.error("[ERROR] Get profile failed:", error);
+      if (error.validationError) console.error("[ERROR] Validation:", error.validationError.message);
+      if (error.responseBody) console.error("[ERROR] Response body:", JSON.stringify(error.responseBody, null, 2));
       this.logResult({
         name: "Get Profile",
         passed: false,
@@ -129,7 +140,7 @@ class AppViewTester {
 
       if (response.data.feed.length > 0) {
         const firstPost = response.data.feed[0];
-        const hasRequiredFields = firstPost.post && firstPost.post.uri && firstPost.post.author;
+        const hasRequiredFields = !!(firstPost.post && firstPost.post.uri && firstPost.post.author);
         
         this.logResult({
           name: "Timeline Post Structure",
@@ -140,7 +151,7 @@ class AppViewTester {
           data: {
             uri: firstPost.post.uri,
             author: firstPost.post.author.handle,
-            text: firstPost.post.record?.text?.substring(0, 100)
+            text: (firstPost.post.record as any)?.text?.substring(0, 100)
           }
         });
       }
@@ -175,13 +186,13 @@ class AppViewTester {
 
       if (response.data.feed.length > 0) {
         const firstPost = response.data.feed[0];
-        const hasRequiredFields = firstPost.post && firstPost.post.uri && firstPost.post.author;
+        const hasRequiredFields = !!(firstPost.post && firstPost.post.uri && firstPost.post.author);
         
         this.logResult({
           name: "Author Feed Post Structure",
           passed: hasRequiredFields,
           message: hasRequiredFields
-            ? `Post: ${firstPost.post.record?.text?.substring(0, 50)}...`
+            ? `Post: ${(firstPost.post.record as any)?.text?.substring(0, 50) || 'No text'}...`
             : "Post missing required fields"
         });
       }

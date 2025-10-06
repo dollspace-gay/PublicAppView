@@ -563,9 +563,9 @@ export class XRPCApi {
       res.json({
         did: user.did,
         handle: user.handle,
-        displayName: user.displayName,
-        description: user.description,
-        avatar: user.avatarUrl,
+        ...(user.displayName && { displayName: user.displayName }),
+        ...(user.description && { description: user.description }),
+        ...(user.avatarUrl && { avatar: user.avatarUrl }),
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -751,9 +751,9 @@ export class XRPCApi {
         actors: result.actors.map(actor => ({
           did: actor.did,
           handle: actor.handle,
-          displayName: actor.displayName,
-          avatar: actor.avatarUrl,
-          description: actor.description,
+          ...(actor.displayName && { displayName: actor.displayName }),
+          ...(actor.avatarUrl && { avatar: actor.avatarUrl }),
+          ...(actor.description && { description: actor.description }),
         })),
         cursor: result.cursor,
       });
@@ -774,8 +774,8 @@ export class XRPCApi {
         actors: actors.map(actor => ({
           did: actor.did,
           handle: actor.handle,
-          displayName: actor.displayName,
-          avatar: actor.avatarUrl,
+          ...(actor.displayName && { displayName: actor.displayName }),
+          ...(actor.avatarUrl && { avatar: actor.avatarUrl }),
         })),
       });
     } catch (error) {
@@ -1112,9 +1112,9 @@ export class XRPCApi {
         profiles: users.map(user => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
-          description: user.description,
-          avatar: user.avatarUrl,
+          ...(user.displayName && { displayName: user.displayName }),
+          ...(user.description && { description: user.description }),
+          ...(user.avatarUrl && { avatar: user.avatarUrl }),
           indexedAt: user.indexedAt.toISOString(),
         })),
       });
