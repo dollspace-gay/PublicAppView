@@ -1,11 +1,15 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { logCollector } from "./services/log-collector";
 import { spawn } from "child_process";
 
 const app = express();
+
+// Trust proxy for proper IP detection behind reverse proxies (Replit, Cloudflare, etc.)
+app.set('trust proxy', 1);
 
 // Start Redis in development
 if (process.env.NODE_ENV === "development") {
@@ -37,18 +41,52 @@ declare module 'http' {
     rawBody: unknown
   }
 }
+
+// Cookie parser for CSRF tokens
+app.use(cookieParser());
+
+// Request size limits to prevent DoS and database bloat
 app.use(express.json({
+  limit: '10mb', // Max request body size (allows image embeds with metadata)
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ 
+  extended: false,
+  limit: '10mb' // Same limit for URL-encoded data
+}));
 
-// CORS configuration - Allow all origins for AppView API
+// CORS configuration - Secure for CSRF protection
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  
+  // Build allow list of trusted origins
+  const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',') 
+    : [];
+  
+  // Add APPVIEW_HOSTNAME if configured (for the web UI)
+  if (process.env.APPVIEW_HOSTNAME) {
+    allowedOrigins.push(`https://${process.env.APPVIEW_HOSTNAME}`);
+    allowedOrigins.push(`http://${process.env.APPVIEW_HOSTNAME}`);
+  }
+  
+  // For same-origin or explicitly allowed origins, enable credentials
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else if (!origin) {
+    // Server-to-server (no Origin header) - allow but no credentials
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else {
+    // Cross-origin from untrusted source - allow read-only without credentials
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    // Explicitly NO credentials for untrusted origins (CSRF protection)
+  }
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, atproto-accept-labelers');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, atproto-accept-labelers, X-CSRF-Token');
   res.setHeader('Access-Control-Expose-Headers', 'atproto-content-labelers, atproto-repo-rev');
   
   // Handle preflight requests
@@ -140,6 +178,13 @@ app.use((req, res, next) => {
     logCollector.success(`AT Protocol App View service started on port ${port}`);
     logCollector.info("Database connection initialized");
     logCollector.info("XRPC endpoints registered and ready");
+    
+    // Initialize database health monitoring
+    import("./services/database-health").then(({ databaseHealthService }) => {
+      databaseHealthService.start().catch(err => {
+        console.error("[DB_HEALTH] Failed to start health monitoring:", err);
+      });
+    });
     
     // Initialize data pruning service (if enabled)
     import("./services/data-pruning").then(({ dataPruningService }) => {

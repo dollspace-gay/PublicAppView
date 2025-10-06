@@ -154,7 +154,11 @@ class SearchService {
     query: string,
     limit = 10
   ): Promise<ActorSearchResult[]> {
-    const sanitizedQuery = query.trim().toLowerCase();
+    const sanitizedQuery = query
+      .trim()
+      .toLowerCase()
+      // Escape LIKE special characters to prevent pattern injection
+      .replace(/[%_\\]/g, '\\$&');
     
     if (!sanitizedQuery) {
       return [];

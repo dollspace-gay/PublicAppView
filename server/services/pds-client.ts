@@ -454,6 +454,56 @@ export class PDSClient {
       };
     }
   }
+
+  /**
+   * Refresh session (alias for refreshAccessToken for XRPC compatibility)
+   */
+  async refreshSession(
+    pdsEndpoint: string,
+    refreshToken: string
+  ): Promise<XRPCResponse<any>> {
+    return this.refreshAccessToken(pdsEndpoint, refreshToken);
+  }
+
+  /**
+   * Get current session info using access token
+   */
+  async getSession(
+    pdsEndpoint: string,
+    accessToken: string
+  ): Promise<XRPCResponse<any>> {
+    try {
+      const response = await fetch(
+        `${pdsEndpoint}/xrpc/com.atproto.server.getSession`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Get session failed: ${response.status}`,
+        };
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        data,
+      };
+    } catch (error) {
+      console.error('[PDS_CLIENT] Error getting session:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
 }
 
 export const pdsClient = new PDSClient();

@@ -17,6 +17,17 @@ import { logCollector } from "./services/log-collector";
 import { schemaIntrospectionService } from "./services/schema-introspection";
 import { db } from "./db";
 import { sql, eq } from "drizzle-orm";
+import { csrfProtection } from "./middleware/csrf";
+import {
+  authLimiter,
+  oauthLimiter,
+  writeLimiter,
+  searchLimiter,
+  apiLimiter,
+  xrpcLimiter,
+  adminLimiter,
+  deletionLimiter,
+} from "./middleware/rate-limit";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -48,6 +59,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     next();
   });
+
+  // Apply general rate limiting to all /api and /xrpc endpoints
+  app.use('/api', apiLimiter);
+  app.use('/xrpc', xrpcLimiter);
 
   // Initialize Redis queue connection
   const { redisQueue } = await import("./services/redis-queue");
@@ -230,6 +245,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // CSRF Protection - Set token cookie for all requests
+  app.use(csrfProtection.setToken);
+
+  // CSRF token endpoint - Frontend can request token
+  app.get("/api/csrf-token", (req, res) => {
+    const token = csrfProtection.getTokenValue(req);
+    if (!token) {
+      return res.status(500).json({ error: "Failed to generate CSRF token" });
+    }
+    res.json({ csrfToken: token });
+  });
+
   // Authentication endpoints - OAuth 2.0 with AT Protocol
   
   // OAuth client metadata endpoint
@@ -257,7 +284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Initiate OAuth login - returns authorization URL
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const schema = z.object({
         handle: z.string(),
@@ -278,7 +305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // OAuth callback endpoint
-  app.get("/api/auth/callback", async (req, res) => {
+  app.get("/api/auth/callback", oauthLimiter, async (req, res) => {
     try {
       const params = new URLSearchParams(req.url.split('?')[1]);
       
@@ -322,7 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.post("/api/auth/create-session", async (req, res) => {
+  app.post("/api/auth/create-session", authLimiter, async (req, res) => {
     try {
       const MAX_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
       const DEFAULT_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
@@ -410,7 +437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/logout", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/auth/logout", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       if (req.session) {
         await storage.deleteSession(req.session.sessionId);
@@ -475,7 +502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/user/backfill", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/user/backfill", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.session) {
         return res.status(401).json({ error: "Not authenticated" });
@@ -496,7 +523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.days > 3) {
         const { repoBackfillService } = await import("./services/repo-backfill");
         
-        repoBackfillService.processRepository(userDid).then(() => {
+        repoBackfillService.backfillSingleRepo(userDid, false).then(() => {
           console.log(`[USER_BACKFILL] Completed repository backfill for ${userDid}`);
         }).catch((error: Error) => {
           console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
@@ -522,7 +549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/user/delete-data", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/user/delete-data", deletionLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.session) {
         return res.status(401).json({ error: "Not authenticated" });
@@ -547,7 +574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/user/toggle-collection", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/user/toggle-collection", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.session) {
         return res.status(401).json({ error: "Not authenticated" });
@@ -593,21 +620,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userDid = session.userDid;
-      const { reposts: repostsTable } = await import('@shared/schema');
+      const { posts: postsTable, likes: likesTable, reposts: repostsTable, follows: followsTable } = await import('@shared/schema');
 
-      const [posts, likes, reposts, follows] = await Promise.all([
-        storage.getAuthorPosts(userDid, 99999),
-        storage.getActorLikes(userDid, 99999),
-        db.select().from(repostsTable).where(eq(repostsTable.userDid, userDid)),
-        storage.getFollows(userDid, 99999),
+      // Use efficient COUNT queries instead of loading all records
+      const [postsCount, likesCount, repostsCount, followsCount] = await Promise.all([
+        db.select({ count: sql<number>`count(*)::int` }).from(postsTable).where(eq(postsTable.authorDid, userDid)).then(r => r[0]?.count ?? 0),
+        db.select({ count: sql<number>`count(*)::int` }).from(likesTable).where(eq(likesTable.userDid, userDid)).then(r => r[0]?.count ?? 0),
+        db.select({ count: sql<number>`count(*)::int` }).from(repostsTable).where(eq(repostsTable.userDid, userDid)).then(r => r[0]?.count ?? 0),
+        db.select({ count: sql<number>`count(*)::int` }).from(followsTable).where(eq(followsTable.followerDid, userDid)).then(r => r[0]?.count ?? 0),
       ]);
 
       res.json({
-        posts: posts.length,
-        likes: likes.likes.length,
-        reposts: reposts.length,
-        follows: follows.length,
-        totalRecords: posts.length + likes.likes.length + reposts.length + follows.length,
+        posts: postsCount,
+        likes: likesCount,
+        reposts: repostsCount,
+        follows: followsCount,
+        totalRecords: postsCount + likesCount + repostsCount + followsCount,
       });
     } catch (error) {
       console.error("[USER_STATS] Error:", error);
@@ -615,16 +643,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Write operations endpoints
-  app.post("/api/posts/create", requireAuth, async (req: AuthRequest, res) => {
+  // Write operations endpoints (CSRF protected)
+  app.post("/api/posts/create", writeLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
+      // Strict embed validation based on AT Protocol lexicons
+      const embedImageSchema = z.object({
+        $type: z.literal('app.bsky.embed.images'),
+        images: z.array(z.object({
+          image: z.object({
+            $type: z.literal('blob'),
+            ref: z.object({ $link: z.string() }),
+            mimeType: z.string().regex(/^image\/(jpeg|png|webp)$/),
+            size: z.number().max(1000000), // 1MB max
+          }),
+          alt: z.string().max(1000),
+          aspectRatio: z.object({
+            width: z.number().positive(),
+            height: z.number().positive(),
+          }).optional(),
+        })).max(4), // Max 4 images per post
+      });
+
+      const embedExternalSchema = z.object({
+        $type: z.literal('app.bsky.embed.external'),
+        external: z.object({
+          uri: z.string().url().max(2000),
+          title: z.string().max(500),
+          description: z.string().max(2000),
+          thumb: z.object({
+            $type: z.literal('blob'),
+            ref: z.object({ $link: z.string() }),
+            mimeType: z.string().regex(/^image\/(jpeg|png|webp)$/),
+            size: z.number().max(1000000),
+          }).optional(),
+        }),
+      });
+
+      const embedRecordSchema = z.object({
+        $type: z.literal('app.bsky.embed.record'),
+        record: z.object({
+          uri: z.string(),
+          cid: z.string(),
+        }),
+      });
+
+      const embedRecordWithMediaSchema = z.object({
+        $type: z.literal('app.bsky.embed.recordWithMedia'),
+        record: z.object({
+          record: z.object({
+            uri: z.string(),
+            cid: z.string(),
+          }),
+        }),
+        media: z.union([embedImageSchema, embedExternalSchema]),
+      });
+
+      const embedSchema = z.union([
+        embedImageSchema,
+        embedExternalSchema,
+        embedRecordSchema,
+        embedRecordWithMediaSchema,
+      ]).optional();
+
       const schema = z.object({
         text: z.string().max(3000),
         reply: z.object({
           root: z.object({ uri: z.string(), cid: z.string() }),
           parent: z.object({ uri: z.string(), cid: z.string() }),
         }).optional(),
-        embed: z.any().optional(),
+        embed: embedSchema,
       });
       
       const data = schema.parse(req.body);
@@ -716,7 +803,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/likes/create", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/likes/create", writeLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         postUri: z.string(),
@@ -803,7 +890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/likes/:uri", requireAuth, async (req: AuthRequest, res) => {
+  app.delete("/api/likes/:uri", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       const uri = decodeURIComponent(req.params.uri);
       const session = await storage.getSession(req.session!.sessionId);
@@ -854,7 +941,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/follows/create", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/follows/create", writeLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         targetDid: z.string(),
@@ -940,7 +1027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/follows/:uri", requireAuth, async (req: AuthRequest, res) => {
+  app.delete("/api/follows/:uri", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
     try {
       const uri = decodeURIComponent(req.params.uri);
       const session = await storage.getSession(req.session!.sessionId);
@@ -1595,8 +1682,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Database health check endpoint
+  app.get("/api/database/health", async (_req, res) => {
+    try {
+      const { databaseHealthService } = await import("./services/database-health");
+      const metrics = await databaseHealthService.performHealthCheck();
+      const poolStatus = await databaseHealthService.checkConnectionPool();
+      
+      res.json({
+        database: metrics,
+        connectionPool: poolStatus
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        error: "Health check failed", 
+        message: error.message 
+      });
+    }
+  });
+
   // Apply instance label (admin only - requires auth)
-  app.post("/api/instance/label", requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/instance/label", csrfProtection.validateToken, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         subject: z.string(),
@@ -1639,7 +1745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin Moderation API Endpoints
   
   // Apply a label to content or user
-  app.post("/api/admin/labels/apply", requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/admin/labels/apply", adminLimiter, csrfProtection.validateToken, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         subject: z.string(),
@@ -1691,7 +1797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Remove a label by URI
-  app.delete("/api/admin/labels", requireAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/admin/labels", adminLimiter, csrfProtection.validateToken, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         uri: z.string(),
@@ -1943,6 +2049,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AT Protocol identity resolution endpoint (required for clients)
+  app.get("/xrpc/com.atproto.identity.resolveHandle", async (req, res) => {
+    try {
+      const handle = req.query.handle as string;
+      
+      if (!handle) {
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "handle parameter is required"
+        });
+      }
+      
+      // Resolve handle to DID using the DID resolver service
+      const did = await didResolver.resolveHandle(handle);
+      
+      if (!did) {
+        return res.status(400).json({
+          error: "HandleNotFound",
+          message: `Unable to resolve handle: ${handle}`
+        });
+      }
+      
+      res.json({ did });
+    } catch (error) {
+      console.error("[XRPC] resolveHandle error:", error);
+      res.status(500).json({ 
+        error: "InternalServerError",
+        message: "Failed to resolve handle" 
+      });
+    }
+  });
+
   // AT Protocol session creation - proxies to user's PDS
   app.post("/xrpc/com.atproto.server.createSession", async (req, res) => {
     try {
@@ -1995,6 +2133,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({
         error: "InternalServerError",
         message: error instanceof Error ? error.message : "Internal server error"
+      });
+    }
+  });
+
+  // AT Protocol session refresh - proxies to user's PDS
+  app.post("/xrpc/com.atproto.server.refreshSession", async (req, res) => {
+    try {
+      const refreshToken = req.headers.authorization?.replace('Bearer ', '');
+      
+      if (!refreshToken) {
+        return res.status(401).json({
+          error: "AuthenticationRequired",
+          message: "Refresh token required in Authorization header"
+        });
+      }
+      
+      // Extract DID from refresh token to find PDS
+      // Note: Refresh tokens from PDS contain the DID - we need to decode it
+      // For now, we'll proxy to a known PDS or require the client to specify
+      // In production, decode JWT to get DID, then resolve to PDS
+      
+      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      
+      const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
+      
+      if (!result.success || !result.data) {
+        return res.status(401).json({
+          error: "AuthenticationFailed",
+          message: result.error || "Failed to refresh session"
+        });
+      }
+      
+      res.json(result.data);
+    } catch (error) {
+      console.error("[XRPC] Error in refreshSession:", error);
+      res.status(500).json({
+        error: "InternalServerError",
+        message: "Failed to refresh session"
+      });
+    }
+  });
+
+  // AT Protocol get session - verify current auth state
+  app.get("/xrpc/com.atproto.server.getSession", async (req, res) => {
+    try {
+      const accessToken = req.headers.authorization?.replace('Bearer ', '');
+      
+      if (!accessToken) {
+        return res.status(401).json({
+          error: "AuthenticationRequired",
+          message: "Access token required in Authorization header"
+        });
+      }
+      
+      // Get PDS endpoint from token or use default
+      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      
+      const result = await pdsClient.getSession(pdsEndpoint, accessToken);
+      
+      if (!result.success || !result.data) {
+        return res.status(401).json({
+          error: "AuthenticationFailed",
+          message: result.error || "Invalid or expired session"
+        });
+      }
+      
+      res.json(result.data);
+    } catch (error) {
+      console.error("[XRPC] Error in getSession:", error);
+      res.status(401).json({
+        error: "AuthenticationFailed",
+        message: "Invalid or expired session"
+      });
+    }
+  });
+
+  // AT Protocol blob retrieval - fetch images/media from PDS
+  app.get("/xrpc/com.atproto.sync.getBlob", async (req, res) => {
+    try {
+      const did = req.query.did as string;
+      const cid = req.query.cid as string;
+      
+      if (!did || !cid) {
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "did and cid parameters are required"
+        });
+      }
+      
+      // Resolve DID to PDS endpoint
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
+      
+      if (!pdsEndpoint) {
+        return res.status(404).json({
+          error: "NotFound",
+          message: "Could not resolve DID to PDS endpoint"
+        });
+      }
+      
+      // Fetch blob from PDS
+      const blobUrl = `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`;
+      
+      const response = await fetch(blobUrl, {
+        headers: {
+          'Accept': '*/*'
+        }
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({
+          error: "BlobNotFound",
+          message: "Blob not found on PDS"
+        });
+      }
+      
+      // Proxy the blob data through with correct content type
+      const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      
+      // Stream blob data to client
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error("[XRPC] Error in getBlob:", error);
+      res.status(500).json({
+        error: "InternalServerError",
+        message: "Failed to fetch blob"
       });
     }
   });

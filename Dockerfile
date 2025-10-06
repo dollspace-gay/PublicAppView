@@ -40,6 +40,10 @@ COPY --from=builder /app/dist ./dist
 COPY drizzle.config.ts ./
 COPY shared ./shared
 
+# Copy and make entrypoint script executable
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
+
 # Set production environment
 ENV NODE_ENV=production
 
@@ -63,4 +67,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Run database migrations and start the application with PM2 cluster mode
 # Optimized for 47GB RAM VPS: 32 workers × 2GB heap = 64GB target (leaves room for OS/PostgreSQL)
 # Each worker runs 5 parallel pipelines × 300 events/batch for maximum throughput
-CMD ["sh", "-c", "npm run db:push && pm2-runtime start dist/index.js -i 32 --name bluesky-app --max-memory-restart 2G"]
+# Entrypoint script handles migration retries and proper error handling
+CMD ["./docker-entrypoint.sh"]

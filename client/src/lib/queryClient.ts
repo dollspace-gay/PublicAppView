@@ -7,6 +7,29 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// CSRF token management
+let csrfToken: string | null = null;
+
+async function fetchCSRFToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  
+  try {
+    const res = await fetch('/api/csrf-token', { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrfToken;
+      return csrfToken!;
+    }
+  } catch (error) {
+    console.warn('[CSRF] Failed to fetch token:', error);
+  }
+  
+  return '';
+}
+
+// Initialize CSRF token on load
+fetchCSRFToken().catch(console.error);
+
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = localStorage.getItem("dashboard_token");
@@ -18,13 +41,21 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+async function getCSRFHeaders(): Promise<Record<string, string>> {
+  const token = await fetchCSRFToken();
+  return token ? { 'X-CSRF-Token': token } : {};
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const csrfHeaders = await getCSRFHeaders();
+  
   const headers = {
     ...getAuthHeaders(),
+    ...csrfHeaders,
     ...(data ? { "Content-Type": "application/json" } : {}),
   };
 
