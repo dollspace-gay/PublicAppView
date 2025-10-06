@@ -1922,6 +1922,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AT Protocol session creation - proxies to user's PDS
+  app.post("/xrpc/com.atproto.server.createSession", async (req, res) => {
+    try {
+      const { identifier, password } = req.body;
+      
+      if (!identifier || !password) {
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "identifier and password are required"
+        });
+      }
+      
+      // Resolve identifier to PDS endpoint
+      let pdsEndpoint: string | null = null;
+      
+      // Check if identifier looks like a DID
+      if (identifier.startsWith('did:')) {
+        pdsEndpoint = await didResolver.resolveDIDToPDS(identifier);
+      } else {
+        // Treat as handle and resolve to DID + PDS
+        const result = await didResolver.resolveHandleToPDS(identifier);
+        if (result) {
+          pdsEndpoint = result.pdsEndpoint;
+        }
+      }
+      
+      if (!pdsEndpoint) {
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "Could not resolve identifier to a PDS endpoint"
+        });
+      }
+      
+      console.log(`[XRPC] Creating session for ${identifier} via ${pdsEndpoint}`);
+      
+      // Proxy the authentication request to the user's PDS
+      const result = await pdsClient.createSession(pdsEndpoint, identifier, password);
+      
+      if (!result.success || !result.data) {
+        return res.status(401).json({
+          error: "AuthenticationFailed",
+          message: result.error || "Authentication failed"
+        });
+      }
+      
+      // Return the session data from the PDS
+      res.json(result.data);
+    } catch (error) {
+      console.error("[XRPC] Error in createSession:", error);
+      res.status(500).json({
+        error: "InternalServerError",
+        message: error instanceof Error ? error.message : "Internal server error"
+      });
+    }
+  });
+
   // Dashboard API endpoints (protected by dashboard auth)
   app.get("/api/metrics", async (_req, res) => {
     const stats = await storage.getStats();

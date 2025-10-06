@@ -318,6 +318,78 @@ export class PDSClient {
   }
 
   /**
+   * Create a session by authenticating with a PDS
+   * Proxies the authentication request to the user's home PDS
+   * Returns the complete PDS response to preserve all AT Protocol fields
+   */
+  async createSession(
+    pdsEndpoint: string,
+    identifier: string,
+    password: string
+  ): Promise<XRPCResponse<any>> {
+    try {
+      const response = await fetch(
+        `${pdsEndpoint}/xrpc/com.atproto.server.createSession`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            identifier,
+            password,
+          }),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `Authentication failed: ${response.status}`;
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.message || errorJson.error || errorMessage;
+        } catch {
+          // If not JSON, use the status message
+        }
+        
+        console.error(`[PDS_CLIENT] Create session failed: ${errorMessage}`);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+
+      const data = await response.json();
+      
+      // Validate response has minimum required fields
+      if (!data.accessJwt || !data.refreshJwt || !data.did || !data.handle) {
+        console.error('[PDS_CLIENT] Invalid session response - missing required fields');
+        return {
+          success: false,
+          error: 'Invalid session response from PDS',
+        };
+      }
+
+      console.log(`[PDS_CLIENT] Successfully created session for ${data.handle} (${data.did})`);
+
+      // Return the complete response from PDS to preserve all AT Protocol fields
+      // (active, status, authFactorToken, email, emailConfirmed, didDoc, etc.)
+      return {
+        success: true,
+        data,
+      };
+    } catch (error) {
+      console.error('[PDS_CLIENT] Error creating session:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Refresh an access token using a refresh token
    * Returns new access token, refresh token, and expiry information
    */

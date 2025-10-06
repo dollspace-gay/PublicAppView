@@ -205,4 +205,9 @@ You should see:
 - Verify OAUTH_KEYSET_PATH environment variable is set
 - Ensure volume mount is correct in docker-compose.yml
 
-
+**Want to switch from DB to file storage?**
+1. Generate keys on VPS: `./scripts/setup-oauth-keys.sh`
+2. Set `OAUTH_KEYSET_PATH=/app/oauth-keyset.json`
+3. Mount file in docker-compose.yml
+4. Restart: `docker-compose restart appview`
+5. Database keys will be ignored (not deleted)

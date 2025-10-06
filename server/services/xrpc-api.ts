@@ -1100,22 +1100,49 @@ export class XRPCApi {
       
       const prefs = await storage.getUserPreferences(userDid);
       
-      res.json({
-        preferences: prefs ? [
-          {
-            $type: "app.bsky.actor.defs#adultContentPref",
-            enabled: prefs.adultContent,
-          },
-          {
+      const preferences: any[] = [];
+      
+      if (prefs) {
+        // Add adult content preference
+        preferences.push({
+          $type: "app.bsky.actor.defs#adultContentPref",
+          enabled: prefs.adultContent,
+        });
+        
+        // Add content label preferences
+        if (prefs.contentLabels && Object.keys(prefs.contentLabels as object).length > 0) {
+          preferences.push({
             $type: "app.bsky.actor.defs#contentLabelPref",
             ...(prefs.contentLabels as object),
-          },
-          {
+          });
+        }
+        
+        // Add feed view preferences
+        if (prefs.feedViewPrefs && Object.keys(prefs.feedViewPrefs as object).length > 0) {
+          preferences.push({
             $type: "app.bsky.actor.defs#feedViewPref",
             ...(prefs.feedViewPrefs as object),
-          },
-        ] : [],
-      });
+          });
+        }
+        
+        // Add saved feeds (savedFeedsPrefV2)
+        if (prefs.savedFeeds && Array.isArray(prefs.savedFeeds) && prefs.savedFeeds.length > 0) {
+          preferences.push({
+            $type: "app.bsky.actor.defs#savedFeedsPrefV2",
+            items: prefs.savedFeeds,
+          });
+        }
+        
+        // Add interests preference
+        if (prefs.interests && Array.isArray(prefs.interests) && prefs.interests.length > 0) {
+          preferences.push({
+            $type: "app.bsky.actor.defs#interestsPref",
+            tags: prefs.interests,
+          });
+        }
+      }
+      
+      res.json({ preferences });
     } catch (error) {
       console.error("[XRPC] Error getting preferences:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -1143,15 +1170,20 @@ export class XRPCApi {
         }
       }
       
+      // Get existing preferences to preserve unknown types
+      const existingPrefs = await storage.getUserPreferences(userDid);
+      
       const prefs: any = {
         userDid,
-        adultContent: false,
-        contentLabels: {},
-        feedViewPrefs: {},
-        threadViewPrefs: {},
-        interests: [],
+        adultContent: existingPrefs?.adultContent || false,
+        contentLabels: existingPrefs?.contentLabels || {},
+        feedViewPrefs: existingPrefs?.feedViewPrefs || {},
+        threadViewPrefs: existingPrefs?.threadViewPrefs || {},
+        interests: existingPrefs?.interests || [],
+        savedFeeds: existingPrefs?.savedFeeds || [],
       };
       
+      // Process known preference types and preserve unknown ones
       for (const pref of preferences) {
         if (pref.$type === "app.bsky.actor.defs#adultContentPref") {
           prefs.adultContent = pref.enabled;
@@ -1161,7 +1193,13 @@ export class XRPCApi {
           prefs.feedViewPrefs = pref;
         } else if (pref.$type === "app.bsky.actor.defs#threadViewPref") {
           prefs.threadViewPrefs = pref;
+        } else if (pref.$type === "app.bsky.actor.defs#savedFeedsPrefV2") {
+          // Store savedFeedsPrefV2 items in dedicated savedFeeds column
+          prefs.savedFeeds = pref.items || [];
+        } else if (pref.$type === "app.bsky.actor.defs#interestsPref") {
+          prefs.interests = pref.tags || [];
         }
+        // Silently ignore unknown preference types to maintain forward compatibility
       }
       
       await storage.createUserPreferences(prefs);
@@ -1169,7 +1207,7 @@ export class XRPCApi {
       res.json({ success: true });
     } catch (error) {
       console.error("[XRPC] Error putting preferences:", error);
-      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Internal server error" });
     }
   }
 

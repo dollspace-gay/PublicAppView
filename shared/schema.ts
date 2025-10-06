@@ -159,6 +159,7 @@ export const userPreferences = pgTable("user_preferences", {
   feedViewPrefs: jsonb("feed_view_prefs").default({}).notNull(), // {hideReplies: false, hideReposts: false, ...}
   threadViewPrefs: jsonb("thread_view_prefs").default({}).notNull(),
   interests: jsonb("interests").default([]).notNull(), // Array of interest tags
+  savedFeeds: jsonb("saved_feeds").default([]).notNull(), // savedFeedsPrefV2 items
   notificationPriority: boolean("notification_priority").default(false).notNull(), // Push notification priority
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
