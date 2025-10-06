@@ -56,6 +56,11 @@ export class AuthService {
       const header = decoded.header;
       const payload = decoded.payload;
       
+      // Debug: Show actual token structure
+      console.log(`[AUTH] Token header: ${JSON.stringify(header)}`);
+      console.log(`[AUTH] Token payload keys: ${JSON.stringify(Object.keys(payload))}`);
+      console.log(`[AUTH] Token payload: ${JSON.stringify(payload)}`);
+      
       // AT Protocol access tokens per RFC 9068:
       // - Header typ should be "at+jwt" (but some implementations may use "JWT")
       // - Payload must have: sub (user DID), iss (authorization server), aud (resource server)
