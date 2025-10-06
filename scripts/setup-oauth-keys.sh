@@ -38,10 +38,13 @@ if [ -f oauth-keyset.json ]; then
   fi
 fi
 
-echo "🔑 Generating ES256K key pair for OAuth..."
+# Generate a unique Key ID (kid) using the current timestamp
+KID=$(date +%s)
 
-# Generate ES256K private key (using secp256k1 curve)
-openssl ecparam -name secp256k1 -genkey -noout -out oauth-private.pem 2>/dev/null
+echo "🔑 Generating ES256 key pair for OAuth..."
+
+# Generate ES256 private key (using P-256 curve)
+openssl ecparam -name prime256v1 -genkey -noout -out oauth-private.pem 2>/dev/null
 
 # Extract public key
 openssl ec -in oauth-private.pem -pubout -out oauth-public.pem 2>/dev/null
@@ -73,12 +76,13 @@ cat > oauth-keyset.json << EOF
   "privateKeyPem": $(echo "$PRIVATE_KEY" | jq -Rs .),
   "publicKeyPem": $(echo "$PUBLIC_KEY" | jq -Rs .),
   "jwk": {
+    "kid": "${KID}",
     "kty": "EC",
-    "crv": "secp256k1",
+    "crv": "P-256",
     "x": "${X_B64}",
     "y": "${Y_B64}",
     "d": "${PRIVATE_D}",
-    "alg": "ES256K",
+    "alg": "ES256",
     "use": "sig"
   }
 }
