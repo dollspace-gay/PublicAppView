@@ -283,8 +283,9 @@ export class XRPCApi {
   /**
    * Extract authenticated user DID from request
    * Returns null if no valid authentication token is present
+   * Supports both local session tokens and AT Protocol access tokens
    */
-  private getAuthenticatedDid(req: Request): string | null {
+  private async getAuthenticatedDid(req: Request): Promise<string | null> {
     try {
       const token = authService.extractToken(req);
       if (!token) {
@@ -292,7 +293,7 @@ export class XRPCApi {
         return null;
       }
       
-      const payload = authService.verifySessionToken(token);
+      const payload = await authService.verifyToken(token);
       if (!payload?.did) {
         console.log(`[AUTH] Token payload missing DID for ${req.path}`);
         return null;
@@ -310,8 +311,8 @@ export class XRPCApi {
    * Require authentication and return user DID
    * Sends 401 error response if not authenticated
    */
-  private requireAuthDid(req: Request, res: Response): string | null {
-    const did = this.getAuthenticatedDid(req);
+  private async requireAuthDid(req: Request, res: Response): Promise<string | null> {
+    const did = await this.getAuthenticatedDid(req);
     if (!did) {
       console.log(`[AUTH] Authentication required but missing for ${req.path}`);
       res.status(401).json({ 
@@ -398,7 +399,7 @@ export class XRPCApi {
     try {
       const params = getTimelineSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
@@ -467,7 +468,7 @@ export class XRPCApi {
       let posts = await storage.getAuthorPosts(authorDid, params.limit, params.cursor);
       
       // Apply content filtering based on viewer preferences
-      const viewerDid = this.getAuthenticatedDid(req);
+      const viewerDid = await this.getAuthenticatedDid(req);
       if (viewerDid) {
         const settings = await storage.getUserSettings(viewerDid);
         if (settings) {
@@ -506,7 +507,7 @@ export class XRPCApi {
       }
 
       // Apply content filtering to replies (not the root post)
-      const viewerDid = this.getAuthenticatedDid(req);
+      const viewerDid = await this.getAuthenticatedDid(req);
       let replies = posts.slice(1);
       if (viewerDid) {
         const settings = await storage.getUserSettings(viewerDid);
@@ -658,7 +659,7 @@ export class XRPCApi {
     try {
       const params = createReportSchema.parse(req.body);
       
-      const reporterDid = this.requireAuthDid(req, res);
+      const reporterDid = await this.requireAuthDid(req, res);
       if (!reporterDid) return;
       
       // Determine subject (URI or DID)
@@ -705,7 +706,7 @@ export class XRPCApi {
   async searchPosts(req: Request, res: Response) {
     try {
       const params = searchPostsSchema.parse(req.query);
-      const userDid = this.getAuthenticatedDid(req);
+      const userDid = await this.getAuthenticatedDid(req);
 
       const result = await searchService.searchPosts(
         params.q,
@@ -787,7 +788,7 @@ export class XRPCApi {
     try {
       const params = listNotificationsSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       // Filter notifications by seenAt if provided
@@ -834,7 +835,7 @@ export class XRPCApi {
 
   async getUnreadCount(req: Request, res: Response) {
     try {
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const count = await storage.getUnreadNotificationCount(userDid);
@@ -850,7 +851,7 @@ export class XRPCApi {
     try {
       const params = updateSeenSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const seenAt = new Date(params.seenAt);
@@ -1127,7 +1128,7 @@ export class XRPCApi {
     try {
       const params = getSuggestionsSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const users = await storage.getSuggestedUsers(userDid, params.limit);
@@ -1149,7 +1150,7 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const prefs = await storage.getUserPreferences(userDid);
@@ -1291,7 +1292,7 @@ export class XRPCApi {
     try {
       const params = getBlocksSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const { blocks, cursor } = await storage.getBlocks(userDid, params.limit, params.cursor);
@@ -1318,7 +1319,7 @@ export class XRPCApi {
     try {
       const params = getMutesSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const { mutes, cursor } = await storage.getMutes(userDid, params.limit, params.cursor);
@@ -1345,7 +1346,7 @@ export class XRPCApi {
     try {
       const params = muteActorSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       let mutedDid = params.actor;
@@ -1375,7 +1376,7 @@ export class XRPCApi {
     try {
       const params = muteActorSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       let mutedDid = params.actor;
@@ -1435,7 +1436,7 @@ export class XRPCApi {
     try {
       const params = getListMutesSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const { mutes, cursor } = await storage.getListMutes(userDid, params.limit, params.cursor);
@@ -1461,7 +1462,7 @@ export class XRPCApi {
     try {
       const params = getListBlocksSchema.parse(req.query);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const { blocks, cursor } = await storage.getListBlocks(userDid, params.limit, params.cursor);
@@ -1487,7 +1488,7 @@ export class XRPCApi {
     try {
       const params = getKnownFollowersSchema.parse(req.query);
       
-      const viewerDid = this.requireAuthDid(req, res);
+      const viewerDid = await this.requireAuthDid(req, res);
       if (!viewerDid) return;
       
       let actorDid = params.actor;
@@ -1551,7 +1552,7 @@ export class XRPCApi {
     try {
       const params = muteActorListSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       // Verify list exists
@@ -1578,7 +1579,7 @@ export class XRPCApi {
     try {
       const params = unmuteActorListSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       const { mutes } = await storage.getListMutes(userDid, 1000);
@@ -1600,7 +1601,7 @@ export class XRPCApi {
     try {
       const params = muteThreadSchema.parse(req.body);
       
-      const userDid = this.requireAuthDid(req, res);
+      const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       
       // Verify thread root post exists

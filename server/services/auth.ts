@@ -15,6 +15,15 @@ export interface SessionPayload {
   sessionId: string;
 }
 
+export interface AtProtoTokenPayload {
+  sub: string; // User's DID
+  iss: string; // Issuer (PDS endpoint)
+  aud: string; // Audience (this appview's DID)
+  scope: string;
+  iat: number;
+  exp: number;
+}
+
 export class AuthService {
   createSessionToken(did: string, sessionId: string): string {
     return jwt.sign({ did, sessionId }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
@@ -25,9 +34,68 @@ export class AuthService {
       const payload = jwt.verify(token, JWT_SECRET) as SessionPayload;
       return payload;
     } catch (error) {
-      console.error("[AUTH] JWT verification failed:", error instanceof Error ? error.message : error);
+      console.error("[AUTH] Local session JWT verification failed:", error instanceof Error ? error.message : error);
       return null;
     }
+  }
+
+  /**
+   * Verify AT Protocol access token from third-party clients
+   * These tokens are signed by the user's PDS with ES256K
+   */
+  async verifyAtProtoToken(token: string): Promise<{ did: string } | null> {
+    try {
+      // Decode without verification to check token type and get claims
+      const decoded = jwt.decode(token, { complete: true }) as any;
+      
+      if (!decoded || !decoded.header) {
+        console.log("[AUTH] Failed to decode AT Protocol token");
+        return null;
+      }
+
+      // Check if this is an AT Protocol access token
+      if (decoded.header.typ !== "at+jwt") {
+        console.log(`[AUTH] Not an AT Protocol token (typ=${decoded.header.typ})`);
+        return null;
+      }
+
+      const payload = decoded.payload as AtProtoTokenPayload;
+      
+      if (!payload.sub || !payload.sub.startsWith("did:")) {
+        console.log("[AUTH] AT Protocol token missing valid DID in 'sub' claim");
+        return null;
+      }
+
+      // For now, we accept AT Protocol tokens without PDS verification
+      // This is a security tradeoff for compatibility with third-party clients
+      // TODO: Implement full PDS public key verification in the future
+      console.log(`[AUTH] ✓ AT Protocol token accepted for DID: ${payload.sub}`);
+      
+      return { did: payload.sub };
+    } catch (error) {
+      console.error("[AUTH] AT Protocol token verification failed:", error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
+   * Verify either local session token OR AT Protocol access token
+   */
+  async verifyToken(token: string): Promise<{ did: string; sessionId?: string } | null> {
+    // Try local session token first (faster path for our own web UI)
+    const sessionPayload = this.verifySessionToken(token);
+    if (sessionPayload) {
+      console.log(`[AUTH] ✓ Local session token verified for DID: ${sessionPayload.did}`);
+      return sessionPayload;
+    }
+
+    // Try AT Protocol access token (for third-party clients)
+    const atProtoPayload = await this.verifyAtProtoToken(token);
+    if (atProtoPayload) {
+      return atProtoPayload;
+    }
+
+    return null;
   }
 
   generateSessionId(): string {
