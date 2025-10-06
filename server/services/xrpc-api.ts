@@ -1154,6 +1154,11 @@ export class XRPCApi {
       const userDid = "did:plc:demo"; // TODO: Get from auth session
       const preferences = req.body.preferences || [];
       
+      // Validate that preferences is an array
+      if (!Array.isArray(preferences)) {
+        return res.status(400).json({ error: "preferences must be an array" });
+      }
+      
       // Ensure demo user exists for testing (use DID-based handle to avoid collisions)
       let user = await storage.getUser(userDid);
       if (!user) {
@@ -1173,18 +1178,25 @@ export class XRPCApi {
       // Get existing preferences to preserve unknown types
       const existingPrefs = await storage.getUserPreferences(userDid);
       
+      // Ensure all fields are arrays/objects, not raw JSONB
       const prefs: any = {
         userDid,
         adultContent: existingPrefs?.adultContent || false,
         contentLabels: existingPrefs?.contentLabels || {},
         feedViewPrefs: existingPrefs?.feedViewPrefs || {},
         threadViewPrefs: existingPrefs?.threadViewPrefs || {},
-        interests: existingPrefs?.interests || [],
-        savedFeeds: existingPrefs?.savedFeeds || [],
+        interests: Array.isArray(existingPrefs?.interests) ? existingPrefs.interests : [],
+        savedFeeds: Array.isArray(existingPrefs?.savedFeeds) ? existingPrefs.savedFeeds : [],
       };
       
       // Process known preference types and preserve unknown ones
       for (const pref of preferences) {
+        // Validate pref is an object with $type
+        if (!pref || typeof pref !== 'object' || !pref.$type) {
+          console.warn("[XRPC] Skipping invalid preference:", pref);
+          continue;
+        }
+        
         if (pref.$type === "app.bsky.actor.defs#adultContentPref") {
           prefs.adultContent = pref.enabled;
         } else if (pref.$type === "app.bsky.actor.defs#contentLabelPref") {
@@ -1195,9 +1207,9 @@ export class XRPCApi {
           prefs.threadViewPrefs = pref;
         } else if (pref.$type === "app.bsky.actor.defs#savedFeedsPrefV2") {
           // Store savedFeedsPrefV2 items in dedicated savedFeeds column
-          prefs.savedFeeds = pref.items || [];
+          prefs.savedFeeds = Array.isArray(pref.items) ? pref.items : [];
         } else if (pref.$type === "app.bsky.actor.defs#interestsPref") {
-          prefs.interests = pref.tags || [];
+          prefs.interests = Array.isArray(pref.tags) ? pref.tags : [];
         }
         // Silently ignore unknown preference types to maintain forward compatibility
       }
