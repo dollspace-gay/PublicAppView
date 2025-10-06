@@ -1880,6 +1880,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AT Protocol health check endpoint (required for appview proxy)
+  app.get("/xrpc/_health", async (_req, res) => {
+    try {
+      res.status(200).json({
+        version: "0.0.1"
+      });
+    } catch (error) {
+      res.status(503).json({ 
+        error: "Service unavailable" 
+      });
+    }
+  });
+
   // AT Protocol server metadata endpoint (required for service discovery)
   app.get("/xrpc/com.atproto.server.describeServer", async (_req, res) => {
     try {
