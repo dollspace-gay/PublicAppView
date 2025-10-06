@@ -1215,7 +1215,7 @@ export class XRPCApi {
         });
       }
 
-      const payload = authService.verifySessionToken(token);
+      const payload = await authService.verifyToken(token);
       if (!payload) {
         return res.status(401).json({ 
           error: "AuthMissing", 

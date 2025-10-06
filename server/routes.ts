@@ -1880,6 +1880,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // DID document for did:web resolution (required for appview proxy)
+  app.get("/.well-known/did.json", async (_req, res) => {
+    try {
+      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+      const hostname = appviewDid.replace("did:web:", "");
+      
+      res.json({
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/multikey/v1",
+          "https://w3id.org/security/suites/secp256k1-2019/v1"
+        ],
+        "id": appviewDid,
+        "service": [
+          {
+            "id": `${appviewDid}#bsky_appview`,
+            "type": "BskyAppView",
+            "serviceEndpoint": `https://${hostname}`
+          }
+        ]
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate DID document" });
+    }
+  });
+
   // AT Protocol health check endpoint (required for appview proxy)
   app.get("/xrpc/_health", async (_req, res) => {
     try {
