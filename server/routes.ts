@@ -1596,7 +1596,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Apply instance label (admin only - requires auth)
-  app.post("/api/instance/label", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/instance/label", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         subject: z.string(),
@@ -1605,16 +1605,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const data = schema.parse(req.body);
-      const session = await storage.getSession(req.session!.sessionId);
-      
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-
-      // TODO: Add admin permission check
-      // if (!session.isAdmin) {
-      //   return res.status(403).json({ error: "Admin access required" });
-      // }
 
       const { instanceModerationService } = await import("./services/instance-moderation");
       await instanceModerationService.applyInstanceLabel(data);
@@ -1626,7 +1616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Handle legal takedown request (admin only)
-  app.post("/api/instance/takedown", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/instance/takedown", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         subject: z.string(),
@@ -1636,13 +1626,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const data = schema.parse(req.body);
-      const session = await storage.getSession(req.session!.sessionId);
-      
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-
-      // TODO: Add admin permission check
 
       const { instanceModerationService } = await import("./services/instance-moderation");
       await instanceModerationService.handleTakedown(data);
@@ -1654,7 +1637,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin Moderation API Endpoints
-  // TODO: Add proper admin authentication/authorization
   
   // Apply a label to content or user
   app.post("/api/admin/labels/apply", requireAdmin, async (req: AuthRequest, res) => {
@@ -2540,8 +2522,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // WebSocket server for label subscriptions (com.atproto.label.subscribeLabels)
-  // TODO: Add authentication/authorization - currently open to all clients
-  // Consider implementing app password or JWT token validation
+  // Per AT Protocol spec, this endpoint is publicly accessible for label distribution
+  // Optional: Could add authentication for rate limiting or access control if needed
   const labelWss = new WebSocketServer({ 
     server: httpServer, 
     path: "/xrpc/com.atproto.label.subscribeLabels",

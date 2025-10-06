@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { storage } from "../storage";
+import { authService } from "./auth";
 import { contentFilter } from "./content-filter";
 import { feedAlgorithm } from "./feed-algorithm";
 import { feedGeneratorClient } from "./feed-generator-client";
@@ -279,6 +280,39 @@ const getUploadLimitsSchema = z.object({
 });
 
 export class XRPCApi {
+  /**
+   * Extract authenticated user DID from request
+   * Returns null if no valid authentication token is present
+   */
+  private getAuthenticatedDid(req: Request): string | null {
+    try {
+      const token = authService.extractToken(req);
+      if (!token) return null;
+      
+      const payload = authService.verifySessionToken(token);
+      return payload?.did || null;
+    } catch (error) {
+      // Token verification failed (malformed, expired, etc.)
+      return null;
+    }
+  }
+
+  /**
+   * Require authentication and return user DID
+   * Sends 401 error response if not authenticated
+   */
+  private requireAuthDid(req: Request, res: Response): string | null {
+    const did = this.getAuthenticatedDid(req);
+    if (!did) {
+      res.status(401).json({ 
+        error: "AuthMissing", 
+        message: "Authentication Required" 
+      });
+      return null;
+    }
+    return did;
+  }
+
   // Helper method to serialize posts with all required AT Protocol fields
   private async serializePost(post: any, viewerDid?: string) {
     const author = await storage.getUser(post.authorDid);
@@ -354,8 +388,8 @@ export class XRPCApi {
     try {
       const params = getTimelineSchema.parse(req.query);
       
-      // For demo, using a hardcoded user DID - in production, get from auth
-      const userDid = "did:plc:demo";
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
       
@@ -423,11 +457,12 @@ export class XRPCApi {
       let posts = await storage.getAuthorPosts(authorDid, params.limit, params.cursor);
       
       // Apply content filtering based on viewer preferences
-      // In production, would get viewer DID from auth token
-      const viewerDid = (req as any).user?.did || "did:plc:demo";
-      const settings = await storage.getUserSettings(viewerDid);
-      if (settings) {
-        posts = contentFilter.filterPosts(posts, settings);
+      const viewerDid = this.getAuthenticatedDid(req);
+      if (viewerDid) {
+        const settings = await storage.getUserSettings(viewerDid);
+        if (settings) {
+          posts = contentFilter.filterPosts(posts, settings);
+        }
       }
       
       res.json({
@@ -461,11 +496,13 @@ export class XRPCApi {
       }
 
       // Apply content filtering to replies (not the root post)
-      const viewerDid = (req as any).user?.did || "did:plc:demo";
-      const settings = await storage.getUserSettings(viewerDid);
+      const viewerDid = this.getAuthenticatedDid(req);
       let replies = posts.slice(1);
-      if (settings) {
-        replies = contentFilter.filterPosts(replies, settings);
+      if (viewerDid) {
+        const settings = await storage.getUserSettings(viewerDid);
+        if (settings) {
+          replies = contentFilter.filterPosts(replies, settings);
+        }
       }
 
       res.json({
@@ -611,8 +648,8 @@ export class XRPCApi {
     try {
       const params = createReportSchema.parse(req.body);
       
-      // For demo, using a hardcoded reporter DID - in production, get from auth
-      const reporterDid = "did:plc:reporter";
+      const reporterDid = this.requireAuthDid(req, res);
+      if (!reporterDid) return;
       
       // Determine subject (URI or DID)
       const subject = params.subject.uri || params.subject.did;
@@ -658,13 +695,13 @@ export class XRPCApi {
   async searchPosts(req: Request, res: Response) {
     try {
       const params = searchPostsSchema.parse(req.query);
-      const userDid = (req as any).session?.userDid;
+      const userDid = this.getAuthenticatedDid(req);
 
       const result = await searchService.searchPosts(
         params.q,
         params.limit,
         params.cursor,
-        userDid
+        userDid || undefined
       );
 
       res.json({
@@ -739,9 +776,9 @@ export class XRPCApi {
   async listNotifications(req: Request, res: Response) {
     try {
       const params = listNotificationsSchema.parse(req.query);
-      // TODO: Get userDid from authenticated session (req.session.userDid)
-      // For now using hardcoded DID for demo purposes
-      const userDid = "did:plc:demo";
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       // Filter notifications by seenAt if provided
       let notifications = await storage.getNotifications(userDid, params.limit, params.cursor);
@@ -787,7 +824,9 @@ export class XRPCApi {
 
   async getUnreadCount(req: Request, res: Response) {
     try {
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
+      
       const count = await storage.getUnreadNotificationCount(userDid);
       
       res.json({ count });
@@ -800,7 +839,9 @@ export class XRPCApi {
   async updateSeen(req: Request, res: Response) {
     try {
       const params = updateSeenSchema.parse(req.body);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const seenAt = new Date(params.seenAt);
       await storage.markNotificationsAsRead(userDid, seenAt);
@@ -1075,7 +1116,9 @@ export class XRPCApi {
   async getSuggestions(req: Request, res: Response) {
     try {
       const params = getSuggestionsSchema.parse(req.query);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const users = await storage.getSuggestedUsers(userDid, params.limit);
       
@@ -1096,7 +1139,8 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const prefs = await storage.getUserPreferences(userDid);
       
@@ -1151,7 +1195,24 @@ export class XRPCApi {
 
   async putPreferences(req: Request, res: Response) {
     try {
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      // Extract user DID from auth token or return error
+      const token = authService.extractToken(req);
+      if (!token) {
+        return res.status(401).json({ 
+          error: "AuthMissing", 
+          message: "Authentication Required" 
+        });
+      }
+
+      const payload = authService.verifySessionToken(token);
+      if (!payload) {
+        return res.status(401).json({ 
+          error: "AuthMissing", 
+          message: "Invalid or expired token" 
+        });
+      }
+
+      const userDid = payload.did;
       const preferences = req.body.preferences || [];
       
       // Validate that preferences is an array
@@ -1159,20 +1220,13 @@ export class XRPCApi {
         return res.status(400).json({ error: "preferences must be an array" });
       }
       
-      // Ensure demo user exists for testing (use DID-based handle to avoid collisions)
+      // Ensure user exists
       let user = await storage.getUser(userDid);
       if (!user) {
-        const safeHandle = userDid.replace(/[:.]/g, '-') + '-stub';
-        try {
-          await storage.createUser({
-            did: userDid,
-            handle: safeHandle,
-            displayName: "Demo User (Stub)",
-          });
-        } catch (error: any) {
-          // Tolerate concurrent creation attempts or existing user
-          if (error?.code !== '23505') throw error;
-        }
+        return res.status(404).json({ 
+          error: "ActorNotFound",
+          message: "User not found" 
+        });
       }
       
       // Get existing preferences to preserve unknown types
@@ -1226,7 +1280,9 @@ export class XRPCApi {
   async getBlocks(req: Request, res: Response) {
     try {
       const params = getBlocksSchema.parse(req.query);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const { blocks, cursor } = await storage.getBlocks(userDid, params.limit, params.cursor);
       
@@ -1251,7 +1307,9 @@ export class XRPCApi {
   async getMutes(req: Request, res: Response) {
     try {
       const params = getMutesSchema.parse(req.query);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const { mutes, cursor } = await storage.getMutes(userDid, params.limit, params.cursor);
       
@@ -1276,23 +1334,9 @@ export class XRPCApi {
   async muteActor(req: Request, res: Response) {
     try {
       const params = muteActorSchema.parse(req.body);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
       
-      // Ensure demo user exists for testing (use DID-based handle to avoid collisions)
-      let user = await storage.getUser(userDid);
-      if (!user) {
-        const safeHandle = userDid.replace(/[:.]/g, '-') + '-stub';
-        try {
-          await storage.createUser({
-            did: userDid,
-            handle: safeHandle,
-            displayName: "Demo User (Stub)",
-          });
-        } catch (error: any) {
-          // Tolerate concurrent creation attempts or existing user
-          if (error?.code !== '23505') throw error;
-        }
-      }
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       let mutedDid = params.actor;
       if (!params.actor.startsWith("did:")) {
@@ -1301,21 +1345,6 @@ export class XRPCApi {
           return res.status(404).json({ error: "Actor not found" });
         }
         mutedDid = targetUser.did;
-      }
-      
-      // Ensure the target user exists (stub with DID-based handle to avoid collisions)
-      let targetUser = await storage.getUser(mutedDid);
-      if (!targetUser) {
-        const targetHandle = mutedDid.replace(/[:.]/g, '-') + '-stub';
-        try {
-          await storage.createUser({
-            did: mutedDid,
-            handle: targetHandle,
-          });
-        } catch (error: any) {
-          // Tolerate concurrent creation or constraint violations
-          if (error?.code !== '23505') throw error;
-        }
       }
       
       await storage.createMute({
@@ -1335,7 +1364,9 @@ export class XRPCApi {
   async unmuteActor(req: Request, res: Response) {
     try {
       const params = muteActorSchema.parse(req.body);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       let mutedDid = params.actor;
       if (!params.actor.startsWith("did:")) {
@@ -1393,7 +1424,9 @@ export class XRPCApi {
   async getListMutes(req: Request, res: Response) {
     try {
       const params = getListMutesSchema.parse(req.query);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const { mutes, cursor } = await storage.getListMutes(userDid, params.limit, params.cursor);
       
@@ -1417,7 +1450,9 @@ export class XRPCApi {
   async getListBlocks(req: Request, res: Response) {
     try {
       const params = getListBlocksSchema.parse(req.query);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const { blocks, cursor } = await storage.getListBlocks(userDid, params.limit, params.cursor);
       
@@ -1441,7 +1476,9 @@ export class XRPCApi {
   async getKnownFollowers(req: Request, res: Response) {
     try {
       const params = getKnownFollowersSchema.parse(req.query);
-      const viewerDid = (req as any).user?.did || "did:plc:demo"; // TODO: Get from auth session
+      
+      const viewerDid = this.requireAuthDid(req, res);
+      if (!viewerDid) return;
       
       let actorDid = params.actor;
       if (!params.actor.startsWith("did:")) {
@@ -1503,7 +1540,9 @@ export class XRPCApi {
   async muteActorList(req: Request, res: Response) {
     try {
       const params = muteActorListSchema.parse(req.body);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       // Verify list exists
       const list = await storage.getList(params.list);
@@ -1528,7 +1567,9 @@ export class XRPCApi {
   async unmuteActorList(req: Request, res: Response) {
     try {
       const params = unmuteActorListSchema.parse(req.body);
-      const userDid = "did:plc:demo"; // TODO: Get from auth session
+      
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       const { mutes } = await storage.getListMutes(userDid, 1000);
       const mute = mutes.find(m => m.listUri === params.list);
@@ -1549,11 +1590,8 @@ export class XRPCApi {
     try {
       const params = muteThreadSchema.parse(req.body);
       
-      // Get authenticated user from session
-      const userDid = (req as any).user?.did;
-      if (!userDid) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
+      const userDid = this.requireAuthDid(req, res);
+      if (!userDid) return;
       
       // Verify thread root post exists
       const rootPost = await storage.getPost(params.root);
