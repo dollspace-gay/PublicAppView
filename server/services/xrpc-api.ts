@@ -287,12 +287,21 @@ export class XRPCApi {
   private getAuthenticatedDid(req: Request): string | null {
     try {
       const token = authService.extractToken(req);
-      if (!token) return null;
+      if (!token) {
+        console.log(`[AUTH] No token found in request to ${req.path}`);
+        return null;
+      }
       
       const payload = authService.verifySessionToken(token);
-      return payload?.did || null;
+      if (!payload?.did) {
+        console.log(`[AUTH] Token payload missing DID for ${req.path}`);
+        return null;
+      }
+      
+      return payload.did;
     } catch (error) {
       // Token verification failed (malformed, expired, etc.)
+      console.error(`[AUTH] Token verification failed for ${req.path}:`, error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -304,6 +313,7 @@ export class XRPCApi {
   private requireAuthDid(req: Request, res: Response): string | null {
     const did = this.getAuthenticatedDid(req);
     if (!did) {
+      console.log(`[AUTH] Authentication required but missing for ${req.path}`);
       res.status(401).json({ 
         error: "AuthMissing", 
         message: "Authentication Required" 

@@ -25,6 +25,7 @@ export class AuthService {
       const payload = jwt.verify(token, JWT_SECRET) as SessionPayload;
       return payload;
     } catch (error) {
+      console.error("[AUTH] JWT verification failed:", error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -36,8 +37,11 @@ export class AuthService {
   extractToken(req: Request): string | null {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
-      return authHeader.substring(7);
+      const token = authHeader.substring(7);
+      console.log(`[AUTH] Extracted Bearer token from ${req.path}: ${token.substring(0, 20)}...`);
+      return token;
     }
+    console.log(`[AUTH] No Bearer token found in Authorization header for ${req.path}`);
     return null;
   }
 }
