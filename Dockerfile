@@ -1,46 +1,47 @@
-# Multi-stage build for production-ready AT Protocol AppView
+# Multi-stage build for a lean, production-ready AT Protocol AppView
+
+# Stage 1: Builder
+# This stage installs all dependencies (including dev) and builds the application.
 FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install all dependencies
 COPY package*.json ./
-
-# Install all dependencies (including dev dependencies for build)
 RUN npm ci
 
-# Copy application source
+# Copy the rest of the application source code
 COPY . .
 
-# Build the application
+# Build both the frontend (vite) and backend (esbuild)
 RUN npm run build
 
-# Production stage
+# Stage 2: Production
+# This stage creates the final, lean image with only what's needed for production.
 FROM node:20-slim
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install only production dependencies
 COPY package*.json ./
-
-# Install only production dependencies
 RUN npm ci --omit=dev
 
-# Add drizzle-kit for runtime migrations (pinned version for stability)
-RUN npm install drizzle-kit@0.31.4
+# Install drizzle-kit and typescript for runtime migrations.
+# These are dev dependencies but are needed by the entrypoint script.
+RUN npm install drizzle-kit@0.31.4 typescript
 
 # Install PM2 globally for cluster mode
 RUN npm install -g pm2
 
-# Copy built application from builder (includes both server and frontend)
-# Note: Vite builds frontend to dist/public, backend builds to dist/index.js
+# Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy necessary config files
+# Copy configuration files needed for runtime database migrations
 COPY drizzle.config.ts ./
+COPY tsconfig.json ./
 COPY shared ./shared
 
-# Copy and make entrypoint script executable
+# Copy and make the entrypoint script executable
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
@@ -64,8 +65,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Run database migrations and start the application with PM2 cluster mode
-# Optimized for 47GB RAM VPS: 32 workers × 2GB heap = 64GB target (leaves room for OS/PostgreSQL)
-# Each worker runs 5 parallel pipelines × 300 events/batch for maximum throughput
-# Entrypoint script handles migration retries and proper error handling
+# Run the application using the entrypoint script, which handles migrations
 CMD ["./docker-entrypoint.sh"]

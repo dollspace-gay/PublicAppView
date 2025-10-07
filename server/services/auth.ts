@@ -1,6 +1,10 @@
 import jwt from "jsonwebtoken";
-import { randomBytes, createPublicKey } from "crypto";
+import { randomBytes } from "crypto";
 import type { Request, Response, NextFunction } from "express";
+import * as jose from 'jose';
+import type { KeyObject, JWSHeaderParameters } from 'jose';
+import { base58btc } from 'multiformats/bases/base58';
+import { varint } from 'multiformats'
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required for production use");
@@ -83,7 +87,7 @@ export class AuthService {
       }
 
       // Verify signature using signing DID's public keys
-      const verified = await this.verifyJWTSignature(token, signingDid, header.alg);
+      const verified = await this.verifyJWTSignature(token, signingDid);
       
       if (!verified) {
         console.error(`[AUTH] Signature verification failed for DID: ${signingDid}`);
@@ -99,189 +103,69 @@ export class AuthService {
   }
 
   /**
-   * Convert raw ECDSA signature (r,s) to DER format
+   * Verify JWT signature using a key from the DID document.
+   * This function uses the `jose` library to robustly handle various key types
+   * and algorithms found in AT Protocol DID documents (ES256, ES256K),
+   * using the 'kid' header parameter for key selection.
    */
-  private toDERSignature(r: Buffer, s: Buffer): Buffer {
-    // Remove leading zeros but keep at least one byte
-    const trimLeadingZeros = (buf: Buffer): Buffer => {
-      let i = 0;
-      while (i < buf.length - 1 && buf[i] === 0) i++;
-      return buf.slice(i);
-    };
-
-    let rBytes = trimLeadingZeros(r);
-    let sBytes = trimLeadingZeros(s);
-
-    // Add leading zero if high bit is set (to avoid negative interpretation)
-    if (rBytes[0] & 0x80) rBytes = Buffer.concat([Buffer.from([0]), rBytes]);
-    if (sBytes[0] & 0x80) sBytes = Buffer.concat([Buffer.from([0]), sBytes]);
-
-    // Build DER sequence: 0x30 [length] 0x02 [r-length] [r] 0x02 [s-length] [s]
-    const rEncoded = Buffer.concat([Buffer.from([0x02, rBytes.length]), rBytes]);
-    const sEncoded = Buffer.concat([Buffer.from([0x02, sBytes.length]), sBytes]);
-    const sequence = Buffer.concat([rEncoded, sEncoded]);
-
-    return Buffer.concat([Buffer.from([0x30, sequence.length]), sequence]);
-  }
-
-  /**
-   * Decode base58 string to Buffer
-   */
-  private decodeBase58(input: string): Buffer {
-    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    const bytes: number[] = [];
-    
-    for (let i = 0; i < input.length; i++) {
-      let value = ALPHABET.indexOf(input[i]);
-      if (value < 0) throw new Error(`Invalid base58 character: ${input[i]}`);
-      
-      for (let j = 0; j < bytes.length; j++) {
-        value += bytes[j] * 58;
-        bytes[j] = value & 0xff;
-        value >>= 8;
-      }
-      
-      while (value > 0) {
-        bytes.push(value & 0xff);
-        value >>= 8;
-      }
-    }
-    
-    // Add leading zeros
-    for (let i = 0; i < input.length && input[i] === '1'; i++) {
-      bytes.push(0);
-    }
-    
-    return Buffer.from(bytes.reverse());
-  }
-
-  /**
-   * Verify JWT signature using DID's public key
-   */
-  private async verifyJWTSignature(token: string, signingDid: string, algorithm: string): Promise<boolean> {
+  private async verifyJWTSignature(token: string, signingDid: string): Promise<boolean> {
     try {
       const { didResolver } = await import("./did-resolver");
-      
-      // Resolve DID to get public keys
       const didDocument = await didResolver.resolveDID(signingDid);
-      
-      if (!didDocument) {
-        console.error(`[AUTH] Failed to resolve DID: ${signingDid}`);
+
+      if (!didDocument || !didDocument.verificationMethod) {
+        console.error(`[AUTH] No verification methods found for DID: ${signingDid}`);
         return false;
       }
 
-      if (!didDocument.verificationMethod || didDocument.verificationMethod.length === 0) {
-        console.error(`[AUTH] No verification methods in DID document for: ${signingDid}`);
-        console.error(`[AUTH] DID document keys: ${JSON.stringify(Object.keys(didDocument))}`);
-        return false;
-      }
+      const getKey = async (protectedHeader: JWSHeaderParameters) => {
+        const kid = protectedHeader.kid;
+        if (!kid) {
+          throw new Error("JWT missing 'kid' in protected header");
+        }
 
-      // Try each verification method until one works
-      for (const method of didDocument.verificationMethod) {
-        let publicKey: any;
+        const verificationMethods = didDocument.verificationMethod || [];
 
-        // Handle publicKeyJwk format
+        const method = verificationMethods.find(m => m.id.endsWith(`#${kid}`) || m.id === kid);
+
+        if (!method) {
+          throw new Error(`No verification method found for kid: ${kid}`);
+        }
+
         if (method.publicKeyJwk) {
-          try {
-            publicKey = createPublicKey({
-              key: method.publicKeyJwk,
-              format: 'jwk'
-            });
-          } catch (err) {
-            continue;
-          }
-        }
-        // Handle publicKeyMultibase format (used by AT Protocol)
-        else if (method.publicKeyMultibase) {
-          try {
-            // Decode multibase string (z prefix = base58btc)
-            const multibaseKey = method.publicKeyMultibase;
-            if (!multibaseKey.startsWith('z')) {
-              continue;
-            }
-
-            // Decode base58 (remove 'z' prefix)
-            const base58 = multibaseKey.slice(1);
-            const decoded = this.decodeBase58(base58);
-            
-            // Check for secp256k1-pub multicodec prefix (0xe7 0x01)
-            if (decoded[0] === 0xe7 && decoded[1] === 0x01) {
-              // Skip the 2-byte multicodec prefix
-              const keyBytes = decoded.slice(2);
-              
-              // secp256k1 compressed public key (33 bytes: 0x02/0x03 + 32 bytes)
-              // Create DER-encoded SubjectPublicKeyInfo structure for secp256k1
-              const derPrefix = Buffer.from([
-                0x30, 0x36, // SEQUENCE, 54 bytes
-                0x30, 0x10, // SEQUENCE, 16 bytes (algorithm)
-                0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, // OID: ecPublicKey
-                0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a, // OID: secp256k1
-                0x03, 0x22, 0x00 // BIT STRING, 34 bytes following, 0 unused bits
-              ]);
-              
-              publicKey = createPublicKey({
-                key: Buffer.concat([derPrefix, keyBytes]),
-                format: 'der',
-                type: 'spki'
-              });
-            } else {
-              continue;
-            }
-          } catch (err) {
-            continue;
-          }
-        } else {
-          continue;
+          return jose.importJWK(method.publicKeyJwk, protectedHeader.alg);
         }
 
-        try {
-          // For ES256K, we need to manually verify since jsonwebtoken doesn't support it
-          if (algorithm === 'ES256K') {
-            const [headerB64, payloadB64, signatureB64] = token.split('.');
-            const message = `${headerB64}.${payloadB64}`;
-            
-            // Decode signature from base64url
-            const signatureBuffer = Buffer.from(signatureB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-            
-            // ES256K signatures are 64 bytes (r and s components, 32 bytes each)
-            // DER encoding needed for Node.js verify
-            const r = signatureBuffer.slice(0, 32);
-            const s = signatureBuffer.slice(32, 64);
-            
-            // Convert to DER format
-            const derSignature = this.toDERSignature(r, s);
-            
-            // Verify using crypto
-            const { createVerify } = await import('crypto');
-            const verifier = createVerify('SHA256');
-            verifier.update(message);
-            verifier.end();
-            
-            const isValid = verifier.verify(publicKey, derSignature);
-            
-            if (!isValid) {
-              throw new Error('Signature verification failed');
-            }
-          } else {
-            // Use jsonwebtoken for other algorithms
-            jwt.verify(token, publicKey, { 
-              algorithms: [algorithm as jwt.Algorithm] 
-            });
+        if (method.publicKeyMultibase) {
+          const multicodecBytes = base58btc.decode(method.publicKeyMultibase);
+          const [codec, bytesRead] = varint.decode(multicodecBytes);
+          const keyBytes = multicodecBytes.subarray(bytesRead);
+
+          if (codec === 0x1200) { // p256
+            const derPrefix = Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200', 'hex');
+            const spki = Buffer.concat([derPrefix, Buffer.from(keyBytes)]);
+            return jose.importSPKI(spki.toString('base64'), protectedHeader.alg!);
           }
 
-          console.log(`[AUTH] Signature verified using key: ${method.id}`);
-          return true;
-        } catch (err) {
-          console.log(`[AUTH] Signature verification failed with this key: ${err}`);
-          // Try next key if this one doesn't work
-          continue;
-        }
-      }
+          if (codec === 0xe7) { // secp256k1
+            const derPrefix = Buffer.from('3036301006072a8648ce3d020106052b8104000a032200', 'hex');
+            const spki = Buffer.concat([derPrefix, Buffer.from(keyBytes)]);
+            return jose.importSPKI(spki.toString('base64'), protectedHeader.alg!);
+          }
 
-      console.error(`[AUTH] No valid signing key found for DID: ${signingDid}`);
-      return false;
+          throw new Error(`Unsupported multicodec key type: ${codec}`);
+        }
+
+        throw new Error(`Verification method ${kid} has no supported key format (publicKeyJwk or publicKeyMultibase)`);
+      };
+
+      await jose.jwtVerify(token, getKey as any);
+
+      console.log(`[AUTH] ✓ Signature verified for DID: ${signingDid}`);
+      return true;
+
     } catch (error) {
-      console.error(`[AUTH] Error verifying signature:`, error);
+      console.error(`[AUTH] Signature verification failed for DID ${signingDid}:`, error);
       return false;
     }
   }
@@ -311,13 +195,21 @@ export class AuthService {
   }
 
   extractToken(req: Request): string | null {
+    // 1. Check for cookie first (for web UI sessions)
+    if (req.cookies && req.cookies.auth_token) {
+      console.log(`[AUTH] Extracted token from cookie for ${req.path}`);
+      return req.cookies.auth_token;
+    }
+
+    // 2. Fallback to Bearer token for API clients
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.substring(7);
       console.log(`[AUTH] Extracted Bearer token from ${req.path}: ${token.substring(0, 20)}...`);
       return token;
     }
-    console.log(`[AUTH] No Bearer token found in Authorization header for ${req.path}`);
+
+    console.log(`[AUTH] No token found in cookie or Authorization header for ${req.path}`);
     return null;
   }
 }

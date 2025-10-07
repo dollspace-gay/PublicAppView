@@ -22,8 +22,8 @@ export class FeedAlgorithmService {
       Promise.all(postUris.map(uri => storage.getPostReposts(uri))),
     ]);
     
-    const likeCounts = new Map(postUris.map((uri, i) => [uri, allLikes[i].length]));
-    const repostCounts = new Map(postUris.map((uri, i) => [uri, allReposts[i].length]));
+    const likeCounts = new Map(postUris.map((uri, i) => [uri, allLikes[i].likes.length]));
+    const repostCounts = new Map(postUris.map((uri, i) => [uri, allReposts[i].reposts.length]));
     
     const enrichedPosts = posts.map((post) => {
       const likeCount = likeCounts.get(post.uri) || 0;

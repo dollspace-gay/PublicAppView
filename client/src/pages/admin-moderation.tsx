@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, Search, Tag, Trash2, AlertCircle, LogIn, LogOut } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 
 interface Label {
   uri: string;
@@ -29,78 +29,23 @@ interface InstanceLabel {
 
 export default function AdminModerationPage() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [subjectUri, setSubjectUri] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLabel, setSelectedLabel] = useState("");
   const [comment, setComment] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [loginHandle, setLoginHandle] = useState("");
 
-  // Check authentication status on mount and handle OAuth callback
-  useEffect(() => {
-    const checkAuth = async () => {
-      // Check if returning from OAuth callback
-      const urlParams = new URLSearchParams(window.location.search);
-      const token = urlParams.get('token');
-      const error = urlParams.get('error');
-      
-      if (error) {
-        toast({
-          title: "Authentication Failed",
-          description: decodeURIComponent(error),
-          variant: "destructive",
-        });
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setIsAuthChecking(false);
-        return;
-      }
-      
-      if (token) {
-        localStorage.setItem("dashboard_token", token);
-        setIsAuthenticated(true);
-        toast({
-          title: "Login Successful",
-          description: "Welcome! You have been authenticated successfully.",
-        });
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setIsAuthChecking(false);
-        return;
-      }
+  const { data: session, isLoading: isSessionLoading } = useQuery({
+    queryKey: ["/api/auth/session"],
+    retry: false,
+  });
 
-      // Check existing token
-      const existingToken = localStorage.getItem("dashboard_token");
-      if (!existingToken) {
-        setIsAuthenticated(false);
-        setIsAuthChecking(false);
-        return;
-      }
-
-      try {
-        const res = await apiRequest('GET', '/api/auth/session');
-        if (res.ok) {
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
-          localStorage.removeItem("dashboard_token");
-        }
-      } catch (error) {
-        setIsAuthenticated(false);
-        localStorage.removeItem("dashboard_token");
-      } finally {
-        setIsAuthChecking(false);
-      }
-    };
-
-    checkAuth();
-  }, [toast]);
+  const isAuthenticated = !isSessionLoading && !!session;
 
   // Login mutation - initiates OAuth flow
   const loginMutation = useMutation({
-    mutationFn: async (data: { handle: string }) => {
-      const res = await apiRequest('POST', '/api/auth/login', data);
-      return await res.json();
-    },
+    mutationFn: (data: { handle: string }) => api.post<{ authUrl: string }>('/api/auth/login', data),
     onSuccess: (data) => {
       // Redirect to PDS for OAuth authorization
       window.location.href = data.authUrl;
@@ -116,13 +61,9 @@ export default function AdminModerationPage() {
 
   // Logout mutation
   const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/auth/logout');
-      return await res.json();
-    },
+    mutationFn: () => api.post('/api/auth/logout', {}),
     onSuccess: () => {
-      localStorage.removeItem("dashboard_token");
-      setIsAuthenticated(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
       toast({
         title: "Logged Out",
         description: "You have been logged out successfully.",
@@ -143,10 +84,8 @@ export default function AdminModerationPage() {
 
   // Apply label mutation
   const applyLabelMutation = useMutation({
-    mutationFn: async (data: { subject: string; label: string; comment?: string }) => {
-      const res = await apiRequest('POST', '/api/admin/labels/apply', data);
-      return await res.json();
-    },
+    mutationFn: (data: { subject: string; label: string; comment?: string }) =>
+      api.post('/api/admin/labels/apply', data),
     onSuccess: () => {
       toast({
         title: "Label Applied",
@@ -156,7 +95,7 @@ export default function AdminModerationPage() {
       setSelectedLabel("");
       setComment("");
       if (searchQuery) {
-        refetchLabels();
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/labels', searchQuery] });
       }
     },
     onError: (error: Error) => {
@@ -170,16 +109,14 @@ export default function AdminModerationPage() {
 
   // Remove label mutation
   const removeLabelMutation = useMutation({
-    mutationFn: async (labelUri: string) => {
-      const res = await apiRequest('DELETE', `/api/admin/labels?uri=${encodeURIComponent(labelUri)}`);
-      return await res.json();
-    },
+    mutationFn: (labelUri: string) =>
+      api.delete(`/api/admin/labels?uri=${encodeURIComponent(labelUri)}`),
     onSuccess: () => {
       toast({
         title: "Label Removed",
         description: "The moderation label has been removed.",
       });
-      refetchLabels();
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/labels', searchQuery] });
     },
     onError: (error: Error) => {
       toast({
@@ -237,7 +174,7 @@ export default function AdminModerationPage() {
     });
   };
 
-  if (isAuthChecking) {
+  if (isSessionLoading) {
     return (
       <div className="container mx-auto p-8">
         <div className="flex items-center justify-center h-64">

@@ -1,92 +1,22 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-}
-
-// CSRF token management
-let csrfToken: string | null = null;
-
-async function fetchCSRFToken(): Promise<string> {
-  if (csrfToken) return csrfToken;
-  
-  try {
-    const res = await fetch('/api/csrf-token', { credentials: 'include' });
-    if (res.ok) {
-      const data = await res.json();
-      csrfToken = data.csrfToken;
-      return csrfToken!;
-    }
-  } catch (error) {
-    console.warn('[CSRF] Failed to fetch token:', error);
-  }
-  
-  return '';
-}
-
-// Initialize CSRF token on load
-fetchCSRFToken().catch(console.error);
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem("dashboard_token");
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  
-  return headers;
-}
-
-async function getCSRFHeaders(): Promise<Record<string, string>> {
-  const token = await fetchCSRFToken();
-  return token ? { 'X-CSRF-Token': token } : {};
-}
-
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const csrfHeaders = await getCSRFHeaders();
-  
-  const headers = {
-    ...getAuthHeaders(),
-    ...csrfHeaders,
-    ...(data ? { "Content-Type": "application/json" } : {}),
-  };
-
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
-}
+import { api } from "./api";
 
 type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
+
+export const getQueryFn =
+  <T>(options?: { on401?: UnauthorizedBehavior }): QueryFunction<T> =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      headers: getAuthHeaders(),
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    const url = queryKey.join("/");
+    try {
+      const data = await api.get<T>(url);
+      return data;
+    } catch (error: any) {
+      if (options?.on401 === "returnNull" && error.response?.status === 401) {
+        return null as T;
+      }
+      // Re-throw other errors to be handled by React Query
+      throw error;
     }
-
-    await throwIfResNotOk(res);
-    return await res.json();
   };
 
 export const queryClient = new QueryClient({
@@ -96,7 +26,16 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      retry: false,
+      retry: (failureCount, error: any) => {
+        if (
+          error.response?.status === 401 ||
+          error.response?.status === 403 ||
+          error.response?.status === 404
+        ) {
+          return false;
+        }
+        return failureCount < 2;
+      },
     },
     mutations: {
       retry: false,

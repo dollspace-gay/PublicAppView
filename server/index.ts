@@ -11,31 +11,6 @@ const app = express();
 // Trust proxy for proper IP detection behind reverse proxies (Replit, Cloudflare, etc.)
 app.set('trust proxy', 1);
 
-// Start Redis in development
-if (process.env.NODE_ENV === "development") {
-  const redisProcess = spawn("redis-server", [
-    "--port", "6379",
-    "--dir", "/tmp",
-    "--save", "",
-    "--appendonly", "no"
-  ], {
-    stdio: "ignore",
-    detached: true
-  });
-  
-  redisProcess.unref();
-  console.log("[REDIS] Started Redis server process");
-  
-  process.on("SIGTERM", () => {
-    redisProcess.kill();
-  });
-  
-  process.on("SIGINT", () => {
-    redisProcess.kill();
-    process.exit();
-  });
-}
-
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown

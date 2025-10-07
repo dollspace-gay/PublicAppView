@@ -159,11 +159,11 @@ export class OAuthService {
       const fs = await import('fs/promises');
       const keysetData = JSON.parse(await fs.readFile(keysetPath, 'utf-8'));
       
-      if (!keysetData.privateKeyPem) {
-        throw new Error('Invalid oauth-keyset.json: missing privateKeyPem');
+      if (!keysetData.privateKeyPem || !keysetData.kid) {
+        throw new Error('Invalid oauth-keyset.json: missing privateKeyPem or kid');
       }
       
-      const keyset = [await JoseKey.fromImportable(keysetData.privateKeyPem, 'oauth-key')];
+      const keyset = [await JoseKey.fromImportable(keysetData.privateKeyPem, keysetData.kid)];
       console.log('[OAUTH] Loaded keyset from file successfully');
       
       const sessionStore = new DatabaseSessionStore();

@@ -219,6 +219,10 @@ export class RepoBackfillService {
       }
       
       const pdsUrl = pdsService.serviceEndpoint;
+      if (typeof pdsUrl !== 'string') {
+        console.warn(`[REPO_BACKFILL] Invalid PDS endpoint found for ${did}:`, pdsUrl);
+        return;
+      }
       console.log(`[REPO_BACKFILL] Resolved ${did} to PDS: ${pdsUrl}`);
       
       // Create agent for the user's PDS
@@ -227,23 +231,30 @@ export class RepoBackfillService {
       // Fetch complete repository as CAR file from the PDS
       const response = await pdsAgent.com.atproto.sync.getRepo({ did });
       
+      const isUint8Array = (data: unknown): data is Uint8Array => {
+        return data instanceof Uint8Array;
+      }
+
+      let dataLength = 'unknown';
+      if (isUint8Array(response.data)) {
+        dataLength = response.data.length.toString();
+      }
+
       console.log(`[REPO_BACKFILL] Response for ${did}:`, {
         success: response.success,
         hasData: !!response.data,
         dataType: response.data ? typeof response.data : 'none',
         dataConstructor: response.data?.constructor?.name,
-        dataLength: response.data instanceof Uint8Array ? response.data.length : 
-                    response.data instanceof ArrayBuffer ? response.data.byteLength : 
-                    Buffer.isBuffer(response.data) ? response.data.length : 'unknown'
+        dataLength: dataLength
       });
       
-      if (!response.success || !response.data) {
-        console.warn(`[REPO_BACKFILL] Failed to fetch repo for ${did}`);
+      if (!response.success || !isUint8Array(response.data)) {
+        console.warn(`[REPO_BACKFILL] Failed to fetch repo or received invalid data for ${did}`);
         return;
       }
 
       // Parse CAR file
-      const carBytes = new Uint8Array(response.data as ArrayBuffer);
+      const carBytes = response.data;
       const { roots, blocks } = await readCar(carBytes);
 
       console.log(`[REPO_BACKFILL] Parsing repo ${did} (${blocks.size} blocks, ${roots.length} roots)...`);
@@ -299,7 +310,7 @@ export class RepoBackfillService {
       }
 
       console.log(`[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`);
-      for (const [collection, count] of collectionCounts.entries()) {
+      for (const [collection, count] of Array.from(collectionCounts.entries())) {
         console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
       }
 

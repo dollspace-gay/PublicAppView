@@ -340,9 +340,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create JWT token for frontend
       const token = authService.createSessionToken(did, did);
 
+      // Set session cookie
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      });
+
       // Redirect to appropriate page based on admin status
       const redirectPath = isAdmin ? '/admin/moderation' : '/user/panel';
-      res.redirect(`${redirectPath}?token=${token}&did=${did}`);
+      res.redirect(redirectPath);
     } catch (error) {
       console.error("[AUTH] Callback error:", error);
       res.redirect(`/?error=${encodeURIComponent('OAuth callback failed')}`);

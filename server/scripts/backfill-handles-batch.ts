@@ -54,7 +54,7 @@ async function backfillHandles() {
       const dids = batch.rows.map((row: any) => row.did);
       const resolvedHandles = await identityResolver.resolveDidsToHandles(dids);
 
-      for (const [did, handle] of resolvedHandles.entries()) {
+      for (const [did, handle] of Array.from(resolvedHandles.entries())) {
         try {
           await db
             .update(users)

@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { User, Database, Trash2, ShieldOff, Download, AlertCircle, LogOut } from "lucide-react";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 
 interface UserSettings {
   userDid: string;
@@ -26,99 +26,40 @@ interface UserStats {
 
 export default function UserPanel() {
   const { toast } = useToast();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [userDid, setUserDid] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [backfillDays, setBackfillDays] = useState<string>("30");
 
-  // Check authentication status on mount and handle OAuth callback
-  useEffect(() => {
-    const checkAuth = async () => {
-      // Check if returning from OAuth callback
-      const urlParams = new URLSearchParams(window.location.search);
-      const token = urlParams.get('token');
-      const did = urlParams.get('did');
-      const error = urlParams.get('error');
-      
-      if (error) {
-        toast({
-          title: "Authentication Failed",
-          description: decodeURIComponent(error),
-          variant: "destructive",
-        });
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setIsAuthChecking(false);
-        return;
-      }
-      
-      if (token && did) {
-        localStorage.setItem("dashboard_token", token);
-        setUserDid(did);
-        setIsAuthenticated(true);
-        toast({
-          title: "Login Successful",
-          description: "Welcome to your user panel!",
-        });
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setIsAuthChecking(false);
-        return;
-      }
+  const { data: sessionData, isLoading: isSessionLoading } = useQuery<{ session?: { userDid: string } }>({
+    queryKey: ['/api/auth/session'],
+    retry: false,
+  });
 
-      // Check existing token
-      const existingToken = localStorage.getItem("dashboard_token");
-      if (!existingToken) {
-        setIsAuthenticated(false);
-        setIsAuthChecking(false);
-        return;
-      }
-
-      try {
-        const res = await apiRequest('GET', '/api/auth/session');
-        if (res.ok) {
-          const data = await res.json();
-          setUserDid(data.session.userDid);
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
-          localStorage.removeItem("dashboard_token");
-        }
-      } catch (error) {
-        setIsAuthenticated(false);
-        localStorage.removeItem("dashboard_token");
-      } finally {
-        setIsAuthChecking(false);
-      }
-    };
-
-    checkAuth();
-  }, [toast]);
+  const isAuthenticated = !isSessionLoading && !!sessionData?.session;
+  const userDid = sessionData?.session?.userDid;
 
   // Fetch user settings
-  const { data: settings, refetch: refetchSettings } = useQuery<UserSettings>({
+  const { data: settings } = useQuery<UserSettings>({
     queryKey: ['/api/user/settings'],
-    enabled: isAuthenticated && !!userDid,
+    enabled: isAuthenticated,
   });
 
   // Fetch user statistics
-  const { data: stats, refetch: refetchStats } = useQuery<UserStats>({
+  const { data: stats } = useQuery<UserStats>({
     queryKey: ['/api/user/stats'],
-    enabled: isAuthenticated && !!userDid,
+    enabled: isAuthenticated,
     refetchInterval: 5000, // Refresh every 5 seconds to show real-time changes
   });
 
   // Backfill mutation
   const backfillMutation = useMutation({
-    mutationFn: async (days: number) => {
-      const res = await apiRequest('POST', '/api/user/backfill', { days });
-      return await res.json();
-    },
+    mutationFn: (days: number) => api.post<{ message: string }>("/api/user/backfill", { days }),
     onSuccess: (data) => {
       toast({
         title: "Backfill Started",
         description: data.message || `Backfilling ${backfillDays} days of data...`,
       });
-      refetchSettings();
-      refetchStats();
+      queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
     },
     onError: (error: Error) => {
       toast({
@@ -131,17 +72,14 @@ export default function UserPanel() {
 
   // Delete all data mutation
   const deleteDataMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/user/delete-data');
-      return await res.json();
-    },
+    mutationFn: () => api.post<{ message: string }>("/api/user/delete-data", {}),
     onSuccess: (data) => {
       toast({
         title: "Data Deleted",
         description: data.message || "All your data has been removed from this instance",
       });
-      refetchSettings();
-      refetchStats();
+      queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
     },
     onError: (error: Error) => {
       toast({
@@ -154,10 +92,7 @@ export default function UserPanel() {
 
   // Toggle data collection mutation
   const toggleCollectionMutation = useMutation({
-    mutationFn: async (forbidden: boolean) => {
-      const res = await apiRequest('POST', '/api/user/toggle-collection', { forbidden });
-      return await res.json();
-    },
+    mutationFn: (forbidden: boolean) => api.post<{ forbidden: boolean }>("/api/user/toggle-collection", { forbidden }),
     onSuccess: (data) => {
       toast({
         title: data.forbidden ? "Data Collection Disabled" : "Data Collection Enabled",
@@ -165,8 +100,7 @@ export default function UserPanel() {
           ? "This instance will no longer collect your data"
           : "This instance can now collect your data from the firehose",
       });
-      refetchSettings();
-      refetchStats();
+      queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
     },
     onError: (error: Error) => {
       toast({
@@ -179,19 +113,10 @@ export default function UserPanel() {
 
   // Logout mutation
   const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/auth/logout');
-      return await res.json();
-    },
+    mutationFn: () => api.post('/api/auth/logout', {}),
     onSuccess: () => {
-      localStorage.removeItem("dashboard_token");
-      setIsAuthenticated(false);
-      setUserDid(null);
-      toast({
-        title: "Logged Out",
-        description: "You have been logged out successfully.",
-      });
-      window.location.href = "/";
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
+      window.location.href = '/login';
     },
   });
 
@@ -230,7 +155,7 @@ export default function UserPanel() {
     toggleCollectionMutation.mutate(checked);
   };
 
-  if (isAuthChecking) {
+  if (isSessionLoading) {
     return (
       <div className="container mx-auto p-8">
         <div className="flex items-center justify-center h-64">
@@ -258,7 +183,7 @@ export default function UserPanel() {
           </CardHeader>
           <CardContent>
             <Button
-              onClick={() => window.location.href = "/admin/moderation"}
+              onClick={() => window.location.href = "/login"}
               className="w-full"
               data-testid="button-go-login"
             >

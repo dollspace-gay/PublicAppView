@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, LogIn } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { api } from "@/lib/api";
 
 export default function LoginPage() {
   const { toast } = useToast();
@@ -42,10 +42,7 @@ export default function LoginPage() {
   }, [toast]);
 
   const loginMutation = useMutation({
-    mutationFn: async (data: { handle: string }) => {
-      const res = await apiRequest('POST', '/api/auth/login', data);
-      return await res.json();
-    },
+    mutationFn: (data: { handle: string }) => api.post<{ authUrl: string }>("/api/auth/login", data),
     onSuccess: (data) => {
       window.location.href = data.authUrl;
     },

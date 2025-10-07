@@ -38,12 +38,14 @@ if [ -f oauth-keyset.json ]; then
   fi
 fi
 
-# Generate a unique Key ID (kid) using the current timestamp
-KID=$(date +%s)
+# Generate a unique Key ID (kid) - e.g., timestamp + random hex
+KID="$(date +%s)-$(openssl rand -hex 4)"
+echo "🔐 Generated Key ID (kid): ${KID}"
+echo ""
 
 echo "🔑 Generating ES256 key pair for OAuth..."
 
-# Generate ES256 private key (using P-256 curve)
+# Generate ES256 (P-256) private key
 openssl ecparam -name prime256v1 -genkey -noout -out oauth-private.pem 2>/dev/null
 
 # Extract public key
@@ -73,6 +75,7 @@ Y_B64=$(echo $Y_HEX | xxd -r -p | base64 | tr '+/' '-_' | tr -d '=')
 # Create OAuth keyset JSON file with both PEM and JWK formats
 cat > oauth-keyset.json << EOF
 {
+  "kid": "${KID}",
   "privateKeyPem": $(echo "$PRIVATE_KEY" | jq -Rs .),
   "publicKeyPem": $(echo "$PUBLIC_KEY" | jq -Rs .),
   "jwk": {

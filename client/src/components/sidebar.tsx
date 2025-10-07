@@ -1,9 +1,9 @@
 import { Link, useLocation } from "wouter";
 import { Activity, Database, Terminal, Settings, FileText, Zap, BookOpen, Shield, AlertTriangle, User, LogIn, LogOut } from "lucide-react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
 interface InstancePolicy {
   enabled: boolean;
@@ -25,6 +25,7 @@ interface InstancePolicy {
 export function Sidebar() {
   const [location] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: policy } = useQuery<InstancePolicy>({
     queryKey: ['/api/instance/policy'],
@@ -38,13 +39,10 @@ export function Sidebar() {
   const isAuthenticated = !isSessionLoading && session !== undefined;
 
   const logoutMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/auth/logout', {});
-      return await res.json();
-    },
+    mutationFn: () => api.post('/api/auth/logout', {}),
     onSuccess: () => {
-      localStorage.removeItem("dashboard_token");
-      window.location.href = '/';
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
+      window.location.href = '/login';
     },
     onError: (error: Error) => {
       toast({

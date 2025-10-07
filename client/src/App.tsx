@@ -5,6 +5,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Dashboard from "@/pages/dashboard";
 import NotFound from "@/pages/not-found";
+import Login from "@/pages/login";
+import InstancePolicy from "@/pages/instance-policy";
+import AdminModeration from "@/pages/admin-moderation";
+import UserPanel from "@/pages/user-panel";
 
 function Router() {
   return (
@@ -15,10 +19,10 @@ function Router() {
       <Route path="/api" component={Dashboard} />
       <Route path="/lexicons" component={Dashboard} />
       <Route path="/logs" component={Dashboard} />
-      <Route path="/policy" component={Dashboard} />
-      <Route path="/login" component={Dashboard} />
-      <Route path="/admin/moderation" component={Dashboard} />
-      <Route path="/user/panel" component={Dashboard} />
+      <Route path="/policy" component={InstancePolicy} />
+      <Route path="/login" component={Login} />
+      <Route path="/admin/moderation" component={AdminModeration} />
+      <Route path="/user/panel" component={UserPanel} />
       <Route component={NotFound} />
     </Switch>
   );

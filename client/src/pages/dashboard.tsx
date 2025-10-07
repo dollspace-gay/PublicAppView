@@ -13,10 +13,11 @@ import InstancePolicyPage from "@/pages/instance-policy";
 import AdminModerationPage from "@/pages/admin-moderation";
 import UserPanel from "@/pages/user-panel";
 import LoginPage from "@/pages/login";
-import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldAlert } from "lucide-react";
+import { api, setAuthToken } from "@/lib/api";
 
 interface MetricsData {
   eventsProcessed: number;
@@ -48,10 +49,28 @@ interface MetricsData {
 }
 
 export default function Dashboard() {
-  const [location] = useLocation();
-  
+  const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const search = useSearch();
+
+  // Handle auth token from URL
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const token = params.get("token");
+
+    if (token) {
+      console.log("[AUTH] Token found in URL, setting auth token...");
+      setAuthToken(token);
+      // Invalidate session query to re-fetch with new token
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      // Clean the token from the URL for security
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [search, queryClient]);
+
   const { data: session } = useQuery<{ isAdmin?: boolean }>({
-    queryKey: ['/api/auth/session'],
+    queryKey: ["/api/auth/session"],
+    queryFn: () => api.get("/api/auth/session"),
     retry: false,
   });
   
@@ -73,11 +92,8 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const response = await fetch("/api/metrics");
-        if (response.ok) {
-          const data = await response.json();
-          setMetrics(data);
-        }
+        const data = await api.get<MetricsData>("/api/metrics");
+        setMetrics(data);
       } catch (error) {
         console.error("Failed to fetch metrics:", error);
       }
@@ -94,12 +110,9 @@ export default function Dashboard() {
     // Fetch initial events from API
     const fetchInitialEvents = async () => {
       try {
-        const response = await fetch("/api/events/recent");
-        if (response.ok) {
-          const data = await response.json();
-          recentEvents.push(...data);
-          setEvents([...data.slice(0, 10)]);
-        }
+        const data = await api.get<any[]>("/api/events/recent");
+        recentEvents.push(...data);
+        setEvents([...data.slice(0, 10)]);
       } catch (error) {
         console.error("[Dashboard] Failed to fetch initial events:", error);
       }
@@ -155,7 +168,7 @@ export default function Dashboard() {
 
   const handleReconnect = async () => {
     try {
-      await fetch("/api/firehose/reconnect", { method: "POST" });
+      await api.post("/api/firehose/reconnect", {});
     } catch (error) {
       console.error("Failed to reconnect:", error);
     }
