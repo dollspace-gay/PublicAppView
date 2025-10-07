@@ -21,7 +21,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data,Z
     ports:
       - "5432:5432"
     healthcheck:
@@ -35,10 +35,10 @@ services:
  app:
     volumes:
       # Mount the secret keys (read-only)
-      - ./appview-signing-key.json:/app/appview-signing-key.json:ro
-      - ./appview-private.pem:/app/appview-private.pem:ro
+      - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
+      - ./appview-private.pem:/app/appview-private.pem:ro,Z
       - ./public/did.json:/app/public/did.json:ro,Z
-      - ./oauth-keyset.json:/app/oauth-keyset.json:ro
+      - ./oauth-keyset.json:/app/oauth-keyset.json:ro,Z
     build: .
     ports:
       - "5000:5000"
