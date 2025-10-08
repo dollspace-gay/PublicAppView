@@ -1,10 +1,47 @@
 import jwt from "jsonwebtoken";
-import { randomBytes } from "crypto";
+import { randomBytes, createPublicKey, verify } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 import * as jose from 'jose';
 import type { KeyObject, JWSHeaderParameters } from 'jose';
+import KeyEncoder from 'key-encoder';
+import { fromString, toString, concat } from 'uint8arrays';
 import { base58btc } from 'multiformats/bases/base58';
-import { varint } from 'multiformats'
+import { varint } from 'multiformats';
+import elliptic from 'elliptic';
+const { ec: EC } = elliptic;
+
+const verifyEs256kSig = (
+  publicKey: Uint8Array,
+  data: Uint8Array,
+  sig: Uint8Array,
+): boolean => {
+  try {
+    // The `key-encoder` library is a CJS module that, when bundled,
+    // might be wrapped in a default object. This handles that case
+    // by checking for a `default` property and using it if it exists.
+    const KeyEncoderClass = (KeyEncoder as any).default || KeyEncoder;
+    const keyEncoder = new KeyEncoderClass('secp256k1');
+    const pemKey = keyEncoder.encodePublic(
+      toString(publicKey, 'hex'),
+      'raw',
+      'pem',
+    );
+    const key = createPublicKey({ format: 'pem', key: pemKey });
+
+    return verify(
+      'sha256',
+      data,
+      {
+        key,
+        dsaEncoding: 'ieee-p1363',
+      },
+      sig,
+    );
+  } catch (err) {
+    console.error('[AUTH] Error during ES256K signature verification:', err);
+    return false;
+  }
+};
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required for production use");
@@ -35,10 +72,28 @@ export class AuthService {
 
   verifySessionToken(token: string): SessionPayload | null {
     try {
-      const payload = jwt.verify(token, JWT_SECRET) as SessionPayload;
+      // Decode the token to inspect the header without verifying the signature.
+      // This allows us to quickly reject tokens that are not meant for this verification method.
+      const decoded = jwt.decode(token, { complete: true });
+
+      // Local session tokens are always signed with HS256. If the token has a different
+      // algorithm, it's an AT-Proto token or something else, so we should not try to verify it here.
+      if (decoded?.header.alg !== 'HS256') {
+        return null; // Not a local session token, do not proceed.
+      }
+
+      // Now that we know it's an HS256 token, verify it with the secret.
+      const payload = jwt.verify(token, JWT_SECRET, {
+        algorithms: ['HS256'],
+      }) as SessionPayload;
       return payload;
     } catch (error) {
-      console.error("[AUTH] Local session JWT verification failed:", error instanceof Error ? error.message : error);
+      // This block will now only be reached for actual verification errors of HS256 tokens
+      // (e.g., signature mismatch, expiration), not for algorithm mismatches.
+      console.log(
+        '[AUTH] Local session token verification failed:',
+        error instanceof Error ? error.message : error,
+      );
       return null;
     }
   }
@@ -102,15 +157,20 @@ export class AuthService {
     }
   }
 
-  /**
-   * Verify JWT signature using a key from the DID document.
-   * This function uses the `jose` library to robustly handle various key types
-   * and algorithms found in AT Protocol DID documents (ES256, ES256K),
-   * using the 'kid' header parameter for key selection.
-   */
-  private async verifyJWTSignature(token: string, signingDid: string): Promise<boolean> {
+  private async verifyJWTSignature(
+    token: string,
+    signingDid: string,
+  ): Promise<boolean> {
     try {
-      const { didResolver } = await import("./did-resolver");
+      const [headerB64, payloadB64, signatureB64] = token.split('.');
+      if (!headerB64 || !payloadB64 || !signatureB64) {
+        throw new Error('Invalid JWT structure');
+      }
+      const header = JSON.parse(
+        toString(fromString(headerB64, 'base64url')),
+      ) as JWSHeaderParameters;
+
+      const { didResolver } = await import('./did-resolver');
       const didDocument = await didResolver.resolveDID(signingDid);
 
       if (!didDocument || !didDocument.verificationMethod) {
@@ -118,54 +178,115 @@ export class AuthService {
         return false;
       }
 
-      const getKey = async (protectedHeader: JWSHeaderParameters) => {
-        const kid = protectedHeader.kid;
-        if (!kid) {
-          throw new Error("JWT missing 'kid' in protected header");
+      const { kid } = header;
+      const verificationMethods = didDocument.verificationMethod || [];
+
+      let method;
+
+      if (kid) {
+        method = verificationMethods.find(
+          (m) => m.id.endsWith(`#${kid}`) || m.id === kid,
+        );
+      } else {
+        const atprotoKeys = verificationMethods.filter((m) =>
+          m.id.endsWith('#atproto'),
+        );
+        if (atprotoKeys.length === 1) {
+          console.log(
+            `[AUTH] JWT missing 'kid', using unique #atproto key for DID ${signingDid}`,
+          );
+          method = atprotoKeys[0];
+        } else {
+          throw new Error(
+            "JWT missing 'kid' and could not find a unique '#atproto' verification key.",
+          );
         }
+      }
 
-        const verificationMethods = didDocument.verificationMethod || [];
+      if (!method) {
+        throw new Error(`No verification method found for kid: ${kid}`);
+      }
 
-        const method = verificationMethods.find(m => m.id.endsWith(`#${kid}`) || m.id === kid);
+      if (header.alg === 'ES256K') {
+        // Manually verify ES256K signatures using native crypto
+        const signingInput = fromString(`${headerB64}.${payloadB64}`);
+        const signature = fromString(signatureB64, 'base64url');
 
-        if (!method) {
-          throw new Error(`No verification method found for kid: ${kid}`);
-        }
+        let publicKeyBytes: Uint8Array;
 
         if (method.publicKeyJwk) {
-          return jose.importJWK(method.publicKeyJwk, protectedHeader.alg);
-        }
-
-        if (method.publicKeyMultibase) {
+          const jwk = method.publicKeyJwk;
+          if (jwk.crv !== 'secp256k1' || !jwk.x || !jwk.y) {
+            throw new Error('Invalid JWK for ES256K');
+          }
+          const x = fromString(jwk.x, 'base64url');
+          const y = fromString(jwk.y, 'base64url');
+          publicKeyBytes = concat([new Uint8Array([0x04]), x, y]);
+        } else if (method.publicKeyMultibase) {
           const multicodecBytes = base58btc.decode(method.publicKeyMultibase);
           const [codec, bytesRead] = varint.decode(multicodecBytes);
+          if (codec !== 0xe7) throw new Error('Key is not ES256K');
+
           const keyBytes = multicodecBytes.subarray(bytesRead);
-
-          if (codec === 0x1200) { // p256
-            const derPrefix = Buffer.from('3059301306072a8648ce3d020106082a8648ce3d030107034200', 'hex');
-            const spki = Buffer.concat([derPrefix, Buffer.from(keyBytes)]);
-            return jose.importSPKI(spki.toString('base64'), protectedHeader.alg!);
+          if (keyBytes.length === 33) {
+            const ec = new EC('secp256k1');
+            const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
+            publicKeyBytes = fromString(keyPoint.encode('hex', false), 'hex');
+          } else if (keyBytes.length === 65 && keyBytes[0] === 0x04) {
+            publicKeyBytes = keyBytes;
+          } else {
+            throw new Error('Invalid ES256K public key format');
           }
-
-          if (codec === 0xe7) { // secp256k1
-            const derPrefix = Buffer.from('3036301006072a8648ce3d020106052b8104000a032200', 'hex');
-            const spki = Buffer.concat([derPrefix, Buffer.from(keyBytes)]);
-            return jose.importSPKI(spki.toString('base64'), protectedHeader.alg!);
-          }
-
-          throw new Error(`Unsupported multicodec key type: ${codec}`);
+        } else {
+          throw new Error('No supported key format found for ES256K');
         }
 
-        throw new Error(`Verification method ${kid} has no supported key format (publicKeyJwk or publicKeyMultibase)`);
-      };
+        const verified = verifyEs256kSig(publicKeyBytes, signingInput, signature);
+        if (!verified) {
+          throw new Error('ES256K signature verification failed');
+        }
 
-      await jose.jwtVerify(token, getKey as any);
+      } else if (header.alg === 'ES256') {
+        // Use jose for ES256, which is well-supported
+        const getKey = async () => {
+          if (method.publicKeyJwk) {
+            return jose.importJWK(method.publicKeyJwk, 'ES256');
+          }
+          if (method.publicKeyMultibase) {
+            const multicodecBytes = base58btc.decode(method.publicKeyMultibase);
+            const [codec, bytesRead] = varint.decode(multicodecBytes);
+            if (codec !== 0x1200) throw new Error('Key is not ES256');
+
+            const keyBytes = multicodecBytes.subarray(bytesRead);
+            let x: Uint8Array, y: Uint8Array;
+            if (keyBytes.length === 65 && keyBytes[0] === 0x04) {
+                x = keyBytes.subarray(1, 33);
+                y = keyBytes.subarray(33, 65);
+            } else if (keyBytes.length === 33) {
+                const ec = new EC('p256');
+                const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
+                x = keyPoint.getX().toBuffer('be', 32);
+                y = keyPoint.getY().toBuffer('be', 32);
+            } else {
+                throw new Error('Invalid ES256 public key format');
+            }
+            const jwk = { kty: 'EC', crv: 'P-256', x: toString(x, 'base64url'), y: toString(y, 'base64url') };
+            return jose.importJWK(jwk, 'ES256');
+          }
+          throw new Error('No supported key format found for ES256');
+        };
+        await jose.jwtVerify(token, getKey);
+      } else {
+        throw new Error(`Unsupported JWT algorithm: ${header.alg}`);
+      }
 
       console.log(`[AUTH] ✓ Signature verified for DID: ${signingDid}`);
       return true;
-
     } catch (error) {
-      console.error(`[AUTH] Signature verification failed for DID ${signingDid}:`, error);
+      console.error(
+        `[AUTH] Signature verification failed for DID ${signingDid}:`,
+        error,
+      );
       return false;
     }
   }
