@@ -51,15 +51,16 @@ export const xrpcProxyMiddleware = async (
     }
 
     console.log(
-      `[XRPC_PROXY] Proxying ${req.method} ${req.originalUrl} to ${pdsEndpoint} for ${session.userDid}`
+      `[XRPC_PROXY] Proxying ${req.method} ${req.path} to ${pdsEndpoint} for ${session.userDid}`
     );
 
     // 4. Forward the request to the PDS with the correct token.
     const pdsResponse = await pdsClient.proxyXRPC(
         pdsEndpoint,
         req.method,
-        req.originalUrl,
-        pdsAccessToken, // Use the correct PDS access token.
+        req.path,
+        req.query,
+        pdsAccessToken,
         req.body,
         req.headers
     );

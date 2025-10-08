@@ -514,14 +514,27 @@ export class PDSClient {
     pdsEndpoint: string,
     method: string,
     path: string,
+    query: Record<string, any>,
     accessToken: string,
     body: any,
     headers: any,
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
-    const url = `${pdsEndpoint}${path}`;
+    const searchParams = new URLSearchParams();
+    for (const key in query) {
+      const value = query[key];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          searchParams.append(key, item);
+        }
+      } else if (value !== undefined) {
+        searchParams.append(key, String(value));
+      }
+    }
+
+    const queryString = searchParams.toString();
+    const url = `${pdsEndpoint}${path}${queryString ? `?${queryString}` : ''}`;
 
     // Sanitize headers to prevent forwarding potentially problematic ones.
-    // Only forward a specific allow-list of safe headers.
     const forwardedHeaders: Record<string, string> = {
       'authorization': `Bearer ${accessToken}`,
     };
@@ -538,14 +551,11 @@ export class PDSClient {
     const fetchOptions: RequestInit = {
       method,
       headers: forwardedHeaders,
-      signal: AbortSignal.timeout(20000), // 20-second timeout for proxied requests
+      signal: AbortSignal.timeout(20000),
     };
 
-    // GET requests cannot have a body.
-    // Also, don't send an empty body for POST/PUT if none was provided.
     if (method !== 'GET' && body && Object.keys(body).length > 0) {
       fetchOptions.body = JSON.stringify(body);
-      // Ensure content-type is set for POST/PUT with body
       (fetchOptions.headers as Record<string, string>)['content-type'] = 'application/json';
     }
 
@@ -553,10 +563,8 @@ export class PDSClient {
 
     const responseBody = await response.json().catch(() => response.text());
 
-    // Extract headers from the response
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {
-      // Do not forward sensitive headers like set-cookie from the PDS
       if (key.toLowerCase() !== 'set-cookie') {
         responseHeaders[key] = value;
       }
