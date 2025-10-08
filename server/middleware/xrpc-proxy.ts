@@ -1,16 +1,15 @@
 import type { Request, Response, NextFunction } from "express";
-import { authService } from "../services/auth";
+import { authService, validateAndRefreshSession } from "../services/auth";
 import { pdsClient } from "../services/pds-client";
-import { storage } from "../storage";
 
 /**
  * A catch-all middleware to proxy authenticated XRPC requests
  * to the user's Personal Data Server (PDS).
  *
- * This middleware correctly handles the two-token system:
+ * This middleware correctly handles the two-token system and token refreshing:
  * 1. It verifies the AppView's session token to identify the user.
- * 2. It retrieves the original PDS access token from the database.
- * 3. It uses the PDS access token to make the proxied request.
+ * 2. It validates the session and refreshes the PDS access token if necessary.
+ * 3. It uses the valid PDS access token to make the proxied request.
  */
 export const xrpcProxyMiddleware = async (
   req: Request,
@@ -33,17 +32,16 @@ export const xrpcProxyMiddleware = async (
     const sessionPayload = authService.verifySessionToken(appViewToken);
     if (!sessionPayload) {
       // If the token is invalid or not a session token, let it fall through.
-      // Another handler or a 404 will catch it.
       return next();
     }
 
-    // 2. Retrieve the full session details from the database.
-    const session = await storage.getSession(sessionPayload.sessionId);
+    // 2. Validate the session and refresh the PDS token if needed.
+    const session = await validateAndRefreshSession(sessionPayload.sessionId);
     if (!session) {
-      return res.status(401).json({ error: "SessionNotFound", message: "Your session could not be found." });
+      return res.status(401).json({ error: "SessionNotFound", message: "Your session could not be found or has expired." });
     }
 
-    // 3. Use the retrieved PDS access token to make the proxied request.
+    // 3. Use the (potentially refreshed) PDS access token.
     const pdsAccessToken = session.accessToken;
     const pdsEndpoint = session.pdsEndpoint;
 
