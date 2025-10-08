@@ -2375,14 +2375,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         description: "Get suggested users to follow",
         params: ["limit: number"],
       },
-      "app.bsky.actor.getPreferences": {
-        description: "Get user preferences (AT Protocol compliant)",
-        params: [],
-      },
-      "app.bsky.actor.putPreferences": {
-        description: "Update user preferences",
-        params: ["preferences: array (required)"],
-      },
       "app.bsky.actor.searchActors": {
         description: "Search for user accounts",
         params: ["q: string (required)", "limit: number", "cursor: string"],
