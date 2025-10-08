@@ -1897,14 +1897,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced profile endpoints
   app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
   app.get("/xrpc/app.bsky.actor.getSuggestions", xrpcApi.getSuggestions.bind(xrpcApi));
-  app.get(
-    '/xrpc/app.bsky.actor.getPreferences',
-    xrpcApi.getPreferences.bind(xrpcApi),
-  )
-  app.post(
-    '/xrpc/app.bsky.actor.putPreferences',
-    xrpcApi.putPreferences.bind(xrpcApi),
-  )
 
   // Graph endpoints
   app.get("/xrpc/app.bsky.graph.getBlocks", xrpcApi.getBlocks.bind(xrpcApi));
@@ -2382,6 +2374,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       "app.bsky.actor.getSuggestions": {
         description: "Get suggested users to follow",
         params: ["limit: number"],
+      },
+      "app.bsky.actor.getPreferences": {
+        description: "Get user preferences (AT Protocol compliant)",
+        params: [],
+      },
+      "app.bsky.actor.putPreferences": {
+        description: "Update user preferences",
+        params: ["preferences: array (required)"],
       },
       "app.bsky.actor.searchActors": {
         description: "Search for user accounts",

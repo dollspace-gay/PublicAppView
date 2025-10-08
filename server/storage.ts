@@ -1,6 +1,6 @@
 import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
-import { eq, desc, and, sql, inArray, isNull, like } from "drizzle-orm";
+import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
 import { sanitizeObject } from "./utils/sanitize";
 
@@ -88,7 +88,7 @@ export interface IStorage {
     blockedBy: boolean;
     muting: boolean;
   }>>;
-  getKnownFollowers(actorDid: string, viewerDid: string, limit?: number, cursor?: string): Promise<{ followers: User[], cursor?: string }>;
+  getKnownFollowers(actorDid: string, viewerDid: string, limit?: number, cursor?: string): Promise<{ followers: User[], cursor?: string, count: number }>;
   getSuggestedFollowsByActor(actorDid: string, limit?: number): Promise<User[]>;
 
   // Session operations
@@ -890,23 +890,34 @@ export class DatabaseStorage implements IStorage {
     return relationships;
   }
 
-  async getKnownFollowers(actorDid: string, viewerDid: string, limit = 50, cursor?: string): Promise<{ followers: User[], cursor?: string }> {
+  async getKnownFollowers(actorDid: string, viewerDid: string, limit = 50, cursor?: string): Promise<{ followers: User[], cursor?: string, count: number }> {
     // Compute intersection in SQL: Find users who follow the actor AND are followed by the viewer
     // This scales properly and supports true cursor pagination
     
     // Use raw SQL with proper table aliasing for the self-join
     const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
+
+    // Run two queries: one for the total count, one for the paginated results
+    const [countResult, results] = await Promise.all([
+      this.db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)
+        FROM users u
+        INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
+        INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
+      `),
+      this.db.execute(sql`
+        SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at, u.profile_record, u.created_at
+        FROM users u
+        INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
+        INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
+        WHERE 1=1 ${cursorCondition}
+        ORDER BY u.indexed_at DESC
+        LIMIT ${limit + 1}
+      `)
+    ]);
     
-    const results = await this.db.execute(sql`
-      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at, u.profile_record
-      FROM users u
-      INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
-      INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
-      WHERE 1=1 ${cursorCondition}
-      ORDER BY u.indexed_at DESC
-      LIMIT ${limit + 1}
-    `);
-    
+    const totalCount = parseInt(countResult.rows[0]?.count || '0', 10);
+
     const rows = results.rows as any[];
     const hasMore = rows.length > limit;
     const followers: User[] = (hasMore ? rows.slice(0, limit) : rows).map(row => ({
@@ -918,13 +929,13 @@ export class DatabaseStorage implements IStorage {
       description: row.description,
       profileRecord: row.profile_record,
       searchVector: null,
-      createdAt: new Date(),
+      createdAt: row.created_at,
       indexedAt: row.indexed_at,
     }));
     
     const nextCursor = hasMore ? followers[followers.length - 1].indexedAt.toISOString() : undefined;
 
-    return { followers, cursor: nextCursor };
+    return { followers, cursor: nextCursor, count: totalCount };
   }
 
   async getSuggestedFollowsByActor(actorDid: string, limit = 25): Promise<User[]> {
