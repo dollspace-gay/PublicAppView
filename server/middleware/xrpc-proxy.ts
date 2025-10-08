@@ -1,79 +1,76 @@
 import type { Request, Response, NextFunction } from "express";
 import { authService } from "../services/auth";
-import { didResolver } from "../services/did-resolver";
 import { pdsClient } from "../services/pds-client";
+import { storage } from "../storage";
 
 /**
- * A catch-all middleware to proxy authenticated XRPC write operations
+ * A catch-all middleware to proxy authenticated XRPC requests
  * to the user's Personal Data Server (PDS).
  *
- * This should be placed after all other specific XRPC route handlers.
+ * This middleware correctly handles the two-token system:
+ * 1. It verifies the AppView's session token to identify the user.
+ * 2. It retrieves the original PDS access token from the database.
+ * 3. It uses the PDS access token to make the proxied request.
  */
 export const xrpcProxyMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  // Proxy authenticated XRPC methods that haven't been handled yet
-  if (
-    !req.path.startsWith("/xrpc/") ||
-    !["GET", "POST", "PUT", "DELETE"].includes(req.method)
-  ) {
+  // Only proxy XRPC methods that haven't been explicitly handled yet.
+  if (!req.path.startsWith("/xrpc/")) {
     return next();
   }
 
   try {
-    const userDid = await authService.getAuthenticatedDid(req);
-
-    // If there's no authenticated user, this isn't a request we should proxy.
-    // Let it proceed to the 404 handler.
-    if (!userDid) {
-      // For GET requests, it's common for them to be unauthenticated,
-      // so we just pass through to the next handler (likely a 404).
-      if (req.method === 'GET') {
-        return next();
-      }
-
-      // For write methods, we expect authentication.
-      return res.status(401).json({ error: "Authentication Required" });
+    // 1. Verify the AppView's session token to get the session ID.
+    const appViewToken = authService.extractToken(req);
+    if (!appViewToken) {
+      // If no token, it's not an authenticated request we should proxy.
+      return next();
     }
 
-    // Resolve the user's PDS endpoint from their DID
-    const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
-
-    if (!pdsEndpoint) {
-      console.error(`[XRPC_PROXY] Could not resolve PDS for DID: ${userDid}`);
-      return res
-        .status(502)
-        .json({ error: "PDS not found", message: "Could not resolve PDS" });
+    const sessionPayload = authService.verifySessionToken(appViewToken);
+    if (!sessionPayload) {
+      // If the token is invalid or not a session token, let it fall through.
+      // Another handler or a 404 will catch it.
+      return next();
     }
 
-    const accessToken = authService.extractToken(req);
-    if (!accessToken) {
-        // This should theoretically not be reached if userDid was resolved, but as a safeguard:
-        return res.status(401).json({ error: "Authentication token not found" });
+    // 2. Retrieve the full session details from the database.
+    const session = await storage.getSession(sessionPayload.sessionId);
+    if (!session) {
+      return res.status(401).json({ error: "SessionNotFound", message: "Your session could not be found." });
+    }
+
+    // 3. Use the retrieved PDS access token to make the proxied request.
+    const pdsAccessToken = session.accessToken;
+    const pdsEndpoint = session.pdsEndpoint;
+
+    if (!pdsAccessToken || !pdsEndpoint) {
+        console.error(`[XRPC_PROXY] Session for ${session.userDid} is missing PDS credentials.`);
+        return res.status(500).json({ error: "InvalidSessionState", message: "Session is missing PDS credentials." });
     }
 
     console.log(
-      `[XRPC_PROXY] Proxying ${req.method} ${req.originalUrl} to ${pdsEndpoint} for ${userDid}`
+      `[XRPC_PROXY] Proxying ${req.method} ${req.originalUrl} to ${pdsEndpoint} for ${session.userDid}`
     );
 
-    // Forward the request to the PDS
+    // 4. Forward the request to the PDS with the correct token.
     const pdsResponse = await pdsClient.proxyXRPC(
         pdsEndpoint,
         req.method,
         req.originalUrl,
-        accessToken,
+        pdsAccessToken, // Use the correct PDS access token.
         req.body,
         req.headers
     );
 
-    // Send the PDS response back to the client
+    // 5. Send the PDS response back to the client.
     res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
 
   } catch (error) {
     console.error(`[XRPC_PROXY] Error proxying request:`, error);
-    // If an error occurs (e.g., token verification fails), pass to next error handler
     return next(error);
   }
 };

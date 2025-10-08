@@ -508,6 +508,7 @@ export class PDSClient {
   /**
    * Forwards a raw XRPC request to a PDS.
    * This is used for proxying methods that are not implemented by the AppView.
+   * It uses a strict allow-list for headers to prevent forwarding problematic ones.
    */
   async proxyXRPC(
     pdsEndpoint: string,
@@ -555,7 +556,10 @@ export class PDSClient {
     // Extract headers from the response
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {
-      responseHeaders[key] = value;
+      // Do not forward sensitive headers like set-cookie from the PDS
+      if (key.toLowerCase() !== 'set-cookie') {
+        responseHeaders[key] = value;
+      }
     });
 
     return {

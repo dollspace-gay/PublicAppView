@@ -1929,7 +1929,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
 
-  // XRPC Proxy Middleware - catch-all for unhandled authenticated writes
+  // XRPC Proxy Middleware - catch-all for unhandled authenticated requests
   app.use(xrpcProxyMiddleware);
 
   // Health and readiness endpoints for container orchestration

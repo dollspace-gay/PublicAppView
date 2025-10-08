@@ -333,19 +333,6 @@ export class AuthService {
     console.log(`[AUTH] No token found in cookie or Authorization header for ${req.path}`);
     return null;
   }
-
-  /**
-   * Extracts and verifies a token from the request, returning the user's DID if valid.
-   * This is a convenience method for handlers that need the DID but not the full session.
-   */
-  async getAuthenticatedDid(req: Request): Promise<string | null> {
-    const token = this.extractToken(req);
-    if (!token) {
-      return null;
-    }
-    const payload = await this.verifyToken(token);
-    return payload?.did ?? null;
-  }
 }
 
 export const authService = new AuthService();
