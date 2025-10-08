@@ -148,9 +148,19 @@ const getActorLikesSchema = z.object({
 });
 
 const getProfilesSchema = z.object({
-  actors: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ).pipe(z.array(z.string()).max(25, "Maximum 25 actors allowed per AT Protocol spec")),
+  actors: z.union([z.string(), z.array(z.string())]).optional(),
+  actor: z.union([z.string(), z.array(z.string())]).optional(), // Accept 'actor' as well
+}).transform(data => {
+    const actorsInput = data.actors || data.actor;
+    const actorsList = actorsInput ? (Array.isArray(actorsInput) ? actorsInput : [actorsInput]) : [];
+    return { actors: actorsList };
+}).refine(data => {
+  // Only enforce the length check if actors are actually provided.
+  // If the client sends an empty request, we shouldn't fail validation.
+  return data.actors.length > 0 ? data.actors.length <= 25 : true;
+}, {
+  message: "Maximum 25 actors allowed per AT Protocol spec",
+  path: ['actors'],
 });
 
 const getSuggestionsSchema = z.object({
@@ -558,6 +568,31 @@ export class XRPCApi {
 
       const viewer = viewerDid ? relationships.get(user.did) : null;
 
+      const viewerState: any = {};
+      if (viewer) {
+          viewerState.muted = viewer.muting || !!mutingList;
+          if (mutingList) {
+              viewerState.mutedByList = {
+                  $type: "app.bsky.graph.defs#listViewBasic",
+                  uri: mutingList.uri,
+                  name: mutingList.name,
+                  purpose: mutingList.purpose,
+              };
+          }
+          if (viewer.blockedBy) {
+              viewerState.blockedBy = viewer.blockedBy;
+          }
+          if (viewer.blocking) {
+              viewerState.blocking = viewer.blocking;
+          }
+          if (viewer.following) {
+              viewerState.following = viewer.following;
+          }
+          if (viewer.followedBy) {
+              viewerState.followedBy = viewer.followedBy;
+          }
+      }
+
       res.json({
         $type: "app.bsky.actor.defs#profileViewDetailed",
         did: user.did,
@@ -570,19 +605,7 @@ export class XRPCApi {
         followingCount,
         postsCount,
         indexedAt: user.indexedAt.toISOString(),
-        viewer: viewer ? {
-          muted: viewer.muting || !!mutingList,
-          mutedByList: mutingList ? {
-            $type: "app.bsky.graph.defs#listViewBasic",
-            uri: mutingList.uri,
-            name: mutingList.name,
-            purpose: mutingList.purpose,
-          } : undefined,
-          blockedBy: viewer.blockedBy,
-          blocking: viewer.blocking,
-          following: viewer.following,
-          followedBy: viewer.followedBy,
-        } : {},
+        viewer: viewerState,
         labels: labels.map(l => ({
           src: l.src,
           uri: l.uri,
@@ -1157,17 +1180,30 @@ export class XRPCApi {
       }
 
       // 2. Fetch all data in parallel
-      const [users, relationships, labelsBySubject] = await Promise.all([
+      const [users, relationships, labelsBySubject, mutingLists] = await Promise.all([
           storage.getUsers(uniqueDids),
           viewerDid ? storage.getRelationships(viewerDid, uniqueDids) : Promise.resolve(new Map()),
-          Promise.all(uniqueDids.map(did => storage.getLabelsForSubject(did)))
+          Promise.all(uniqueDids.map(did => storage.getLabelsForSubject(did))),
+          viewerDid
+              ? Promise.all(uniqueDids.map(did => storage.findMutingListForUser(viewerDid, did)))
+              : Promise.resolve([]),
       ]);
 
       const userMap = new Map(users.map(u => [u.did, u]));
+
       const labelsMap = new Map<string, any[]>();
       labelsBySubject.forEach((labels, i) => {
           labelsMap.set(uniqueDids[i], labels);
       });
+
+      const mutingListMap = new Map<string, any>();
+      if (viewerDid) {
+          mutingLists.forEach((list, i) => {
+              if (list) {
+                  mutingListMap.set(uniqueDids[i], list);
+              }
+          });
+      }
 
       // 3. Construct the profile views
       const profiles = uniqueDids.map(did => {
@@ -1176,6 +1212,32 @@ export class XRPCApi {
 
           const viewerState = viewerDid ? relationships.get(did) : null;
           const labels = labelsMap.get(did) || [];
+          const mutingList = viewerDid ? mutingListMap.get(did) : null;
+
+          const viewer: any = {};
+          if (viewerState) {
+              viewer.muted = !!viewerState.muting || !!mutingList;
+              if (mutingList) {
+                  viewer.mutedByList = {
+                      $type: "app.bsky.graph.defs#listViewBasic",
+                      uri: mutingList.uri,
+                      name: mutingList.name,
+                      purpose: mutingList.purpose,
+                  };
+              }
+              if (viewerState.blockedBy) {
+                  viewer.blockedBy = viewerState.blockedBy;
+              }
+              if (viewerState.blocking) {
+                  viewer.blocking = viewerState.blocking;
+              }
+              if (viewerState.following) {
+                  viewer.following = viewerState.following;
+              }
+              if (viewerState.followedBy) {
+                  viewer.followedBy = viewerState.followedBy;
+              }
+          }
 
           return {
               did: user.did,
@@ -1184,13 +1246,7 @@ export class XRPCApi {
               description: user.description,
               avatar: user.avatarUrl,
               indexedAt: user.indexedAt.toISOString(),
-              viewer: viewerState ? {
-                  muted: !!viewerState.muting,
-                  blockedBy: !!viewerState.blockedBy,
-                  blocking: viewerState.blocking,
-                  following: viewerState.following,
-                  followedBy: viewerState.followedBy,
-              } : {},
+              viewer,
               labels: labels.map(l => ({
                   src: l.src,
                   uri: l.uri,
