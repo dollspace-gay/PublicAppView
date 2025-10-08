@@ -11,6 +11,9 @@ const app = express();
 // Trust proxy for proper IP detection behind reverse proxies (Replit, Cloudflare, etc.)
 app.set('trust proxy', 1);
 
+// Use 'extended' query parser to handle array parameters from clients
+app.set('query parser', 'extended');
+
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
