@@ -28,6 +28,7 @@ import {
   adminLimiter,
   deletionLimiter,
 } from "./middleware/rate-limit";
+import { xrpcProxyMiddleware } from "./middleware/xrpc-proxy";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -1896,8 +1897,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced profile endpoints
   app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
   app.get("/xrpc/app.bsky.actor.getSuggestions", xrpcApi.getSuggestions.bind(xrpcApi));
-  app.get("/xrpc/app.bsky.actor.getPreferences", xrpcApi.getPreferences.bind(xrpcApi));
-  app.post("/xrpc/app.bsky.actor.putPreferences", xrpcApi.putPreferences.bind(xrpcApi));
 
   // Graph endpoints
   app.get("/xrpc/app.bsky.graph.getBlocks", xrpcApi.getBlocks.bind(xrpcApi));
@@ -1929,6 +1928,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/xrpc/app.bsky.notification.putPreferences", xrpcApi.putNotificationPreferences.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
+
+  // XRPC Proxy Middleware - catch-all for unhandled authenticated writes
+  app.use(xrpcProxyMiddleware);
 
   // Health and readiness endpoints for container orchestration
   app.get("/health", (_req, res) => {

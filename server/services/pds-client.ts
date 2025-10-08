@@ -504,6 +504,48 @@ export class PDSClient {
       };
     }
   }
+
+  /**
+   * Forwards a raw XRPC request to a PDS.
+   * This is used for proxying methods that are not implemented by the AppView.
+   */
+  async proxyXRPC(
+    pdsEndpoint: string,
+    method: string,
+    path: string,
+    accessToken: string,
+    body: any,
+    headers: any,
+  ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
+    const url = `${pdsEndpoint}${path}`;
+
+    // Forward most headers, but remove host and add authorization
+    const forwardedHeaders = { ...headers };
+    delete forwardedHeaders['host'];
+    delete forwardedHeaders['cookie']; // Don't forward AppView's session cookies
+    forwardedHeaders['authorization'] = `Bearer ${accessToken}`;
+
+    const response = await fetch(url, {
+      method,
+      headers: forwardedHeaders,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000), // 20-second timeout for proxied requests
+    });
+
+    const responseBody = await response.json().catch(() => response.text());
+
+    // Extract headers from the response
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    return {
+      status: response.status,
+      headers: responseHeaders,
+      body: responseBody,
+    };
+  }
 }
 
 export const pdsClient = new PDSClient();
