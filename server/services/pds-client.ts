@@ -525,12 +525,21 @@ export class PDSClient {
     delete forwardedHeaders['cookie']; // Don't forward AppView's session cookies
     forwardedHeaders['authorization'] = `Bearer ${accessToken}`;
 
-    const response = await fetch(url, {
+    const fetchOptions: RequestInit = {
       method,
       headers: forwardedHeaders,
-      body: JSON.stringify(body),
       signal: AbortSignal.timeout(20000), // 20-second timeout for proxied requests
-    });
+    };
+
+    // GET requests cannot have a body.
+    // Also, don't send an empty body for POST/PUT if none was provided.
+    if (method !== 'GET' && body && Object.keys(body).length > 0) {
+      fetchOptions.body = JSON.stringify(body);
+      // Ensure content-type is set for POST/PUT with body
+      (fetchOptions.headers as Record<string, string>)['content-type'] = 'application/json';
+    }
+
+    const response = await fetch(url, fetchOptions);
 
     const responseBody = await response.json().catch(() => response.text());
 

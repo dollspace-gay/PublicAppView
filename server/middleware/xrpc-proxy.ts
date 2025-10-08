@@ -14,10 +14,10 @@ export const xrpcProxyMiddleware = async (
   res: Response,
   next: NextFunction
 ) => {
-  // Only proxy authenticated XRPC write methods that haven't been handled yet
+  // Proxy authenticated XRPC methods that haven't been handled yet
   if (
     !req.path.startsWith("/xrpc/") ||
-    !["POST", "PUT", "DELETE"].includes(req.method)
+    !["GET", "POST", "PUT", "DELETE"].includes(req.method)
   ) {
     return next();
   }
@@ -28,7 +28,14 @@ export const xrpcProxyMiddleware = async (
     // If there's no authenticated user, this isn't a request we should proxy.
     // Let it proceed to the 404 handler.
     if (!userDid) {
-      return next();
+      // For GET requests, it's common for them to be unauthenticated,
+      // so we just pass through to the next handler (likely a 404).
+      if (req.method === 'GET') {
+        return next();
+      }
+
+      // For write methods, we expect authentication.
+      return res.status(401).json({ error: "Authentication Required" });
     }
 
     // Resolve the user's PDS endpoint from their DID
@@ -48,14 +55,14 @@ export const xrpcProxyMiddleware = async (
     }
 
     console.log(
-      `[XRPC_PROXY] Proxying ${req.method} ${req.path} to ${pdsEndpoint} for ${userDid}`
+      `[XRPC_PROXY] Proxying ${req.method} ${req.originalUrl} to ${pdsEndpoint} for ${userDid}`
     );
 
     // Forward the request to the PDS
     const pdsResponse = await pdsClient.proxyXRPC(
         pdsEndpoint,
         req.method,
-        req.path,
+        req.originalUrl,
         accessToken,
         req.body,
         req.headers
