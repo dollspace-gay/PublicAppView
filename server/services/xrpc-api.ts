@@ -326,7 +326,11 @@ export class XRPCApi {
 
   // Helper method to serialize posts with all required AT Protocol fields
   private async serializePost(post: any, viewerDid?: string) {
-    const author = await storage.getUser(post.authorDid);
+    const [author, likeUri, repostUri] = await Promise.all([
+      storage.getUser(post.authorDid),
+      viewerDid ? storage.getLikeUri(viewerDid, post.uri) : undefined,
+      viewerDid ? storage.getRepostUri(viewerDid, post.uri) : undefined
+    ]);
     
     // Build reply field if this is a reply - fetch actual CIDs from parent and root posts
     let reply = undefined;
@@ -389,9 +393,9 @@ export class XRPCApi {
       likeCount: post.likeCount || 0,
       indexedAt: post.indexedAt.toISOString(),
       viewer: viewerDid ? {
-        like: undefined, // Would check if viewer liked this post
-        repost: undefined, // Would check if viewer reposted
-      } : undefined,
+        like: likeUri,
+        repost: repostUri,
+      } : {},
     };
   }
 
@@ -431,20 +435,9 @@ export class XRPCApi {
       
       res.json({
         cursor: oldestPost ? oldestPost.indexedAt.toISOString() : undefined,
-        feed: rankedPosts.map(post => ({
-          post: {
-            uri: post.uri,
-            cid: post.cid,
-            author: { did: post.authorDid },
-            record: {
-              text: post.text,
-              createdAt: post.createdAt.toISOString(),
-            },
-            indexedAt: post.indexedAt.toISOString(),
-            likeCount: post.likeCount,
-            repostCount: post.repostCount,
-          },
-        })),
+        feed: await Promise.all(rankedPosts.map(async post => ({
+          post: await this.serializePost(post, userDid),
+        }))),
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -478,18 +471,9 @@ export class XRPCApi {
       
       res.json({
         cursor: posts.length > 0 ? posts[posts.length - 1].indexedAt.toISOString() : undefined,
-        feed: posts.map(post => ({
-          post: {
-            uri: post.uri,
-            cid: post.cid,
-            author: { did: post.authorDid },
-            record: {
-              text: post.text,
-              createdAt: post.createdAt.toISOString(),
-            },
-            indexedAt: post.indexedAt.toISOString(),
-          },
-        })),
+        feed: await Promise.all(posts.map(async post => ({
+          post: await this.serializePost(post, viewerDid || undefined),
+        }))),
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -506,8 +490,9 @@ export class XRPCApi {
         return res.status(404).json({ error: "Post not found" });
       }
 
-      // Apply content filtering to replies (not the root post)
       const viewerDid = await this.getAuthenticatedDid(req);
+
+      // Apply content filtering to replies (not the root post)
       let replies = posts.slice(1);
       if (viewerDid) {
         const settings = await storage.getUserSettings(viewerDid);
@@ -516,29 +501,22 @@ export class XRPCApi {
         }
       }
 
+      const threadPost = await this.serializePost(posts[0], viewerDid || undefined);
+      const threadReplies = await Promise.all(
+        replies.map(reply => this.serializePost(reply, viewerDid || undefined))
+      );
+
+      const threadView: any = {
+        $type: "app.bsky.feed.defs#threadViewPost",
+        post: threadPost,
+        replies: threadReplies.map(reply => ({
+          $type: "app.bsky.feed.defs#threadViewPost",
+          post: reply,
+        })),
+      };
+
       res.json({
-        thread: {
-          post: {
-            uri: posts[0].uri,
-            cid: posts[0].cid,
-            author: { did: posts[0].authorDid },
-            record: {
-              text: posts[0].text,
-              createdAt: posts[0].createdAt.toISOString(),
-            },
-            replies: replies.map(reply => ({
-              post: {
-                uri: reply.uri,
-                cid: reply.cid,
-                author: { did: reply.authorDid },
-                record: {
-                  text: reply.text,
-                  createdAt: reply.createdAt.toISOString(),
-                },
-              },
-            })),
-          },
-        },
+        thread: threadView,
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -560,12 +538,57 @@ export class XRPCApi {
         return res.status(404).json({ error: "Profile not found" });
       }
 
+      // Fetch all data in parallel
+      const viewerDid = await this.getAuthenticatedDid(req);
+      const [
+        followersCount,
+        followingCount,
+        postsCount,
+        labels,
+        relationships,
+        mutingList
+      ] = await Promise.all([
+        storage.getUserFollowerCount(user.did),
+        storage.getUserFollowingCount(user.did),
+        storage.getUserPostCount(user.did),
+        storage.getLabelsForSubject(user.did),
+        viewerDid ? storage.getRelationships(viewerDid, [user.did]) : new Map(),
+        viewerDid ? storage.findMutingListForUser(viewerDid, user.did) : null
+      ]);
+
+      const viewer = viewerDid ? relationships.get(user.did) : null;
+
       res.json({
+        $type: "app.bsky.actor.defs#profileViewDetailed",
         did: user.did,
         handle: user.handle,
-        ...(user.displayName && { displayName: user.displayName }),
-        ...(user.description && { description: user.description }),
-        ...(user.avatarUrl && { avatar: user.avatarUrl }),
+        displayName: user.displayName,
+        description: user.description,
+        avatar: user.avatarUrl,
+        banner: user.bannerUrl,
+        followersCount,
+        followingCount,
+        postsCount,
+        indexedAt: user.indexedAt.toISOString(),
+        viewer: viewer ? {
+          muted: viewer.muting || !!mutingList,
+          mutedByList: mutingList ? {
+            $type: "app.bsky.graph.defs#listViewBasic",
+            uri: mutingList.uri,
+            name: mutingList.name,
+            purpose: mutingList.purpose,
+          } : undefined,
+          blockedBy: viewer.blockedBy,
+          blocking: viewer.blocking,
+          following: viewer.following,
+          followedBy: viewer.followedBy,
+        } : {},
+        labels: labels.map(l => ({
+          src: l.src,
+          uri: l.uri,
+          val: l.val,
+          cts: l.createdAt.toISOString(),
+        })),
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -586,12 +609,19 @@ export class XRPCApi {
       }
 
       const follows = await storage.getFollows(actorDid, params.limit);
+      const followDids = follows.map(f => f.followingDid);
+      const followUsers = await storage.getUsers(followDids);
       
       res.json({
         subject: { did: actorDid },
-        follows: follows.map(f => ({
-          did: f.followingDid,
-          handle: f.followingDid,
+        follows: followUsers.map(u => ({
+          $type: "app.bsky.actor.defs#profileView",
+          did: u.did,
+          handle: u.handle,
+          displayName: u.displayName,
+          avatar: u.avatarUrl,
+          indexedAt: u.indexedAt.toISOString(),
+          viewer: {}
         })),
       });
     } catch (error) {
@@ -613,12 +643,19 @@ export class XRPCApi {
       }
 
       const followers = await storage.getFollowers(actorDid, params.limit);
+      const followerDids = followers.map(f => f.followerDid);
+      const followerUsers = await storage.getUsers(followerDids);
       
       res.json({
         subject: { did: actorDid },
-        followers: followers.map(f => ({
-          did: f.followerDid,
-          handle: f.followerDid,
+        followers: followerUsers.map(u => ({
+          $type: "app.bsky.actor.defs#profileView",
+          did: u.did,
+          handle: u.handle,
+          displayName: u.displayName,
+          avatar: u.avatarUrl,
+          indexedAt: u.indexedAt.toISOString(),
+          viewer: {}
         })),
       });
     } catch (error) {
@@ -989,24 +1026,29 @@ export class XRPCApi {
     try {
       const params = getLikesSchema.parse(req.query);
       const { likes, cursor } = await storage.getPostLikes(params.uri, params.limit, params.cursor);
+      const userDids = likes.map(l => l.userDid);
+      const users = await storage.getUsers(userDids);
+      const userMap = new Map(users.map(u => [u.did, u]));
       
       res.json({
         uri: params.uri,
         cid: params.cid,
         cursor,
-        likes: await Promise.all(likes.map(async (like) => {
-          const user = await storage.getUser(like.userDid);
+        likes: likes.map(like => {
+          const user = userMap.get(like.userDid);
           return {
+            $type: "app.bsky.feed.defs#like",
             indexedAt: like.indexedAt.toISOString(),
             createdAt: like.createdAt.toISOString(),
             actor: {
+              $type: "app.bsky.actor.defs#profileView",
               did: like.userDid,
               handle: user?.handle || like.userDid,
               displayName: user?.displayName,
               avatar: user?.avatarUrl,
             },
           };
-        })),
+        }),
       });
     } catch (error) {
       console.error("[XRPC] Error getting likes:", error);

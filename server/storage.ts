@@ -12,6 +12,9 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined>;
   getSuggestedUsers(viewerDid?: string, limit?: number): Promise<User[]>;
+  getUserFollowerCount(did: string): Promise<number>;
+  getUserFollowingCount(did: string): Promise<number>;
+  getUserPostCount(did: string): Promise<number>;
 
   // Post operations
   getPost(uri: string): Promise<Post | undefined>;
@@ -27,11 +30,13 @@ export interface IStorage {
   deleteLike(uri: string): Promise<void>;
   getPostLikes(postUri: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
   getActorLikes(userDid: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
+  getLikeUri(userDid: string, postUri: string): Promise<string | undefined>;
 
   // Repost operations
   createRepost(repost: InsertRepost): Promise<Repost>;
   deleteRepost(uri: string): Promise<void>;
   getPostReposts(postUri: string, limit?: number, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }>;
+  getRepostUri(userDid: string, postUri: string): Promise<string | undefined>;
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
@@ -49,6 +54,7 @@ export interface IStorage {
   createMute(mute: InsertMute): Promise<Mute>;
   deleteMute(uri: string): Promise<void>;
   getMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: Mute[], cursor?: string }>;
+  findMutingListForUser(viewerDid: string, targetDid: string): Promise<List | null>;
   
   // List mute operations
   createListMute(listMute: InsertListMute): Promise<ListMute>;
@@ -73,9 +79,9 @@ export interface IStorage {
   
   // Relationship operations
   getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
-    following: boolean;
-    followedBy: boolean;
-    blocking: boolean;
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
     blockedBy: boolean;
     muting: boolean;
   }>>;
@@ -304,6 +310,53 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getUserFollowerCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(follows)
+      .where(eq(follows.followingDid, did));
+    return result.count;
+  }
+
+  async getUserFollowingCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(follows)
+      .where(eq(follows.followerDid, did));
+    return result.count;
+  }
+
+  async getUserPostCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(posts)
+      .where(eq(posts.authorDid, did));
+    return result.count;
+  }
+
+  async findMutingListForUser(viewerDid: string, targetDid: string): Promise<List | null> {
+    const mutedLists = await this.db.select({ listUri: listMutes.listUri })
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, viewerDid));
+
+    if (mutedLists.length === 0) return null;
+
+    const listUris = mutedLists.map(l => l.listUri);
+
+    const [listItemRecord] = await this.db.select({ listUri: listItems.listUri })
+      .from(listItems)
+      .where(and(
+        eq(listItems.subjectDid, targetDid),
+        inArray(listItems.listUri, listUris)
+      ))
+      .limit(1);
+
+    if (!listItemRecord) return null;
+
+    const list = await this.getList(listItemRecord.listUri);
+    return list || null;
+  }
+
   async getPost(uri: string): Promise<Post | undefined> {
     const [post] = await this.db.select().from(posts).where(eq(posts.uri, uri));
     return post || undefined;
@@ -427,6 +480,17 @@ export class DatabaseStorage implements IStorage {
     return { likes: items, cursor: nextCursor };
   }
 
+  async getLikeUri(userDid: string, postUri: string): Promise<string | undefined> {
+    const [like] = await this.db.select({ uri: likes.uri })
+      .from(likes)
+      .where(and(
+        eq(likes.userDid, userDid),
+        eq(likes.postUri, postUri)
+      ))
+      .limit(1);
+    return like?.uri;
+  }
+
   async createRepost(repost: InsertRepost): Promise<Repost> {
     const sanitized = sanitizeObject(repost);
     const [newRepost] = await this.db
@@ -460,6 +524,17 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
 
     return { reposts: items, cursor: nextCursor };
+  }
+
+  async getRepostUri(userDid: string, postUri: string): Promise<string | undefined> {
+    const [repost] = await this.db.select({ uri: reposts.uri })
+      .from(reposts)
+      .where(and(
+        eq(reposts.userDid, userDid),
+        eq(reposts.postUri, postUri)
+      ))
+      .limit(1);
+    return repost?.uri;
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
@@ -723,28 +798,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
-    following: boolean;
-    followedBy: boolean;
-    blocking: boolean;
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
     blockedBy: boolean;
     muting: boolean;
   }>> {
     if (targetDids.length === 0) return new Map();
 
     const [followingList, followersList, blockingList, blockedByList, mutingList] = await Promise.all([
-      this.db.select({ did: follows.followingDid })
+      this.db.select({ did: follows.followingDid, uri: follows.uri })
         .from(follows)
         .where(and(
           eq(follows.followerDid, viewerDid),
           inArray(follows.followingDid, targetDids)
         )),
-      this.db.select({ did: follows.followerDid })
+      this.db.select({ did: follows.followerDid, uri: follows.uri })
         .from(follows)
         .where(and(
           eq(follows.followingDid, viewerDid),
           inArray(follows.followerDid, targetDids)
         )),
-      this.db.select({ did: blocks.blockedDid })
+      this.db.select({ did: blocks.blockedDid, uri: blocks.uri })
         .from(blocks)
         .where(and(
           eq(blocks.blockerDid, viewerDid),
@@ -764,18 +839,18 @@ export class DatabaseStorage implements IStorage {
         )),
     ]);
 
-    const followingSet = new Set(followingList.map(f => f.did));
-    const followersSet = new Set(followersList.map(f => f.did));
-    const blockingSet = new Set(blockingList.map(b => b.did));
+    const followingMap = new Map(followingList.map(f => [f.did, f.uri]));
+    const followersMap = new Map(followersList.map(f => [f.did, f.uri]));
+    const blockingMap = new Map(blockingList.map(b => [b.did, b.uri]));
     const blockedBySet = new Set(blockedByList.map(b => b.did));
     const mutingSet = new Set(mutingList.map(m => m.did));
 
     const relationships = new Map();
     for (const targetDid of targetDids) {
       relationships.set(targetDid, {
-        following: followingSet.has(targetDid),
-        followedBy: followersSet.has(targetDid),
-        blocking: blockingSet.has(targetDid),
+        following: followingMap.get(targetDid),
+        followedBy: followersMap.get(targetDid),
+        blocking: blockingMap.get(targetDid),
         blockedBy: blockedBySet.has(targetDid),
         muting: mutingSet.has(targetDid),
       });
@@ -792,7 +867,7 @@ export class DatabaseStorage implements IStorage {
     const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
     
     const results = await this.db.execute(sql`
-      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.description, u.indexed_at
+      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at
       FROM users u
       INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
       INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
@@ -808,6 +883,7 @@ export class DatabaseStorage implements IStorage {
       handle: row.handle,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
+      bannerUrl: row.banner_url,
       description: row.description,
       searchVector: null,
       createdAt: new Date(),

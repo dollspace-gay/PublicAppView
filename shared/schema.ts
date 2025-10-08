@@ -17,6 +17,7 @@ export const users = pgTable("users", {
   handle: varchar("handle", { length: 255 }).notNull(),
   displayName: varchar("display_name", { length: 255 }),
   avatarUrl: text("avatar_url"),
+  bannerUrl: text("banner_url"),
   description: text("description"),
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
