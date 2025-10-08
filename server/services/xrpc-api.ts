@@ -471,6 +471,23 @@ export class XRPCApi {
     }
   }
 
+  async putPreferences(req: Request, res: Response) {
+    try {
+      // This is a PDS-specific method. Appviews should not implement it.
+      // We return a 501 Not Implemented to signal this to the client.
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+
+      res.status(501).json({
+        error: 'NotImplemented',
+        message: 'Preferences are not managed by this service',
+      });
+    } catch (error) {
+      console.error('[XRPC] Error in putPreferences:', error)
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid request' })
+    }
+  }
+
   async getAuthorFeed(req: Request, res: Response) {
     try {
       const params = getAuthorFeedSchema.parse(req.query);
@@ -1176,6 +1193,7 @@ export class XRPCApi {
 
   async getProfiles(req: Request, res: Response) {
     try {
+      console.log('getProfiles query:', req.query)
       const params = getProfilesSchema.parse(req.query);
       const viewerDid = await this.getAuthenticatedDid(req);
 
