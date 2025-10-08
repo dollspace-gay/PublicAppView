@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
     shm_size: 10gb
 
- app:
+app:
     volumes:
       # Mount the secret keys (read-only)
       - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
