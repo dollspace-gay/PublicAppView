@@ -454,6 +454,23 @@ export class XRPCApi {
     }
   }
 
+  async getPreferences(req: Request, res: Response) {
+    try {
+      // This endpoint is required by some clients, but as an appview,
+      // we don't store or manage user preferences.
+      // We return an empty array to satisfy the client's request.
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+
+      res.json({
+        preferences: [],
+      });
+    } catch (error) {
+      console.error('[XRPC] Error getting preferences:', error)
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid request' })
+    }
+  }
+
   async getAuthorFeed(req: Request, res: Response) {
     try {
       const params = getAuthorFeedSchema.parse(req.query);

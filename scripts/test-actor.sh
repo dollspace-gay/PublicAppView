@@ -23,3 +23,6 @@ make_request "GET" "/xrpc/app.bsky.actor.searchActors?q=test&limit=10"
 
 # Search actors typeahead
 make_request "GET" "/xrpc/app.bsky.actor.searchActorsTypeahead?q=test&limit=10"
+
+# Get preferences
+make_request "GET" "/xrpc/app.bsky.actor.getPreferences"

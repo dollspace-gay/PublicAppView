@@ -1897,6 +1897,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced profile endpoints
   app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
   app.get("/xrpc/app.bsky.actor.getSuggestions", xrpcApi.getSuggestions.bind(xrpcApi));
+  app.get(
+    '/xrpc/app.bsky.actor.getPreferences',
+    xrpcApi.getPreferences.bind(xrpcApi),
+  )
 
   // Graph endpoints
   app.get("/xrpc/app.bsky.graph.getBlocks", xrpcApi.getBlocks.bind(xrpcApi));
