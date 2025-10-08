@@ -1,6 +1,6 @@
 import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
-import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
+import { eq, desc, and, sql, inArray, isNull, like } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
 import { sanitizeObject } from "./utils/sanitize";
 
@@ -15,6 +15,9 @@ export interface IStorage {
   getUserFollowerCount(did: string): Promise<number>;
   getUserFollowingCount(did: string): Promise<number>;
   getUserPostCount(did: string): Promise<number>;
+  getUserListCount(did: string): Promise<number>;
+  getUserFeedGeneratorCount(did: string): Promise<number>;
+  getUserProfileRecord(did: string): Promise<any | undefined>;
 
   // Post operations
   getPost(uri: string): Promise<Post | undefined>;
@@ -261,6 +264,7 @@ export class DatabaseStorage implements IStorage {
           displayName: sanitized.displayName,
           avatarUrl: sanitized.avatarUrl,
           description: sanitized.description,
+          profileRecord: sanitized.profileRecord,
         },
       })
       .returning();
@@ -268,9 +272,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const sanitized = sanitizeObject(data);
     const [user] = await db
       .update(users)
-      .set(data)
+      .set(sanitized)
       .where(eq(users.did, did))
       .returning();
     return user || undefined;
@@ -332,6 +337,32 @@ export class DatabaseStorage implements IStorage {
       .from(posts)
       .where(eq(posts.authorDid, did));
     return result.count;
+  }
+
+  async getUserListCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(lists)
+      .where(eq(lists.creatorDid, did));
+    return result.count;
+  }
+
+  async getUserFeedGeneratorCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(feedGenerators)
+      .where(eq(feedGenerators.creatorDid, did));
+    return result.count;
+  }
+
+  async getUserProfileRecord(did: string): Promise<any | undefined> {
+    const [user] = await this.db
+      .select({ profileRecord: users.profileRecord })
+      .from(users)
+      .where(eq(users.did, did))
+      .limit(1);
+
+    return user ? user.profileRecord : undefined;
   }
 
   async findMutingListForUser(viewerDid: string, targetDid: string): Promise<List | null> {
@@ -867,7 +898,7 @@ export class DatabaseStorage implements IStorage {
     const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
     
     const results = await this.db.execute(sql`
-      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at
+      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at, u.profile_record
       FROM users u
       INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
       INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
@@ -885,6 +916,7 @@ export class DatabaseStorage implements IStorage {
       avatarUrl: row.avatar_url,
       bannerUrl: row.banner_url,
       description: row.description,
+      profileRecord: row.profile_record,
       searchVector: null,
       createdAt: new Date(),
       indexedAt: row.indexed_at,

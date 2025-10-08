@@ -456,18 +456,44 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // This endpoint is required by some clients, but as an appview,
-      // we don't store or manage user preferences.
-      // We return an empty array to satisfy the client's request.
-      const userDid = await this.requireAuthDid(req, res);
-      if (!userDid) return;
+      const userDid = await this.requireAuthDid(req, res)
+      if (!userDid) return
 
+      // As an appview, we don't store user-specific preferences.
+      // We return a default, hardcoded set of preferences to satisfy client expectations.
       res.json({
-        preferences: [],
-      });
+        preferences: [
+          {
+            $type: 'app.bsky.actor.defs#adultContentPref',
+            enabled: false,
+          },
+          {
+            $type: 'app.bsky.actor.defs#contentLabelPref',
+            label: 'porn',
+            visibility: 'warn',
+          },
+          {
+            $type: 'app.bsky.actor.defs#contentLabelPref',
+            label: 'sexual',
+            visibility: 'warn',
+          },
+          {
+            $type: 'app.bsky.actor.defs#contentLabelPref',
+            label: 'graphic-media',
+            visibility: 'warn',
+          },
+          {
+            $type: 'app.bsky.actor.defs#savedFeedsPref',
+            pinned: [],
+            saved: [],
+          },
+        ],
+      })
     } catch (error) {
       console.error('[XRPC] Error getting preferences:', error)
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid request' })
+      res
+        .status(400)
+        .json({ error: error instanceof Error ? error.message : 'Invalid request' })
     }
   }
 
@@ -582,49 +608,72 @@ export class XRPCApi {
         return res.status(404).json({ error: "Profile not found" });
       }
 
-      // Fetch all data in parallel
+      const did = user.did;
       const viewerDid = await this.getAuthenticatedDid(req);
+
+      // Fetch all data in parallel
       const [
         followersCount,
         followingCount,
         postsCount,
+        listCount,
+        feedgenCount,
+        profileRecord,
         labels,
         relationships,
-        mutingList
+        mutingList,
+        knownFollowersResult,
       ] = await Promise.all([
-        storage.getUserFollowerCount(user.did),
-        storage.getUserFollowingCount(user.did),
-        storage.getUserPostCount(user.did),
-        storage.getLabelsForSubject(user.did),
-        viewerDid ? storage.getRelationships(viewerDid, [user.did]) : new Map(),
-        viewerDid ? storage.findMutingListForUser(viewerDid, user.did) : null
+        storage.getUserFollowerCount(did),
+        storage.getUserFollowingCount(did),
+        storage.getUserPostCount(did),
+        storage.getUserListCount(did),
+        storage.getUserFeedGeneratorCount(did),
+        storage.getUserProfileRecord(did),
+        storage.getLabelsForSubject(did),
+        viewerDid ? storage.getRelationships(viewerDid, [did]) : Promise.resolve(new Map()),
+        viewerDid ? storage.findMutingListForUser(viewerDid, did) : Promise.resolve(null),
+        viewerDid ? storage.getKnownFollowers(did, viewerDid, 5) : Promise.resolve({ followers: [], cursor: undefined }),
       ]);
 
-      const viewer = viewerDid ? relationships.get(user.did) : null;
+      // Process pinned post
+      let pinnedPostView = undefined;
+      const pinnedPostRef = profileRecord?.pinnedPost;
+      if (pinnedPostRef && typeof pinnedPostRef.uri === 'string') {
+        const post = await storage.getPost(pinnedPostRef.uri);
+        if (post) {
+          pinnedPostView = await this.serializePost(post, viewerDid || undefined);
+        }
+      }
 
-      const viewerState: any = {};
-      if (viewer) {
-          viewerState.muted = viewer.muting || !!mutingList;
-          if (mutingList) {
-              viewerState.mutedByList = {
-                  $type: "app.bsky.graph.defs#listViewBasic",
-                  uri: mutingList.uri,
-                  name: mutingList.name,
-                  purpose: mutingList.purpose,
-              };
-          }
-          if (viewer.blockedBy) {
-              viewerState.blockedBy = viewer.blockedBy;
-          }
-          if (viewer.blocking) {
-              viewerState.blocking = viewer.blocking;
-          }
-          if (viewer.following) {
-              viewerState.following = viewer.following;
-          }
-          if (viewer.followedBy) {
-              viewerState.followedBy = viewer.followedBy;
-          }
+      // Construct viewer state
+      const viewerState = viewerDid ? relationships.get(did) : null;
+      const viewer: any = {
+        knownFollowers: {
+            count: knownFollowersResult.followers.length,
+            followers: knownFollowersResult.followers.map(f => ({
+                did: f.did,
+                handle: f.handle,
+                displayName: f.displayName,
+                avatar: f.avatarUrl,
+            })),
+        }
+      };
+
+      if (viewerState) {
+        viewer.muted = !!viewerState.muting || !!mutingList;
+        if (mutingList) {
+          viewer.mutedByList = {
+            $type: "app.bsky.graph.defs#listViewBasic",
+            uri: mutingList.uri,
+            name: mutingList.name,
+            purpose: mutingList.purpose,
+          };
+        }
+        viewer.blockedBy = viewerState.blockedBy;
+        viewer.blocking = viewerState.blocking;
+        viewer.following = viewerState.following;
+        viewer.followedBy = viewerState.followedBy;
       }
 
       res.json({
@@ -639,13 +688,18 @@ export class XRPCApi {
         followingCount,
         postsCount,
         indexedAt: user.indexedAt.toISOString(),
-        viewer: viewerState,
+        viewer,
         labels: labels.map(l => ({
           src: l.src,
           uri: l.uri,
           val: l.val,
           cts: l.createdAt.toISOString(),
         })),
+        associated: {
+            lists: listCount,
+            feedgens: feedgenCount,
+        },
+        pinnedPost: pinnedPostView,
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
@@ -1193,7 +1247,6 @@ export class XRPCApi {
 
   async getProfiles(req: Request, res: Response) {
     try {
-      console.log('getProfiles query:', req.query)
       const params = getProfilesSchema.parse(req.query);
       const viewerDid = await this.getAuthenticatedDid(req);
 
@@ -1214,85 +1267,113 @@ export class XRPCApi {
           return res.json({ profiles: [] });
       }
 
-      // 2. Fetch all data in parallel
-      const [users, relationships, labelsBySubject, mutingLists] = await Promise.all([
-          storage.getUsers(uniqueDids),
-          viewerDid ? storage.getRelationships(viewerDid, uniqueDids) : Promise.resolve(new Map()),
-          Promise.all(uniqueDids.map(did => storage.getLabelsForSubject(did))),
-          viewerDid
-              ? Promise.all(uniqueDids.map(did => storage.findMutingListForUser(viewerDid, did)))
-              : Promise.resolve([]),
-      ]);
-
+      // 2. Fetch all user data in one go
+      const users = await storage.getUsers(uniqueDids);
       const userMap = new Map(users.map(u => [u.did, u]));
 
-      const labelsMap = new Map<string, any[]>();
-      labelsBySubject.forEach((labels, i) => {
-          labelsMap.set(uniqueDids[i], labels);
+      // 3. Fetch all associated data in parallel
+      const [
+          followersCounts,
+          followingCounts,
+          postsCounts,
+          listCounts,
+          feedgenCounts,
+          profileRecords,
+          allLabels,
+          relationships,
+          mutingLists,
+          knownFollowersResults,
+      ] = await Promise.all([
+          Promise.all(uniqueDids.map(did => storage.getUserFollowerCount(did))),
+          Promise.all(uniqueDids.map(did => storage.getUserFollowingCount(did))),
+          Promise.all(uniqueDids.map(did => storage.getUserPostCount(did))),
+          Promise.all(uniqueDids.map(did => storage.getUserListCount(did))),
+          Promise.all(uniqueDids.map(did => storage.getUserFeedGeneratorCount(did))),
+          Promise.all(uniqueDids.map(did => storage.getUserProfileRecord(did))),
+          storage.getLabelsForSubjects(uniqueDids),
+          viewerDid ? storage.getRelationships(viewerDid, uniqueDids) : Promise.resolve(new Map()),
+          viewerDid ? Promise.all(uniqueDids.map(did => storage.findMutingListForUser(viewerDid, did))) : Promise.resolve([]),
+          viewerDid ? Promise.all(uniqueDids.map(did => storage.getKnownFollowers(did, viewerDid, 5))) : Promise.resolve([]),
+      ]);
+
+      // 4. Create maps for easier lookup
+      const labelsBySubject = new Map<string, any[]>();
+      allLabels.forEach(label => {
+          if (!labelsBySubject.has(label.subject)) {
+              labelsBySubject.set(label.subject, []);
+          }
+          labelsBySubject.get(label.subject)!.push(label);
       });
 
-      const mutingListMap = new Map<string, any>();
-      if (viewerDid) {
-          mutingLists.forEach((list, i) => {
-              if (list) {
-                  mutingListMap.set(uniqueDids[i], list);
-              }
-          });
+      // 5. Fetch and serialize all unique pinned posts
+      const pinnedPostUris = profileRecords.map(p => p?.pinnedPost?.uri).filter(Boolean) as string[];
+      const pinnedPosts = await storage.getPosts(pinnedPostUris);
+      const serializedPinnedPosts = new Map<string, any>();
+      for (const post of pinnedPosts) {
+          serializedPinnedPosts.set(post.uri, await this.serializePost(post, viewerDid || undefined));
       }
 
-      // 3. Construct the profile views
-      const profiles = uniqueDids.map(did => {
+      // 6. Construct the final profile views
+      const profiles = uniqueDids.map((did, i) => {
           const user = userMap.get(did);
           if (!user) return null;
 
-          const viewerState = viewerDid ? relationships.get(did) : null;
-          const labels = labelsMap.get(did) || [];
-          const mutingList = viewerDid ? mutingListMap.get(did) : null;
+          const profileRecord = profileRecords[i];
+          const pinnedPostUri = profileRecord?.pinnedPost?.uri;
+          const pinnedPostView = pinnedPostUri ? serializedPinnedPosts.get(pinnedPostUri) : undefined;
 
-          const viewer: any = {};
+          const viewerState = viewerDid ? relationships.get(did) : null;
+          const mutingList = viewerDid ? mutingLists[i] : null;
+          const knownFollowersResult = viewerDid ? knownFollowersResults[i] : { followers: [] };
+
+          const viewer: any = {
+              knownFollowers: {
+                  count: knownFollowersResult.followers.length,
+                  followers: knownFollowersResult.followers.map(f => ({
+                      did: f.did, handle: f.handle, displayName: f.displayName, avatar: f.avatarUrl,
+                  })),
+              }
+          };
+
           if (viewerState) {
               viewer.muted = !!viewerState.muting || !!mutingList;
               if (mutingList) {
                   viewer.mutedByList = {
                       $type: "app.bsky.graph.defs#listViewBasic",
-                      uri: mutingList.uri,
-                      name: mutingList.name,
-                      purpose: mutingList.purpose,
+                      uri: mutingList.uri, name: mutingList.name, purpose: mutingList.purpose,
                   };
               }
-              if (viewerState.blockedBy) {
-                  viewer.blockedBy = viewerState.blockedBy;
-              }
-              if (viewerState.blocking) {
-                  viewer.blocking = viewerState.blocking;
-              }
-              if (viewerState.following) {
-                  viewer.following = viewerState.following;
-              }
-              if (viewerState.followedBy) {
-                  viewer.followedBy = viewerState.followedBy;
-              }
+              viewer.blockedBy = viewerState.blockedBy;
+              viewer.blocking = viewerState.blocking;
+              viewer.following = viewerState.following;
+              viewer.followedBy = viewerState.followedBy;
           }
 
           return {
+              $type: "app.bsky.actor.defs#profileViewDetailed",
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
               description: user.description,
               avatar: user.avatarUrl,
+              banner: user.bannerUrl,
+              followersCount: followersCounts[i],
+              followingCount: followingCounts[i],
+              postsCount: postsCounts[i],
               indexedAt: user.indexedAt.toISOString(),
               viewer,
-              labels: labels.map(l => ({
-                  src: l.src,
-                  uri: l.uri,
-                  val: l.val,
-                  neg: l.neg,
-                  cts: l.createdAt.toISOString(),
+              labels: (labelsBySubject.get(did) || []).map(l => ({
+                  src: l.src, uri: l.uri, val: l.val, neg: l.neg, cts: l.createdAt.toISOString(),
               })),
+              associated: {
+                  lists: listCounts[i],
+                  feedgens: feedgenCounts[i],
+              },
+              pinnedPost: pinnedPostView,
           };
-      }).filter(Boolean);
+      });
 
-      res.json({ profiles });
+      res.json({ profiles: profiles.filter(Boolean) });
 
     } catch (error) {
       console.error("[XRPC] Error getting profiles:", error);

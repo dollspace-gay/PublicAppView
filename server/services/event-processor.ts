@@ -633,6 +633,7 @@ export class EventProcessor {
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
+      profileRecord: record,
     });
   }
 

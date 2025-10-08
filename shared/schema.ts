@@ -19,6 +19,7 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   bannerUrl: text("banner_url"),
   description: text("description"),
+  profileRecord: jsonb("profile_record"),
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
