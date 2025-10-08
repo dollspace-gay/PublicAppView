@@ -1137,29 +1137,72 @@ export class XRPCApi {
   async getProfiles(req: Request, res: Response) {
     try {
       const params = getProfilesSchema.parse(req.query);
-      
-      const dids: string[] = [];
-      for (const actor of params.actors) {
-        if (actor.startsWith("did:")) {
-          dids.push(actor);
-        } else {
-          const user = await storage.getUserByHandle(actor);
-          if (user) dids.push(user.did);
-        }
+      const viewerDid = await this.getAuthenticatedDid(req);
+
+      // 1. Resolve all actor identifiers to DIDs
+      const actors = params.actors;
+      const dids = await Promise.all(
+          actors.map(async (actor) => {
+              if (actor.startsWith('did:')) {
+                  return actor;
+              }
+              const user = await storage.getUserByHandle(actor);
+              return user?.did;
+          })
+      );
+      const uniqueDids = Array.from(new Set(dids.filter(Boolean))) as string[];
+
+      if (uniqueDids.length === 0) {
+          return res.json({ profiles: [] });
       }
-      
-      const users = await storage.getUsers(dids);
-      
-      res.json({
-        profiles: users.map(user => ({
-          did: user.did,
-          handle: user.handle,
-          ...(user.displayName && { displayName: user.displayName }),
-          ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: user.avatarUrl }),
-          indexedAt: user.indexedAt.toISOString(),
-        })),
+
+      // 2. Fetch all data in parallel
+      const [users, relationships, labelsBySubject] = await Promise.all([
+          storage.getUsers(uniqueDids),
+          viewerDid ? storage.getRelationships(viewerDid, uniqueDids) : Promise.resolve(new Map()),
+          Promise.all(uniqueDids.map(did => storage.getLabelsForSubject(did)))
+      ]);
+
+      const userMap = new Map(users.map(u => [u.did, u]));
+      const labelsMap = new Map<string, any[]>();
+      labelsBySubject.forEach((labels, i) => {
+          labelsMap.set(uniqueDids[i], labels);
       });
+
+      // 3. Construct the profile views
+      const profiles = uniqueDids.map(did => {
+          const user = userMap.get(did);
+          if (!user) return null;
+
+          const viewerState = viewerDid ? relationships.get(did) : null;
+          const labels = labelsMap.get(did) || [];
+
+          return {
+              did: user.did,
+              handle: user.handle,
+              displayName: user.displayName,
+              description: user.description,
+              avatar: user.avatarUrl,
+              indexedAt: user.indexedAt.toISOString(),
+              viewer: viewerState ? {
+                  muted: !!viewerState.muting,
+                  blockedBy: !!viewerState.blockedBy,
+                  blocking: viewerState.blocking,
+                  following: viewerState.following,
+                  followedBy: viewerState.followedBy,
+              } : {},
+              labels: labels.map(l => ({
+                  src: l.src,
+                  uri: l.uri,
+                  val: l.val,
+                  neg: l.neg,
+                  cts: l.createdAt.toISOString(),
+              })),
+          };
+      }).filter(Boolean);
+
+      res.json({ profiles });
+
     } catch (error) {
       console.error("[XRPC] Error getting profiles:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
