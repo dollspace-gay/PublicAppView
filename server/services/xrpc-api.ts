@@ -148,19 +148,11 @@ const getActorLikesSchema = z.object({
 });
 
 const getProfilesSchema = z.object({
-  actors: z.union([z.string(), z.array(z.string())]).optional(),
-  actor: z.union([z.string(), z.array(z.string())]).optional(), // Accept 'actor' as well
-}).transform(data => {
-    const actorsInput = data.actors || data.actor;
-    const actorsList = actorsInput ? (Array.isArray(actorsInput) ? actorsInput : [actorsInput]) : [];
-    return { actors: actorsList };
-}).refine(data => {
-  // Only enforce the length check if actors are actually provided.
-  // If the client sends an empty request, we shouldn't fail validation.
-  return data.actors.length > 0 ? data.actors.length <= 25 : true;
-}, {
-  message: "Maximum 25 actors allowed per AT Protocol spec",
-  path: ['actors'],
+  actors: z.union([
+    z.string(),
+    z.array(z.string())
+  ]).transform(val => Array.isArray(val) ? val : [val])
+    .pipe(z.array(z.string()).nonempty("actors parameter cannot be empty").max(25, "Maximum 25 actors allowed")),
 });
 
 const getSuggestionsSchema = z.object({

@@ -23,13 +23,62 @@ declare module 'http' {
 // Cookie parser for CSRF tokens
 app.use(cookieParser());
 
-// Request size limits to prevent DoS and database bloat
-app.use(express.json({
-  limit: '10mb', // Max request body size (allows image embeds with metadata)
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
+// A custom, safe JSON body parser that doesn't crash on malformed input
+const safeJsonParser = (req: Request, res: Response, next: NextFunction) => {
+  // We only care about requests that might have a JSON body
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS' || req.method === 'DELETE') {
+    return next();
   }
-}));
+
+  const contentType = req.headers['content-type'];
+  if (!contentType || !contentType.includes('application/json')) {
+    return next();
+  }
+
+  const chunks: Buffer[] = [];
+  let totalLength = 0;
+  const limit = 10 * 1024 * 1024; // 10mb limit
+
+  req.on('data', (chunk: Buffer) => {
+    totalLength += chunk.length;
+    if (totalLength > limit) {
+      res.status(413).json({ error: 'PayloadTooLarge', message: 'Request body exceeds 10mb limit' });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  req.on('end', () => {
+    if (req.destroyed) return;
+
+    const bodyBuffer = Buffer.concat(chunks);
+
+    // Replicate the 'verify' functionality to store the raw body
+    (req as any).rawBody = bodyBuffer;
+
+    if (bodyBuffer.length === 0) {
+      req.body = {};
+      return next();
+    }
+
+    try {
+      const bodyString = bodyBuffer.toString('utf8');
+      req.body = JSON.parse(bodyString);
+      next();
+    } catch (error) {
+      console.error('[BODY_PARSER] Malformed JSON received:', error);
+      res.status(400).json({ error: 'BadRequest', message: 'Malformed JSON in request body' });
+    }
+  });
+
+  req.on('error', (err) => {
+    console.error('[BODY_PARSER] Request stream error:', err);
+    next(err);
+  });
+};
+
+app.use(safeJsonParser);
 app.use(express.urlencoded({ 
   extended: false,
   limit: '10mb' // Same limit for URL-encoded data
