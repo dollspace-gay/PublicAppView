@@ -519,11 +519,20 @@ export class PDSClient {
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
     const url = `${pdsEndpoint}${path}`;
 
-    // Forward most headers, but remove host and add authorization
-    const forwardedHeaders = { ...headers };
-    delete forwardedHeaders['host'];
-    delete forwardedHeaders['cookie']; // Don't forward AppView's session cookies
-    forwardedHeaders['authorization'] = `Bearer ${accessToken}`;
+    // Sanitize headers to prevent forwarding potentially problematic ones.
+    // Only forward a specific allow-list of safe headers.
+    const forwardedHeaders: Record<string, string> = {
+      'authorization': `Bearer ${accessToken}`,
+    };
+    if (headers['accept']) {
+      forwardedHeaders['accept'] = headers['accept'] as string;
+    }
+    if (headers['user-agent']) {
+      forwardedHeaders['user-agent'] = headers['user-agent'] as string;
+    }
+    if (headers['accept-language']) {
+      forwardedHeaders['accept-language'] = headers['accept-language'] as string;
+    }
 
     const fetchOptions: RequestInit = {
       method,
