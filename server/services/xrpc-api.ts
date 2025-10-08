@@ -1710,8 +1710,30 @@ export class XRPCApi {
   async searchPosts(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
   async searchActors(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
   async searchActorsTypeahead(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
-  async listNotifications(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
-  async getUnreadCount(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
+  async listNotifications(req: Request, res: Response) {
+    try {
+      // For an appview, it's safe to return an empty list of notifications
+      // as the PDS is the source of truth for notifications.
+      res.json({
+        notifications: [],
+        cursor: ''
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting listNotifications:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
+  async getUnreadCount(req: Request, res: Response) {
+    try {
+      // For an appview, it's safe to return 0 unread notifications.
+      res.json({
+        count: 0
+      });
+    } catch (error) {
+      console.error("[XRPC] Error getting getUnreadCount:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  }
   async updateSeen(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
   async getList(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
   async getLists(req: Request, res: Response) { res.status(501).send("Not Implemented"); }
