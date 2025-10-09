@@ -683,12 +683,8 @@ export class XRPCApi {
       .map((u) => (u.profileRecord as any)?.pinnedPost?.uri)
       .filter(Boolean);
     const pinnedPosts = await storage.getPosts(pinnedPostUris);
-    const serializedPinnedPostViews = await this.serializePosts(
-      pinnedPosts,
-      viewerDid || undefined,
-    );
-    const serializedPinnedPosts = new Map<string, any>(
-      serializedPinnedPostViews.map((p) => [p.uri, p]),
+    const pinnedPostCidByUri = new Map<string, string>(
+      pinnedPosts.map((p) => [p.uri, p.cid]),
     );
 
     const profiles = uniqueDids
@@ -698,8 +694,8 @@ export class XRPCApi {
 
         const profileRecord = user.profileRecord as any;
         const pinnedPostUri = profileRecord?.pinnedPost?.uri;
-        const pinnedPostView = pinnedPostUri
-          ? serializedPinnedPosts.get(pinnedPostUri)
+        const pinnedPostCid = pinnedPostUri
+          ? pinnedPostCidByUri.get(pinnedPostUri)
           : undefined;
 
         const viewerState = viewerDid ? relationships.get(did) : null;
@@ -736,7 +732,7 @@ export class XRPCApi {
           viewer.followedBy = viewerState.followedBy;
         }
 
-        return {
+        const profileView: any = {
           $type: 'app.bsky.actor.defs#profileViewDetailed',
           did: user.did,
           handle: user.handle,
@@ -745,7 +741,7 @@ export class XRPCApi {
           avatar: user.avatarUrl,
           banner: user.bannerUrl,
           followersCount: followersCounts.get(did) || 0,
-          followingCount: followingCounts.get(did) || 0,
+          followsCount: followingCounts.get(did) || 0,
           postsCount: postsCounts.get(did) || 0,
           indexedAt: user.indexedAt.toISOString(),
           viewer,
@@ -760,8 +756,11 @@ export class XRPCApi {
             lists: listCounts.get(did) || 0,
             feedgens: feedgenCounts.get(did) || 0,
           },
-          pinnedPost: pinnedPostView,
         };
+        if (pinnedPostUri && pinnedPostCid) {
+          profileView.pinnedPost = { uri: pinnedPostUri, cid: pinnedPostCid };
+        }
+        return profileView;
       })
       .filter(Boolean);
 
@@ -1963,8 +1962,8 @@ export class XRPCApi {
                 avatar: user.avatarUrl,
                 viewer,
               },
-              indexedAt: like.indexedAt.toISOString(),
               createdAt: like.createdAt.toISOString(),
+              indexedAt: like.indexedAt.toISOString(),
             };
           })
           .filter(Boolean),
