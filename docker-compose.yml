@@ -10,7 +10,7 @@ services:
     # - appendfsync everysec: Balances performance and durability (sync every second)
     command: redis-server --maxmemory 8gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     volumes:
-      - redis_data:/data,Z
+      - redis_data:/data:Z
     ports:
       - "6379:6379"
     healthcheck:
@@ -29,7 +29,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
     volumes:
-      - postgres_data:/var/lib/postgresql/data,Z
+      - postgres_data:/var/lib/postgresql/data:Z
     ports:
       - "5432:5432"
     healthcheck:
