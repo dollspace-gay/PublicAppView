@@ -42,7 +42,7 @@ export function Sidebar() {
     mutationFn: () => api.post('/api/auth/logout', {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
-      window.location.href = '/login';
+      window.location.href = '/';
     },
     onError: (error: Error) => {
       toast({
@@ -62,7 +62,7 @@ export function Sidebar() {
     { path: "/logs", icon: FileText, label: "Logs & Analytics" },
     { path: "/policy", icon: Shield, label: "Instance Policy" },
     { path: "/login", icon: LogIn, label: "Login", authHidden: true },
-    { path: "/admin/moderation", icon: Shield, label: "Admin Moderation", adminOnly: true, requiresAuth: true },
+    { path: "/admin/moderation", icon: Shield, label: "Admin Control Panel", adminOnly: true, requiresAuth: true },
     { path: "/user/panel", icon: User, label: "User Data Panel", requiresAuth: true },
   ];
 

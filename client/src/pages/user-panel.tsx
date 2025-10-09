@@ -116,7 +116,7 @@ export default function UserPanel() {
     mutationFn: () => api.post('/api/auth/logout', {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
-      window.location.href = '/login';
+      window.location.href = '/';
     },
   });
 

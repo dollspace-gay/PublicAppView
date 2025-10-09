@@ -21,7 +21,7 @@ export function PDSFetcherStatus() {
     try {
       setLoading(true);
       const response = await api.get("/api/admin/pds-fetcher/stats");
-      setStats(response.data.stats);
+      setStats((response as any).stats);
     } catch (error) {
       console.error("Failed to fetch PDS fetcher stats:", error);
     } finally {
@@ -33,7 +33,7 @@ export function PDSFetcherStatus() {
     try {
       setActionLoading(action);
       const endpoint = action === "clear" ? "/api/admin/pds-fetcher/clear" : "/api/admin/pds-fetcher/process";
-      await api.post(endpoint);
+      await api.post(endpoint, {});
       
       // Refresh stats after action
       await fetchStats();
