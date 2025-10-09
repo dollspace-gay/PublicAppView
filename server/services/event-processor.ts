@@ -738,15 +738,22 @@ export class EventProcessor {
   private async processProfile(did: string, record: any) {
     // Proactively resolve handle to have it available immediately on profile creation.
     const handle = await didResolver.resolveHandle(did);
-    await this.storage.createUser({
-      did,
+    const existingUser = await this.storage.getUser(did);
+
+    const profileData = {
       handle: handle || did, // Fallback to DID if resolution fails
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
       bannerUrl: record.banner?.ref?.$link,
       profileRecord: record,
-    });
+    };
+
+    if (existingUser) {
+      await this.storage.updateUser(did, profileData);
+    } else {
+      await this.storage.createUser({ did, ...profileData });
+    }
   }
 
   private async processFollow(uri: string, followerDid: string, record: any) {
