@@ -255,6 +255,48 @@ export class DIDResolver {
       return null;
     }
   }
+
+  /**
+   * Extract handle from DID document
+   */
+  getHandleFromDIDDocument(didDoc: DIDDocument): string | null {
+    if (!didDoc.alsoKnownAs || didDoc.alsoKnownAs.length === 0) {
+      return null;
+    }
+
+    // Find handle URI in alsoKnownAs field (format: at://username.domain)
+    const handleUri = didDoc.alsoKnownAs.find(uri => uri.startsWith('at://'));
+    if (handleUri) {
+      return handleUri.replace('at://', '');
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve DID to handle
+   */
+  async resolveDIDToHandle(did: string): Promise<string | null> {
+    try {
+      const didDoc = await this.resolveDID(did);
+      if (!didDoc) {
+        console.warn(`[DID_RESOLVER] Could not resolve DID document for ${did}`);
+        return null;
+      }
+
+      const handle = this.getHandleFromDIDDocument(didDoc);
+      if (!handle) {
+        console.warn(`[DID_RESOLVER] No handle found in DID document for ${did}`);
+        return null;
+      }
+
+      console.log(`[DID_RESOLVER] Resolved DID ${did} to handle ${handle}`);
+      return handle;
+    } catch (error) {
+      console.error(`[DID_RESOLVER] Error resolving DID ${did} to handle:`, error);
+      return null;
+    }
+  }
 }
 
 export const didResolver = new DIDResolver();
