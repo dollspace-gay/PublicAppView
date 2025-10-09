@@ -1089,6 +1089,7 @@ export class DatabaseStorage implements IStorage {
       bannerUrl: row.banner_url,
       description: row.description,
       profileRecord: row.profile_record,
+      associated: null,
       searchVector: null,
       createdAt: row.created_at,
       indexedAt: row.indexed_at,
