@@ -2,6 +2,7 @@ import { storage, type IStorage } from "../storage";
 import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
 import { didResolver } from "./did-resolver";
+import { pdsDataFetcher } from "./pds-data-fetcher";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
@@ -545,16 +546,19 @@ export class EventProcessor {
         // Resolve DID to get handle from DID document
         const handle = await didResolver.resolveDIDToHandle(did);
         
+        if (!handle) {
+          // If we can't resolve the handle, mark as incomplete for PDS fetching
+          console.warn(`[EVENT_PROCESSOR] Could not resolve handle for ${did}, marking for PDS fetch`);
+          pdsDataFetcher.markIncomplete('user', did);
+          return false;
+        }
+        
         await this.storage.createUser({
           did,
-          handle: handle || did, // Use resolved handle or fallback to DID
+          handle: handle,
         });
         
-        if (handle) {
-          console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
-        } else {
-          console.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
-        }
+        console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -571,6 +575,84 @@ export class EventProcessor {
       }
       console.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Mark an entry as incomplete for PDS data fetching
+   */
+  private markIncompleteForFetch(action: string, uri: string, constraint?: string) {
+    try {
+      // Extract DID from URI
+      const uriParts = uri.split('/');
+      if (uriParts.length < 3) return;
+      
+      const did = uriParts[2]; // at://did:plc:xxx/collection/rkey
+      
+      // Determine the type based on the action and constraint
+      let type: 'user' | 'post' | 'like' | 'repost' | 'follow' = 'user';
+      
+      if (action === 'create' || action === 'update') {
+        if (uri.includes('/app.bsky.feed.post/')) {
+          type = 'post';
+        } else if (uri.includes('/app.bsky.feed.like/')) {
+          type = 'like';
+        } else if (uri.includes('/app.bsky.feed.repost/')) {
+          type = 'repost';
+        } else if (uri.includes('/app.bsky.graph.follow/')) {
+          type = 'follow';
+        }
+      }
+      
+      pdsDataFetcher.markIncomplete(type, did, uri, { action, constraint });
+    } catch (error) {
+      console.error(`[EVENT_PROCESSOR] Error marking incomplete entry:`, error);
+    }
+  }
+
+  /**
+   * Process a record (used by PDS data fetcher)
+   */
+  async processRecord(uri: string, cid: string, authorDid: string, record: any) {
+    try {
+      const recordType = record.$type;
+      
+      switch (recordType) {
+        case "app.bsky.feed.post":
+          await this.processPost(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.feed.like":
+          await this.processLike(authorDid, { uri, cid, record });
+          break;
+        case "app.bsky.feed.repost":
+          await this.processRepost(uri, authorDid, record);
+          break;
+        case "app.bsky.graph.follow":
+          await this.processFollow(uri, authorDid, record);
+          break;
+        case "app.bsky.graph.block":
+          await this.processBlock(uri, authorDid, record);
+          break;
+        case "app.bsky.graph.list":
+          await this.processList(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.graph.listitem":
+          await this.processListItem(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.feed.generator":
+          await this.processFeedGenerator(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.feed.starterpack":
+          await this.processStarterPack(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.labeler.service":
+          await this.processLabelerService(uri, cid, authorDid, record);
+          break;
+        default:
+          console.log(`[EVENT_PROCESSOR] Unknown record type: ${recordType}`);
+      }
+    } catch (error) {
+      console.error(`[EVENT_PROCESSOR] Error processing record ${uri}:`, error);
     }
   }
 
@@ -642,6 +724,9 @@ export class EventProcessor {
         // Handle foreign key constraint violations (record references missing data)
         else if (error?.code === '23503') {
           console.log(`[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`);
+          
+          // Mark as incomplete for PDS data fetching
+          this.markIncompleteForFetch(action, uri, error.constraint);
         } 
         else {
           console.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);

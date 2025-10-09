@@ -4,6 +4,7 @@ import { MetricsCards } from "@/components/metrics-cards";
 import { SystemHealth } from "@/components/system-health";
 import { FirehoseStatus } from "@/components/firehose-status";
 import { OspreyStatus } from "@/components/osprey-status";
+import { PDSFetcherStatus } from "@/components/pds-fetcher-status";
 import { EventStream } from "@/components/event-stream";
 import { DatabaseSchema } from "@/components/database-schema";
 import { ApiEndpoints } from "@/components/api-endpoints";
@@ -216,8 +217,9 @@ export default function Dashboard() {
               />
             </div>
 
-            <div className="grid grid-cols-1 mb-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
               <OspreyStatus />
+              <PDSFetcherStatus />
             </div>
 
             <EventStream events={events} />
