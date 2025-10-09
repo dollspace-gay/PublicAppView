@@ -1850,21 +1850,104 @@ export class XRPCApi {
     }
   }
 
-  // Stubs for missing methods to fix build
+  // Previously stubbed endpoints completed for parity
   async queryLabels(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = queryLabelsSchema.parse(req.query);
+      const subjects = params.uriPatterns ?? [];
+      if (subjects.some((u) => u.includes('*'))) {
+        return res
+          .status(400)
+          .json({ error: 'InvalidRequest', message: 'wildcards not supported' });
+      }
+      const sources = params.sources ?? [];
+      if (sources.length === 0) {
+        return res
+          .status(400)
+          .json({ error: 'InvalidRequest', message: 'source dids are required' });
+      }
+      const labels = await storage.getLabelsForSubjects(subjects);
+      const filtered = labels.filter((l) => sources.includes(l.src));
+      res.json({ cursor: undefined, labels: filtered });
+    } catch (error) {
+      this._handleError(res, error, 'queryLabels');
+    }
   }
   async createReport(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = createReportSchema.parse(req.body);
+      const reporterDid = (await this.getAuthenticatedDid(req)) ||
+        (req as any).user?.did ||
+        'did:unknown:anonymous';
+      const report = await storage.createModerationReport({
+        reporterDid,
+        reasonType: params.reasonType,
+        reason: params.reason || null,
+        subject: params.subject.uri || params.subject.did || params.subject.cid || 'unknown',
+        createdAt: new Date(),
+        status: 'open',
+      } as any);
+      res.json({ id: report.id, success: true });
+    } catch (error) {
+      this._handleError(res, error, 'createReport');
+    }
   }
   async searchPosts(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = searchPostsSchema.parse(req.query);
+      const viewerDid = await this.getAuthenticatedDid(req);
+      const { posts, cursor } = await searchService.searchPosts(
+        params.q,
+        params.limit,
+        params.cursor,
+        viewerDid || undefined,
+      );
+      const serialized = await this.serializePosts(posts as any, viewerDid || undefined);
+      res.json({ posts: serialized, cursor });
+    } catch (error) {
+      this._handleError(res, error, 'searchPosts');
+    }
   }
   async searchActors(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = searchActorsSchema.parse(req.query);
+      const term = (params.q || params.term)!;
+      const { actors, cursor } = await searchService.searchActors(
+        term,
+        params.limit,
+        params.cursor,
+      );
+      const dids = actors.map((a) => a.did);
+      const users = await storage.getUsers(dids);
+      const userMap = new Map(users.map((u) => [u.did, u]));
+      const results = actors
+        .map((a) => {
+          const u = userMap.get(a.did);
+          if (!u) return null;
+          return {
+            did: u.did,
+            handle: u.handle,
+            displayName: u.displayName,
+            avatar: u.avatarUrl,
+          };
+        })
+        .filter(Boolean);
+      res.json({ actors: results, cursor });
+    } catch (error) {
+      this._handleError(res, error, 'searchActors');
+    }
   }
   async searchActorsTypeahead(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = searchActorsTypeaheadSchema.parse(req.query);
+      const results = await searchService.searchActorsTypeahead(
+        (params.q || params.term)!,
+        params.limit,
+      );
+      res.json({ actors: results });
+    } catch (error) {
+      this._handleError(res, error, 'searchActorsTypeahead');
+    }
   }
   async listNotifications(req: Request, res: Response) {
     try {
@@ -1889,16 +1972,82 @@ export class XRPCApi {
     }
   }
   async updateSeen(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = updateSeenSchema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      await storage.markNotificationsAsRead(
+        userDid,
+        params.seenAt ? new Date(params.seenAt) : undefined,
+      );
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'updateSeen');
+    }
   }
   async getList(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = getListSchema.parse(req.query);
+      const list = await storage.getList(params.list);
+      if (!list)
+        return res
+          .status(404)
+          .json({ error: 'NotFound', message: 'List not found' });
+      res.json({
+        list: {
+          uri: list.uri,
+          cid: list.cid,
+          name: list.name,
+          purpose: list.purpose,
+          createdAt: list.createdAt.toISOString(),
+          indexedAt: list.indexedAt.toISOString(),
+        },
+      });
+    } catch (error) {
+      this._handleError(res, error, 'getList');
+    }
   }
   async getLists(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = getListsSchema.parse(req.query);
+      const did = await this._resolveActor(res, params.actor);
+      if (!did) return;
+      const lists = await storage.getUserLists(did, params.limit);
+      res.json({
+        lists: lists.map((l) => ({
+          uri: l.uri,
+          cid: l.cid,
+          name: l.name,
+          purpose: l.purpose,
+          createdAt: l.createdAt.toISOString(),
+          indexedAt: l.indexedAt.toISOString(),
+        })),
+      });
+    } catch (error) {
+      this._handleError(res, error, 'getLists');
+    }
   }
   async getListFeed(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = getListFeedSchema.parse(req.query);
+      const posts = await storage.getListFeed(
+        params.list,
+        params.limit,
+        params.cursor,
+      );
+      const viewerDid = await this.getAuthenticatedDid(req);
+      const serialized = await this.serializePosts(
+        posts,
+        viewerDid || undefined,
+      );
+      const oldest = posts.length ? posts[posts.length - 1] : null;
+      res.json({
+        cursor: oldest ? oldest.indexedAt.toISOString() : undefined,
+        feed: serialized.map((p) => ({ post: p })),
+      });
+    } catch (error) {
+      this._handleError(res, error, 'getListFeed');
+    }
   }
   async getPosts(req: Request, res: Response) {
     try {
@@ -2028,7 +2177,28 @@ export class XRPCApi {
     }
   }
   async getQuotes(req: Request, res: Response) {
-    res.status(501).send('Not Implemented');
+    try {
+      const params = getQuotesSchema.parse(req.query);
+      const viewerDid = await this.getAuthenticatedDid(req);
+      const posts = await storage.getQuotePosts(
+        params.uri,
+        params.limit,
+        params.cursor,
+      );
+      const serialized = await this.serializePosts(
+        posts,
+        viewerDid || undefined,
+      );
+      const oldest = posts.length ? posts[posts.length - 1] : null;
+      res.json({
+        posts: serialized,
+        cursor: oldest ? oldest.indexedAt.toISOString() : undefined,
+        uri: params.uri,
+        cid: params.cid,
+      });
+    } catch (error) {
+      this._handleError(res, error, 'getQuotes');
+    }
   }
   async getActorLikes(req: Request, res: Response) {
     try {
