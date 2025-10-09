@@ -31,6 +31,12 @@ interface PendingListItem {
   enqueuedAt: number;
 }
 
+interface PendingUserCreationOp {
+  repo: string;
+  op: any;
+  enqueuedAt: number;
+}
+
 export class EventProcessor {
   private storage: IStorage;
   private pendingOps: Map<string, PendingOp[]> = new Map();
@@ -39,10 +45,12 @@ export class EventProcessor {
   private pendingUserOpIndex: Map<string, string> = new Map(); // opUri -> userDid
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
+  private pendingUserCreationOps: Map<string, PendingUserCreationOp[]> = new Map(); // did -> ops
   private readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hour TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
   private totalPendingUserOps = 0; // Counter for pending user ops
   private totalPendingListItems = 0; // Counter for pending list items
+  private totalPendingUserCreationOps = 0;
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
@@ -56,6 +64,9 @@ export class EventProcessor {
     pendingListItemsFlushed: 0,
     pendingListItemsExpired: 0,
     pendingListItemsDropped: 0,
+    pendingUserCreationOpsQueued: 0,
+    pendingUserCreationOpsFlushed: 0,
+    pendingUserCreationOpsExpired: 0,
   };
   private dataCollectionCache = new Map<string, boolean>(); // DID -> dataCollectionForbidden
 
@@ -183,6 +194,46 @@ export class EventProcessor {
       this.metrics.pendingListItemsExpired += expiredListItems;
       console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
     }
+
+    let expiredUserCreationOps = 0;
+    for (const [did, ops] of Array.from(this.pendingUserCreationOps.entries())) {
+      const validOps = ops.filter((op: PendingUserCreationOp) => {
+        if (now - op.enqueuedAt > this.TTL_MS) {
+          expiredUserCreationOps++;
+          return false;
+        }
+        return true;
+      });
+
+      if (validOps.length === 0) {
+        this.pendingUserCreationOps.delete(did);
+      } else if (validOps.length < ops.length) {
+        this.pendingUserCreationOps.set(did, validOps);
+      }
+    }
+
+    if (expiredUserCreationOps > 0) {
+      this.totalPendingUserCreationOps -= expiredUserCreationOps;
+      this.metrics.pendingUserCreationOpsExpired += expiredUserCreationOps;
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`);
+    }
+  }
+
+  private enqueuePendingUserCreationOp(did: string, repo: string, op: any) {
+    const queue = this.pendingUserCreationOps.get(did) || [];
+
+    const pendingOp: PendingUserCreationOp = {
+      repo,
+      op,
+      enqueuedAt: Date.now(),
+    };
+
+    queue.push(pendingOp);
+    this.pendingUserCreationOps.set(did, queue);
+
+    this.totalPendingUserCreationOps++;
+    this.metrics.pendingUserCreationOpsQueued++;
+    console.log(`[EVENT_PROCESSOR] Queued op for user creation: ${did}`);
   }
 
   private enqueuePending(postUri: string, op: PendingOp) {
@@ -384,6 +435,24 @@ export class EventProcessor {
     }
   }
 
+  private async flushPendingUserCreationOps(did: string) {
+    const ops = this.pendingUserCreationOps.get(did);
+    if (!ops || ops.length === 0) {
+      return;
+    }
+
+    this.pendingUserCreationOps.delete(did);
+
+    console.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`);
+
+    for (const pendingOp of ops) {
+      // Reprocess the original commit operation
+      await this.processCommit({ repo: pendingOp.repo, ops: [pendingOp.op] });
+      this.totalPendingUserCreationOps--;
+      this.metrics.pendingUserCreationOpsFlushed++;
+    }
+  }
+
   getMetrics() {
     return {
       ...this.metrics,
@@ -402,13 +471,18 @@ export class EventProcessor {
           did,
           handle: handle || did, // Fallback to DID if resolution fails
         });
-        // After creating the user, flush any pending operations that depended on them
-        await this.flushPendingUserOps(did);
       }
+      // If we reach here, the user *should* exist, either from before or from creation.
+      // Now, flush all pending operations for this user.
+      await this.flushPendingUserOps(did);
+      await this.flushPendingUserCreationOps(did);
       return true;
     } catch (error: any) {
-      // Ignore unique constraint violations (user already exists from parallel insert)
+      // If createUser resulted in a unique constraint violation, it means the user was created
+      // by a parallel process. We can treat this as a success and flush the queues.
       if (error.code === '23505') {
+        await this.flushPendingUserOps(did);
+        await this.flushPendingUserCreationOps(did);
         return true;
       }
       console.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
@@ -440,7 +514,7 @@ export class EventProcessor {
               await this.processPost(uri, cid, repo, record);
               break;
             case "app.bsky.feed.like":
-              await this.processLike(uri, repo, record);
+              await this.processLike(repo, op);
               break;
             case "app.bsky.feed.repost":
               await this.processRepost(uri, repo, record);
@@ -449,7 +523,7 @@ export class EventProcessor {
               await this.processProfile(repo, record);
               break;
             case "app.bsky.graph.follow":
-              await this.processFollow(uri, repo, record);
+              await this.processFollow(repo, op);
               break;
             case "app.bsky.graph.block":
               await this.processBlock(uri, repo, record);
@@ -464,7 +538,7 @@ export class EventProcessor {
               await this.processFeedGenerator(uri, cid, repo, record);
               break;
             case "app.bsky.graph.starterpack":
-              await this.processStarterPack(uri, cid, repo, record);
+              await this.processStarterPack(repo, op);
               break;
             case "app.bsky.labeler.service":
               await this.processLabelerService(uri, cid, repo, record);
@@ -496,34 +570,10 @@ export class EventProcessor {
     const { did, handle } = event;
     
     try {
-      const existingUser = await this.storage.getUser(did);
-      if (existingUser) {
-        // Only update if the handle is different to avoid unnecessary writes
-        if (existingUser.handle !== handle) {
-            await this.storage.updateUser(did, { handle });
-            console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
-        }
-      } else {
-        // User doesn't exist, create a new record with the handle.
-        // The full profile details will be populated later by a profile event.
-        await this.storage.createUser({ did, handle });
-        console.log(`[IDENTITY] Created new user via identity event: ${did} -> ${handle}`);
-      }
-    } catch (error: any) {
-      // The createUser call can fail with a unique constraint violation if another process
-      // creates the user between our `getUser` and `createUser` calls (a race condition).
-      // If this happens, we can try to update the handle just in case the other process
-      // didn't have the latest handle.
-      if (error?.code === '23505') {
-        try {
-          await this.storage.updateUser(did, { handle });
-          console.log(`[IDENTITY] Updated handle for ${did} to ${handle} after race condition.`);
-        } catch (updateError) {
-           console.error(`[EVENT_PROCESSOR] Error updating handle for ${did} after identity race condition:`, updateError);
-        }
-      } else {
-        console.error(`[EVENT_PROCESSOR] Error processing identity:`, error);
-      }
+      await this.storage.upsertUserHandle(did, handle);
+      console.log(`[IDENTITY] Upserted handle for ${did} to ${handle}`);
+    } catch (error) {
+      console.error(`[EVENT_PROCESSOR] Error processing identity for ${did}:`, error);
     }
   }
 
@@ -612,10 +662,15 @@ export class EventProcessor {
     await this.flushPending(uri);
   }
 
-  private async processLike(uri: string, userDid: string, record: any) {
+  private async processLike(repo: string, op: any) {
+    const { path, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const userDid = repo;
+
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready`);
+      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(userDid, repo, op);
       return;
     }
     
@@ -765,11 +820,16 @@ export class EventProcessor {
     }
   }
 
-  private async processFollow(uri: string, followerDid: string, record: any) {
+  private async processFollow(repo: string, op: any) {
+    const { path, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const followerDid = repo;
+
     // Ensure the user performing the action exists
     const followerReady = await this.ensureUser(followerDid);
     if (!followerReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready`);
+      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(followerDid, repo, op);
       return;
     }
 
@@ -993,10 +1053,15 @@ export class EventProcessor {
     await this.storage.createFeedGenerator(feedGenerator);
   }
 
-  private async processStarterPack(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processStarterPack(repo: string, op: any) {
+    const { path, cid, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const creatorDid = repo;
+
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready`);
+      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(creatorDid, repo, op);
       return;
     }
     

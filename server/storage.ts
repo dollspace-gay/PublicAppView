@@ -11,6 +11,7 @@ export interface IStorage {
   getUserByHandle(handle: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  upsertUserHandle(did: string, handle: string): Promise<void>;
   getSuggestedUsers(viewerDid?: string, limit?: number): Promise<User[]>;
   getUserFollowerCount(did: string): Promise<number>;
   getUsersFollowerCounts(dids: string[]): Promise<Map<string, number>>;
@@ -290,6 +291,16 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.did, did))
       .returning();
     return user || undefined;
+  }
+
+  async upsertUserHandle(did: string, handle: string): Promise<void> {
+    await this.db
+      .insert(users)
+      .values({ did, handle })
+      .onConflictDoUpdate({
+        target: users.did,
+        set: { handle },
+      });
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
