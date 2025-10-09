@@ -58,9 +58,10 @@ export interface SessionPayload {
 
 export interface AtProtoTokenPayload {
   sub: string; // User's DID
-  iss: string; // Issuer (PDS endpoint)
-  aud: string; // Audience (this appview's DID)
-  scope: string;
+  iss: string; // Issuer (PDS endpoint or user DID for service auth)
+  aud?: string; // Audience (this appview's DID)
+  scope?: string;
+  lxm?: string; // Lexicon method for service auth tokens
   iat: number;
   exp: number;
 }
@@ -102,7 +103,7 @@ export class AuthService {
    * Verify AT Protocol OAuth access token from third-party clients
    * With full cryptographic signature verification
    */
-  async verifyAtProtoToken(token: string): Promise<{ did: string } | null> {
+  async verifyAtProtoToken(token: string): Promise<{ did: string; aud?: string; lxm?: string } | null> {
     try {
       // Decode without verification to check token structure
       const decoded = jwt.decode(token, { complete: true }) as any;
@@ -150,7 +151,7 @@ export class AuthService {
       }
 
       console.log(`[AUTH] ✓ AT Protocol token verified for DID: ${userDid} (signed by: ${signingDid})`);
-      return { did: userDid };
+      return { did: userDid, aud: (payload as AtProtoTokenPayload).aud, lxm: (payload as AtProtoTokenPayload).lxm };
     } catch (error) {
       console.error("[AUTH] AT Protocol token verification failed:", error instanceof Error ? error.message : error);
       return null;
