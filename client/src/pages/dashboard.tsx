@@ -4,14 +4,13 @@ import { MetricsCards } from "@/components/metrics-cards";
 import { SystemHealth } from "@/components/system-health";
 import { FirehoseStatus } from "@/components/firehose-status";
 import { OspreyStatus } from "@/components/osprey-status";
-import { PDSFetcherStatus } from "@/components/pds-fetcher-status";
 import { EventStream } from "@/components/event-stream";
 import { DatabaseSchema } from "@/components/database-schema";
 import { ApiEndpoints } from "@/components/api-endpoints";
 import { LexiconValidatorPanel } from "@/components/lexicon-validator-panel";
 import { LogsPanel } from "@/components/logs-panel";
 import InstancePolicyPage from "@/pages/instance-policy";
-import AdminModerationPage from "@/pages/admin-moderation";
+import AdminControlPanel from "@/pages/admin-moderation";
 import UserPanel from "@/pages/user-panel";
 import LoginPage from "@/pages/login";
 import { useLocation, useSearch } from "wouter";
@@ -219,7 +218,6 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
               <OspreyStatus />
-              <PDSFetcherStatus />
             </div>
 
             <EventStream events={events} />
@@ -345,7 +343,7 @@ export default function Dashboard() {
 
         {location === "/admin/moderation" && (
           session?.isAdmin ? (
-            <AdminModerationPage />
+            <AdminControlPanel />
           ) : (
             <section className="p-8">
               <Card className="border-destructive/50">
@@ -357,7 +355,7 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
-                    You do not have permission to access the Admin Moderation panel. 
+                    You do not have permission to access the Admin Control Panel. 
                     This area is restricted to authorized administrators only.
                   </p>
                   <p className="text-muted-foreground mt-4">

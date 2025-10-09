@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -8,8 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Search, Tag, Trash2, AlertCircle, LogIn, LogOut } from "lucide-react";
+import { Shield, Search, Tag, Trash2, AlertCircle, LogIn, LogOut, RefreshCw, Zap } from "lucide-react";
 import { api } from "@/lib/api";
+import { PDSFetcherStatus } from "@/components/pds-fetcher-status";
+import { FirehoseStatus } from "@/components/firehose-status";
 
 interface Label {
   uri: string;
@@ -27,7 +29,7 @@ interface InstanceLabel {
   description: string;
 }
 
-export default function AdminModerationPage() {
+export default function AdminControlPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [subjectUri, setSubjectUri] = useState("");
@@ -35,6 +37,13 @@ export default function AdminModerationPage() {
   const [selectedLabel, setSelectedLabel] = useState("");
   const [comment, setComment] = useState("");
   const [loginHandle, setLoginHandle] = useState("");
+  const [firehoseConnected, setFirehoseConnected] = useState(false);
+  const [firehoseStats, setFirehoseStats] = useState({
+    commits: 0,
+    identity: 0,
+    account: 0,
+    errorRate: 0
+  });
 
   const { data: session, isLoading: isSessionLoading } = useQuery({
     queryKey: ["/api/auth/session"],
@@ -70,6 +79,43 @@ export default function AdminModerationPage() {
       });
     },
   });
+
+  // Fetch firehose status
+  const { data: metrics } = useQuery({
+    queryKey: ["/api/metrics"],
+    refetchInterval: 5000,
+  });
+
+  // Update firehose stats when metrics change
+  useEffect(() => {
+    if (metrics) {
+      const metricsData = metrics as any;
+      setFirehoseConnected(metricsData.firehoseStatus?.connected || false);
+      setFirehoseStats({
+        commits: metricsData.eventCounts?.["#commit"] || 0,
+        identity: metricsData.eventCounts?.["#identity"] || 0,
+        account: metricsData.eventCounts?.["#account"] || 0,
+        errorRate: metricsData.errorRate || 0
+      });
+    }
+  }, [metrics]);
+
+  // Firehose reconnect handler
+  const handleReconnect = async () => {
+    try {
+      await api.post("/api/firehose/reconnect", {});
+      toast({
+        title: "Reconnect Initiated",
+        description: "Attempting to reconnect to firehose...",
+      });
+    } catch (error) {
+      toast({
+        title: "Reconnect Failed",
+        description: "Failed to reconnect to firehose",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Fetch available labels
   const { data: policy } = useQuery<{ labels: InstanceLabel[] }>({
@@ -251,10 +297,10 @@ export default function AdminModerationPage() {
         <div>
           <div className="flex items-center space-x-3">
             <Shield className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold" data-testid="heading-admin-moderation">Admin Moderation</h1>
+            <h1 className="text-3xl font-bold" data-testid="heading-admin-control-panel">Admin Control Panel</h1>
           </div>
           <p className="text-muted-foreground mt-2">
-            Apply instance-level moderation labels to content and users
+            Manage instance moderation, system controls, and administrative functions
           </p>
         </div>
         <Button
@@ -268,6 +314,22 @@ export default function AdminModerationPage() {
         </Button>
       </div>
 
+      {/* System Controls Section */}
+      <div className="grid gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <PDSFetcherStatus />
+          <FirehoseStatus
+            connected={firehoseConnected}
+            commits={firehoseStats.commits}
+            identity={firehoseStats.identity}
+            account={firehoseStats.account}
+            errorRate={firehoseStats.errorRate}
+            onReconnect={handleReconnect}
+          />
+        </div>
+      </div>
+
+      {/* Moderation Section */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Apply Label Section */}
         <Card>
@@ -424,7 +486,7 @@ export default function AdminModerationPage() {
       {/* Help Section */}
       <Card>
         <CardHeader>
-          <CardTitle>Usage Guide</CardTitle>
+          <CardTitle>Moderation Usage Guide</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>

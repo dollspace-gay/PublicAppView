@@ -34,7 +34,7 @@ export default function LoginPage() {
         description: "Welcome! Redirecting...",
       });
       window.history.replaceState({}, document.title, window.location.pathname);
-      window.location.href = '/user/panel';
+      window.location.href = '/';
       return;
     }
     
