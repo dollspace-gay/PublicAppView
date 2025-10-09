@@ -2763,10 +2763,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         searchVector: null,
         createdAt: new Date(),
         indexedAt: new Date(),
-        facets: null,
-        replyCount: 0,
-        repostCount: 0,
-        likeCount: 0,
       };
 
       const result = contentFilter.wouldFilter(mockPost, settings || null);

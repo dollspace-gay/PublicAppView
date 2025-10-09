@@ -2,6 +2,8 @@ import type { Post } from "@shared/schema";
 import { storage } from "../storage";
 
 export interface PostWithEngagement extends Post {
+  likeCount?: number;
+  repostCount?: number;
   engagementScore?: number;
 }
 

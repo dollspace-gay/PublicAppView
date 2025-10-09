@@ -11,10 +11,6 @@ export interface PostSearchResult {
   authorDid: string;
   text: string;
   embed: any;
-  facets: any;
-  replyCount: number;
-  repostCount: number;
-  likeCount: number;
   parentUri: string | null;
   rootUri: string | null;
   createdAt: Date;
@@ -54,8 +50,8 @@ class SearchService {
     
     // Use plainto_tsquery which safely handles Unicode, punctuation, and special characters
     const sqlQuery = cursor
-      ? `SELECT uri, cid, author_did as "authorDid", text, embed, facets, reply_count as "replyCount", repost_count as "repostCount", like_count as "likeCount", parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) AND ts_rank(search_vector, plainto_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
-      : `SELECT uri, cid, author_did as "authorDid", text, embed, facets, reply_count as "replyCount", repost_count as "repostCount", like_count as "likeCount", parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
+      ? `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) AND ts_rank(search_vector, plainto_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
+      : `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
     
     const params = cursor ? [trimmedQuery, parseFloat(cursor), limit + 1] : [trimmedQuery, limit + 1];
     const queryResult = await pool.query(sqlQuery, params);

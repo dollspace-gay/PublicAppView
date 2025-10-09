@@ -20,6 +20,12 @@ interface PendingOp {
   enqueuedAt: number;
 }
 
+interface PendingUserOp {
+  type: 'follow' | 'block';
+  payload: InsertFollow | InsertBlock;
+  enqueuedAt: number;
+}
+
 interface PendingListItem {
   payload: InsertListItem;
   enqueuedAt: number;
@@ -29,16 +35,23 @@ export class EventProcessor {
   private storage: IStorage;
   private pendingOps: Map<string, PendingOp[]> = new Map();
   private pendingOpIndex: Map<string, string> = new Map(); // opUri -> postUri
+  private pendingUserOps: Map<string, PendingUserOp[]> = new Map(); // userDid -> pending ops
+  private pendingUserOpIndex: Map<string, string> = new Map(); // opUri -> userDid
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
   private readonly TTL_MS = 10 * 60 * 1000; // 10 minute TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
+  private totalPendingUserOps = 0; // Counter for pending user ops
   private totalPendingListItems = 0; // Counter for pending list items
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
     pendingExpired: 0,
     pendingDropped: 0,
+    pendingUserOpsQueued: 0,
+    pendingUserOpsFlushed: 0,
+    pendingUserOpsExpired: 0,
+    pendingUserOpsDropped: 0,
     pendingListItemsQueued: 0,
     pendingListItemsFlushed: 0,
     pendingListItemsExpired: 0,
@@ -92,6 +105,7 @@ export class EventProcessor {
     const now = Date.now();
     let expired = 0;
     let expiredListItems = 0;
+    let expiredUserOps = 0;
 
     // Sweep pending likes/reposts
     for (const [postUri, ops] of Array.from(this.pendingOps.entries())) {
@@ -110,6 +124,26 @@ export class EventProcessor {
         this.pendingOps.delete(postUri);
       } else if (validOps.length < ops.length) {
         this.pendingOps.set(postUri, validOps);
+      }
+    }
+
+    // Sweep pending user ops
+    for (const [userDid, ops] of Array.from(this.pendingUserOps.entries())) {
+      const validOps = ops.filter((op: PendingUserOp) => {
+        if (now - op.enqueuedAt > this.TTL_MS) {
+          expiredUserOps++;
+          // Remove from index
+          const opUri = op.payload.uri;
+          this.pendingUserOpIndex.delete(opUri);
+          return false;
+        }
+        return true;
+      });
+
+      if (validOps.length === 0) {
+        this.pendingUserOps.delete(userDid);
+      } else if (validOps.length < ops.length) {
+        this.pendingUserOps.set(userDid, validOps);
       }
     }
 
@@ -138,6 +172,14 @@ export class EventProcessor {
       // Only log if significant (>10k to reduce noise under heavy load)
       if (expired > 10000) {
         console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded, database overload)`);
+      }
+    }
+
+    if (expiredUserOps > 0) {
+      this.totalPendingUserOps -= expiredUserOps;
+      this.metrics.pendingUserOpsExpired += expiredUserOps;
+      if (expiredUserOps > 100) {
+        console.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
       }
     }
 
@@ -238,6 +280,67 @@ export class EventProcessor {
     }
   }
 
+  private enqueuePendingUserOp(userDid: string, op: PendingUserOp) {
+    const opUri = op.payload.uri;
+
+    if (this.pendingUserOpIndex.has(opUri)) {
+      return;
+    }
+
+    const queue = this.pendingUserOps.get(userDid) || [];
+    queue.push(op);
+    this.pendingUserOps.set(userDid, queue);
+    this.pendingUserOpIndex.set(opUri, userDid);
+    this.totalPendingUserOps++;
+    this.metrics.pendingUserOpsQueued++;
+  }
+
+  private async flushPendingUserOps(userDid: string) {
+    const ops = this.pendingUserOps.get(userDid);
+    if (!ops || ops.length === 0) {
+      return;
+    }
+
+    this.pendingUserOps.delete(userDid);
+
+    for (const op of ops) {
+      try {
+        if (op.type === 'follow') {
+          await this.storage.createFollow(op.payload as InsertFollow);
+        } else if (op.type === 'block') {
+          await this.storage.createBlock(op.payload as InsertBlock);
+        }
+        this.metrics.pendingUserOpsFlushed++;
+        this.pendingUserOpIndex.delete(op.payload.uri);
+        this.totalPendingUserOps--;
+      } catch (error) {
+        // Skip on error
+      }
+    }
+  }
+
+  private cancelPendingUserOp(opUri: string) {
+    const userDid = this.pendingUserOpIndex.get(opUri);
+    if (!userDid) return;
+
+    const queue = this.pendingUserOps.get(userDid);
+    if (!queue) return;
+
+    const filteredQueue = queue.filter(op => op.payload.uri !== opUri);
+    const removed = queue.length - filteredQueue.length;
+
+    if (filteredQueue.length === 0) {
+      this.pendingUserOps.delete(userDid);
+    } else if (removed > 0) {
+      this.pendingUserOps.set(userDid, filteredQueue);
+    }
+
+    if (removed > 0) {
+      this.totalPendingUserOps -= removed;
+      this.pendingUserOpIndex.delete(opUri);
+    }
+  }
+
   private enqueuePendingListItem(listUri: string, item: PendingListItem) {
     const itemUri = item.payload.uri;
     
@@ -307,6 +410,8 @@ export class EventProcessor {
           did,
           handle: handle || did, // Fallback to DID if resolution fails
         });
+        // After creating the user, flush any pending operations that depended on them
+        await this.flushPendingUserOps(did);
       }
       return true;
     } catch (error: any) {
@@ -645,83 +750,108 @@ export class EventProcessor {
   }
 
   private async processFollow(uri: string, followerDid: string, record: any) {
+    // Ensure the user performing the action exists
     const followerReady = await this.ensureUser(followerDid);
-    const followingReady = await this.ensureUser(record.subject);
-
-    if (!followerReady || !followingReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - users not ready`);
+    if (!followerReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready`);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(followerDid)) {
       return;
     }
 
+    const followingDid = record.subject;
     const follow: InsertFollow = {
       uri,
       followerDid,
-      followingDid: record.subject,
+      followingDid,
       createdAt: new Date(record.createdAt),
     };
 
+    // Check if the target user exists
+    const followingUser = await this.storage.getUser(followingDid);
+    if (!followingUser) {
+      this.enqueuePendingUserOp(followingDid, {
+        type: 'follow',
+        payload: follow,
+        enqueuedAt: Date.now(),
+      });
+      return;
+    }
+
+    // Both users exist, proceed with creation
     try {
       await this.storage.createFollow(follow);
-    } catch (error: any) {
-      // Handle foreign key constraint violations gracefully
-      if (error.code === '23503') {
-        console.warn(`[EVENT_PROCESSOR] Foreign key violation for follow ${uri} - will retry later`);
-        return;
-      }
-      throw error;
-    }
-    
-    // Create notification for follow
-    try {
+      // Create notification for follow
       await this.storage.createNotification({
         uri: `${uri}/notification`,
-        recipientDid: record.subject,
+        recipientDid: followingDid,
         authorDid: followerDid,
         reason: 'follow',
         reasonSubject: undefined,
         isRead: false,
         createdAt: new Date(record.createdAt),
       });
-    } catch (error) {
-      console.error(`[NOTIFICATION] Error creating follow notification:`, error);
+    } catch (error: any) {
+      if (error.code === '23503') { // Foreign key violation (race condition)
+        this.enqueuePendingUserOp(followingDid, {
+          type: 'follow',
+          payload: follow,
+          enqueuedAt: Date.now(),
+        });
+      } else if (error.code !== '23505') { // Ignore duplicate errors
+        console.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
+      }
     }
   }
 
   private async processBlock(uri: string, blockerDid: string, record: any) {
+    // Ensure the user performing the action exists
     const blockerReady = await this.ensureUser(blockerDid);
-    const blockedReady = await this.ensureUser(record.subject);
-
-    if (!blockerReady || !blockedReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - users not ready`);
+    if (!blockerReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(blockerDid)) {
       return;
     }
 
+    const blockedDid = record.subject;
     const block: InsertBlock = {
       uri,
       blockerDid,
-      blockedDid: record.subject,
+      blockedDid,
       createdAt: new Date(record.createdAt),
     };
 
+    // Check if the target user exists
+    const blockedUser = await this.storage.getUser(blockedDid);
+    if (!blockedUser) {
+      this.enqueuePendingUserOp(blockedDid, {
+        type: 'block',
+        payload: block,
+        enqueuedAt: Date.now(),
+      });
+      return;
+    }
+
+    // Both users exist, proceed with creation
     try {
       await this.storage.createBlock(block);
     } catch (error: any) {
-      // Handle foreign key constraint violations gracefully
-      if (error.code === '23503') {
-        console.warn(`[EVENT_PROCESSOR] Foreign key violation for block ${uri} - will retry later`);
-        return;
+      if (error.code === '23503') { // Foreign key violation (race condition)
+        this.enqueuePendingUserOp(blockedDid, {
+          type: 'block',
+          payload: block,
+          enqueuedAt: Date.now(),
+        });
+      } else if (error.code !== '23505') { // Ignore duplicate errors
+        console.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
       }
-      throw error;
     }
   }
 
@@ -901,6 +1031,8 @@ export class EventProcessor {
     // Cancel pending op if it's a like/repost being deleted
     if (collection === "app.bsky.feed.like" || collection === "app.bsky.feed.repost") {
       this.cancelPendingOp(uri);
+    } else if (collection === "app.bsky.graph.follow" || collection === "app.bsky.graph.block") {
+      this.cancelPendingUserOp(uri);
     }
     
     // If it's a post being deleted, clear all pending likes/reposts for it
