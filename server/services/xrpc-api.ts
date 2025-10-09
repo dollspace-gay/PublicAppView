@@ -551,6 +551,11 @@ export class XRPCApi {
 
   async getProfiles(req: Request, res: Response) {
     try {
+      // Handle the case where clients send 'actors[]' instead of 'actors'
+      if (req.query['actors[]'] && !req.query.actors) {
+        req.query.actors = req.query['actors[]'];
+      }
+
       const params = getProfilesSchema.parse(req.query);
       const profiles = await this._getProfiles(params.actors, req);
       res.json({ profiles });
