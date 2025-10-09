@@ -305,6 +305,11 @@ const unregisterPushSchema = z.object({
   token: z.string(),
 });
 
+// Actor preferences schemas (minimal, accept-through with type routing)
+const putActorPreferencesSchema = z.object({
+  preferences: z.array(z.any()).default([]),
+});
+
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
@@ -850,23 +855,146 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // AppViews are read-only and don't store user-specific preferences.
-      // Return a default empty list to satisfy client expectations.
-      res.json({
-        preferences: [],
+      const did = await this.requireAuthDid(req, res);
+      if (!did) return;
+
+      const prefs = await storage.getUserPreferences(did);
+
+      // Map internal storage to upstream app.bsky.actor.defs preferences array
+      const preferences: any[] = [];
+
+      // adult content pref
+      preferences.push({
+        $type: 'app.bsky.actor.defs#adultContentPref',
+        enabled: !!prefs?.adultContent,
       });
+
+      // content labels visibility (nsfw, gore, etc.)
+      preferences.push({
+        $type: 'app.bsky.actor.defs#contentLabelPref',
+        // store as pass-through map; upstream expects array of label settings
+        // We expose known keys if present; otherwise send empty which is valid
+        labelers: [],
+        // we include our map to not lose information for clients that accept it
+        values: prefs?.contentLabels ?? {},
+      });
+
+      // feed view prefs
+      preferences.push({
+        $type: 'app.bsky.actor.defs#feedViewPref',
+        hideReplies: !!(prefs?.feedViewPrefs as any)?.hideReplies,
+        hideReposts: !!(prefs?.feedViewPrefs as any)?.hideReposts,
+        hideQuotePosts: !!(prefs?.feedViewPrefs as any)?.hideQuotePosts,
+      });
+
+      // thread view prefs
+      preferences.push({
+        $type: 'app.bsky.actor.defs#threadViewPref',
+        sort: (prefs?.threadViewPrefs as any)?.sort || 'newest',
+        prioritizeFollowedUsers: !!(prefs?.threadViewPrefs as any)?.prioritizeFollowedUsers,
+      });
+
+      // saved feeds (V2)
+      preferences.push({
+        $type: 'app.bsky.actor.defs#savedFeedsPrefV2',
+        items: Array.isArray(prefs?.savedFeeds) ? prefs!.savedFeeds : [],
+      });
+
+      res.json({ preferences });
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
   }
 
   async putPreferences(req: Request, res: Response) {
-    // AppViews are primarily read-only and should not implement write methods
-    // that modify user data on the PDS.
-    res.status(501).json({
-      error: 'NotImplemented',
-      message: 'AppViews cannot modify preferences.',
-    });
+    try {
+      const did = await this.requireAuthDid(req, res);
+      if (!did) return;
+
+      const body = putActorPreferencesSchema.parse(req.body);
+
+      // Load existing prefs or create defaults
+      let current = await storage.getUserPreferences(did);
+      if (!current) {
+        current = await storage.createUserPreferences({
+          userDid: did,
+          adultContent: false,
+          contentLabels: {},
+          feedViewPrefs: {},
+          threadViewPrefs: {},
+          interests: [],
+          savedFeeds: [],
+          notificationPriority: false,
+        } as any);
+      }
+
+      // Merge incoming array of heterogeneous pref items
+      let next: any = { ...current };
+      for (const pref of body.preferences || []) {
+        const type = pref?.$type as string | undefined;
+        if (!type) continue;
+        switch (type) {
+          case 'app.bsky.actor.defs#adultContentPref': {
+            next.adultContent = !!pref.enabled;
+            break;
+          }
+          case 'app.bsky.actor.defs#contentLabelPref': {
+            // We store as a map; accept either array or object
+            if (pref?.values && typeof pref.values === 'object') {
+              next.contentLabels = pref.values;
+            }
+            break;
+          }
+          case 'app.bsky.actor.defs#feedViewPref': {
+            next.feedViewPrefs = {
+              ...(current?.feedViewPrefs || {}),
+              hideReplies: !!pref.hideReplies,
+              hideReposts: !!pref.hideReposts,
+              hideQuotePosts: !!pref.hideQuotePosts,
+            };
+            break;
+          }
+          case 'app.bsky.actor.defs#threadViewPref': {
+            next.threadViewPrefs = {
+              ...(current?.threadViewPrefs || {}),
+              sort: pref.sort || (current?.threadViewPrefs as any)?.sort || 'newest',
+              prioritizeFollowedUsers: !!pref.prioritizeFollowedUsers,
+            };
+            break;
+          }
+          case 'app.bsky.actor.defs#savedFeedsPrefV2': {
+            if (Array.isArray(pref.items)) {
+              next.savedFeeds = pref.items;
+            }
+            break;
+          }
+          default:
+            // Accept unknown prefs without error for forward-compat
+            break;
+        }
+      }
+
+      const updated = await storage.updateUserPreferences(did, {
+        adultContent: !!next.adultContent,
+        contentLabels: next.contentLabels ?? current.contentLabels,
+        feedViewPrefs: next.feedViewPrefs ?? current.feedViewPrefs,
+        threadViewPrefs: next.threadViewPrefs ?? current.threadViewPrefs,
+        interests: next.interests ?? current.interests,
+        savedFeeds: next.savedFeeds ?? current.savedFeeds,
+      });
+
+      // Return updated preferences in upstream format
+      const responsePrefs: any[] = [];
+      responsePrefs.push({ $type: 'app.bsky.actor.defs#adultContentPref', enabled: !!updated?.adultContent });
+      responsePrefs.push({ $type: 'app.bsky.actor.defs#contentLabelPref', labelers: [], values: updated?.contentLabels ?? {} });
+      responsePrefs.push({ $type: 'app.bsky.actor.defs#feedViewPref', ...(updated?.feedViewPrefs as any) });
+      responsePrefs.push({ $type: 'app.bsky.actor.defs#threadViewPref', ...(updated?.threadViewPrefs as any) });
+      responsePrefs.push({ $type: 'app.bsky.actor.defs#savedFeedsPrefV2', items: updated?.savedFeeds ?? [] });
+
+      res.json({ preferences: responsePrefs });
+    } catch (error) {
+      this._handleError(res, error, 'putPreferences');
+    }
   }
 
   async getFollows(req: Request, res: Response) {
