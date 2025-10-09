@@ -249,23 +249,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If DID document doesn't exist, return a basic one based on APPVIEW_DID
       const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
       const domain = appviewDid.replace('did:web:', '');
-      
-      const basicDidDoc = {
-        "@context": ["https://www.w3.org/ns/did/v1"],
+      const verificationKey = process.env.APPVIEW_ATPROTO_PUBKEY_MULTIBASE;
+      const basicDidDoc: any = {
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/multikey/v1"
+        ],
         id: appviewDid,
         service: [
-          {
-            id: "#bsky_appview",
-            type: "BskyAppView",
-            serviceEndpoint: `https://${domain}`
-          },
-          {
-            id: "#atproto_labeler",
-            type: "AtprotoLabeler",
-            serviceEndpoint: `https://${domain}`
-          }
+          { id: "#bsky_notif", type: "BskyNotificationService", serviceEndpoint: `https://${domain}` },
+          { id: "#bsky_appview", type: "BskyAppView", serviceEndpoint: `https://${domain}` }
         ]
       };
+      if (verificationKey) {
+        basicDidDoc.verificationMethod = [
+          {
+            id: `${appviewDid}#atproto`,
+            type: "Multikey",
+            controller: appviewDid,
+            publicKeyMultibase: verificationKey,
+          }
+        ];
+      }
       
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1970,6 +1975,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.notification.listNotifications", xrpcApi.listNotifications.bind(xrpcApi));
   app.get("/xrpc/app.bsky.notification.getUnreadCount", xrpcApi.getUnreadCount.bind(xrpcApi));
   app.post("/xrpc/app.bsky.notification.updateSeen", xrpcApi.updateSeen.bind(xrpcApi));
+  // Additional notification endpoints for parity
+  app.get("/xrpc/app.bsky.notification.getPreferences", xrpcApi.getNotificationPreferences.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.notification.listActivitySubscriptions", xrpcApi.listActivitySubscriptions.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.putActivitySubscription", xrpcApi.putActivitySubscription.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.putPreferencesV2", xrpcApi.putNotificationPreferencesV2.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.notification.unregisterPush", xrpcApi.unregisterPush.bind(xrpcApi));
 
   // List endpoints
   app.get("/xrpc/app.bsky.graph.getList", xrpcApi.getList.bind(xrpcApi));
@@ -1977,6 +1988,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.graph.getListFeed", xrpcApi.getListFeed.bind(xrpcApi));
   app.get("/xrpc/app.bsky.graph.getListMutes", xrpcApi.getListMutes.bind(xrpcApi));
   app.get("/xrpc/app.bsky.graph.getListBlocks", xrpcApi.getListBlocks.bind(xrpcApi));
+  // Additional graph endpoints for parity
+  app.get("/xrpc/app.bsky.graph.getActorStarterPacks", xrpcApi.getActorStarterPacks.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getListsWithMembership", xrpcApi.getListsWithMembership.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.getStarterPacksWithMembership", xrpcApi.getStarterPacksWithMembership.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.graph.searchStarterPacks", xrpcApi.searchStarterPacks.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.graph.unmuteThread", xrpcApi.unmuteThread.bind(xrpcApi));
 
   // Post interaction endpoints  
   app.get("/xrpc/app.bsky.feed.getPosts", xrpcApi.getPosts.bind(xrpcApi));
@@ -1984,6 +2001,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.feed.getRepostedBy", xrpcApi.getRepostedBy.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getQuotes", xrpcApi.getQuotes.bind(xrpcApi));
   app.get("/xrpc/app.bsky.feed.getActorLikes", xrpcApi.getActorLikes.bind(xrpcApi));
+  // Additional feed endpoint
+  app.post("/xrpc/app.bsky.feed.sendInteractions", xrpcApi.sendInteractions.bind(xrpcApi));
 
   // Enhanced profile endpoints
   app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
@@ -2027,6 +2046,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/xrpc/app.bsky.notification.putPreferences", xrpcApi.putNotificationPreferences.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
+
+  // Bookmark endpoints
+  app.post("/xrpc/app.bsky.bookmark.createBookmark", xrpcApi.createBookmark.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.bookmark.deleteBookmark", xrpcApi.deleteBookmark.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.bookmark.getBookmarks", xrpcApi.getBookmarks.bind(xrpcApi));
+
+  // Unspecced endpoints used by first-party clients
+  app.get("/xrpc/app.bsky.unspecced.getPostThreadV2", xrpcApi.getPostThreadV2.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getPostThreadOtherV2", xrpcApi.getPostThreadOtherV2.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getSuggestedUsers", xrpcApi.getSuggestedUsersUnspecced.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getSuggestedFeeds", xrpcApi.getSuggestedFeedsUnspecced.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getOnboardingSuggestedStarterPacks", xrpcApi.getOnboardingSuggestedStarterPacks.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getTaggedSuggestions", xrpcApi.getTaggedSuggestions.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getTrendingTopics", xrpcApi.getTrendingTopics.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getTrends", xrpcApi.getTrends.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getConfig", xrpcApi.getUnspeccedConfig.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getAgeAssuranceState", xrpcApi.getAgeAssuranceState.bind(xrpcApi));
+  app.post("/xrpc/app.bsky.unspecced.initAgeAssurance", xrpcApi.initAgeAssurance.bind(xrpcApi));
 
   // XRPC Proxy Middleware - catch-all for unhandled authenticated requests
   app.use(xrpcProxyMiddleware);

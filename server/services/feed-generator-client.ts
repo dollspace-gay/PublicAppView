@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { didResolver } from "./did-resolver";
 import { storage } from "../storage";
-import { appViewJWTService } from "./appview-jwt";
 import type { Post } from "@shared/schema";
 
 const skeletonPostSchema = z.object({
@@ -33,7 +32,8 @@ export class FeedGeneratorClient {
 
   async getFeedSkeleton(
     serviceEndpoint: string,
-    params: FeedGeneratorParams
+    params: FeedGeneratorParams,
+    options?: { viewerAuthorization?: string | undefined }
   ): Promise<{ feed: Array<{ post: string; reason?: any }>; cursor?: string }> {
     try {
       const url = new URL("/xrpc/app.bsky.feed.getFeedSkeleton", serviceEndpoint);
@@ -49,10 +49,10 @@ export class FeedGeneratorClient {
         "Accept": "application/json",
       };
 
-      if (params.feedGeneratorDid) {
-        const token = appViewJWTService.signFeedGeneratorToken(params.feedGeneratorDid);
-        headers["Authorization"] = `Bearer ${token}`;
-        console.log(`[FeedGenClient] Added JWT authentication for ${params.feedGeneratorDid}`);
+      // Forward viewer Authorization to feed generator when present, aligning with upstream behavior
+      if (options?.viewerAuthorization) {
+        headers["Authorization"] = options.viewerAuthorization;
+        console.log(`[FeedGenClient] Forwarded viewer Authorization header to feedgen`);
       }
 
       const response = await fetch(url.toString(), {
@@ -129,7 +129,8 @@ export class FeedGeneratorClient {
 
   async getFeed(
     serviceDid: string,
-    params: FeedGeneratorParams
+    params: FeedGeneratorParams,
+    options?: { viewerAuthorization?: string | undefined }
   ): Promise<{ feed: HydratedFeedPost[]; cursor?: string }> {
     const endpoint = await this.resolveFeedGeneratorEndpoint(serviceDid);
     
@@ -142,7 +143,9 @@ export class FeedGeneratorClient {
       feedGeneratorDid: serviceDid,
     };
 
-    const skeleton = await this.getFeedSkeleton(endpoint, paramsWithDid);
+    const skeleton = await this.getFeedSkeleton(endpoint, paramsWithDid, {
+      viewerAuthorization: options?.viewerAuthorization,
+    });
 
     const hydrated = await this.hydrateSkeleton(skeleton.feed);
 

@@ -291,6 +291,73 @@ const getUploadLimitsSchema = z.object({
   // No required params - authenticated endpoint
 });
 
+// Additional schemas for parity with upstream
+const getNotificationPreferencesSchema = z.object({});
+const listActivitySubscriptionsSchema = z.object({});
+const putActivitySubscriptionSchema = z.object({
+  subject: z.string().optional(),
+  notifications: z.boolean().optional(),
+});
+const putNotificationPreferencesV2Schema = z.object({
+  priority: z.boolean().optional(),
+});
+const unregisterPushSchema = z.object({
+  token: z.string(),
+});
+
+const getActorStarterPacksSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+const getListsWithMembershipSchema = z.object({
+  actor: z.string(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+const getStarterPacksWithMembershipSchema = z.object({
+  actor: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+const searchStarterPacksSchema = z.object({
+  q: z.string().min(1),
+  limit: z.coerce.number().min(1).max(100).default(25),
+  cursor: z.string().optional(),
+});
+
+const sendInteractionsSchema = z.object({
+  interactions: z
+    .array(
+      z.object({
+        $type: z.string().optional(),
+        subject: z.any().optional(),
+        event: z.string().optional(),
+        createdAt: z.string().optional(),
+      }),
+    )
+    .default([]),
+});
+
+// Unspecced compatibility schemas (minimal)
+const getPostThreadV2Schema = z.object({
+  anchor: z.string(),
+  depth: z.coerce.number().min(0).max(50).default(6),
+  prioritizeFollowedUsers: z.coerce.boolean().optional(),
+  sort: z.string().optional(),
+  branchStartDepth: z.coerce.number().optional(),
+  branchEndDepth: z.coerce.number().optional(),
+});
+const getPostThreadOtherV2Schema = z.object({
+  anchor: z.string(),
+  depth: z.coerce.number().min(0).max(50).default(3),
+});
+const suggestedUsersUnspeccedSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(25),
+  cursor: z.string().optional(),
+});
+const unspeccedNoParamsSchema = z.object({});
+
 export class XRPCApi {
   /**
    * Extract authenticated user DID from request
@@ -310,7 +377,21 @@ export class XRPCApi {
         console.log(`[AUTH] Token payload missing DID for ${req.path}`);
         return null;
       }
-      
+      // Enforce minimal audience/method checks if present
+      try {
+        const anyPayload: any = payload;
+        const appviewDid = process.env.APPVIEW_DID || 'did:web:appview.local';
+        const nsid = req.path.startsWith('/xrpc/') ? req.path.slice('/xrpc/'.length) : undefined;
+        if (anyPayload.aud && anyPayload.aud !== appviewDid) {
+          console.warn(`[AUTH] aud mismatch. expected=${appviewDid} got=${anyPayload.aud}`);
+          return null;
+        }
+        if (anyPayload.lxm && nsid && anyPayload.lxm !== nsid) {
+          console.warn(`[AUTH] lxm mismatch. expected=${nsid} got=${anyPayload.lxm}`);
+          return null;
+        }
+      } catch {}
+
       return payload.did;
     } catch (error) {
       // Token verification failed (malformed, expired, etc.)
@@ -1295,6 +1376,9 @@ export class XRPCApi {
           limit: params.limit,
           cursor: params.cursor,
         },
+        {
+          viewerAuthorization: req.headers['authorization'] as string | undefined,
+        },
       );
 
       console.log(
@@ -1847,6 +1931,281 @@ export class XRPCApi {
       });
     } catch (error) {
       this._handleError(res, error, 'getUploadLimits');
+    }
+  }
+
+  // Notification parity endpoints
+  async getNotificationPreferences(req: Request, res: Response) {
+    try {
+      getNotificationPreferencesSchema.parse(req.query);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      const prefs = await storage.getUserPreferences(userDid);
+      res.json({ preferences: [{ $type: 'app.bsky.notification.defs#preferences', priority: !!prefs?.notificationPriority }] });
+    } catch (error) {
+      this._handleError(res, error, 'getNotificationPreferences');
+    }
+  }
+
+  async listActivitySubscriptions(req: Request, res: Response) {
+    try {
+      listActivitySubscriptionsSchema.parse(req.query);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ subscriptions: [] });
+    } catch (error) {
+      this._handleError(res, error, 'listActivitySubscriptions');
+    }
+  }
+
+  async putActivitySubscription(req: Request, res: Response) {
+    try {
+      putActivitySubscriptionSchema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'putActivitySubscription');
+    }
+  }
+
+  async putNotificationPreferencesV2(req: Request, res: Response) {
+    try {
+      const params = putNotificationPreferencesV2Schema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      let prefs = await storage.getUserPreferences(userDid);
+      if (!prefs) {
+        prefs = await storage.createUserPreferences({
+          userDid,
+          notificationPriority: !!params.priority,
+        } as any);
+      } else {
+        prefs = await storage.updateUserPreferences(userDid, {
+          notificationPriority: params.priority ?? prefs.notificationPriority,
+        });
+      }
+      res.json({ preferences: [{ $type: 'app.bsky.notification.defs#preferences', priority: !!prefs?.notificationPriority }] });
+    } catch (error) {
+      this._handleError(res, error, 'putNotificationPreferencesV2');
+    }
+  }
+
+  async unregisterPush(req: Request, res: Response) {
+    try {
+      const params = unregisterPushSchema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      await storage.deletePushSubscriptionByToken(params.token);
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'unregisterPush');
+    }
+  }
+
+  // Feed interactions parity
+  async sendInteractions(req: Request, res: Response) {
+    try {
+      sendInteractionsSchema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'sendInteractions');
+    }
+  }
+
+  // Graph parity endpoints
+  async getActorStarterPacks(req: Request, res: Response) {
+    try {
+      const params = getActorStarterPacksSchema.parse(req.query);
+      const did = await this._resolveActor(res, params.actor);
+      if (!did) return;
+      const { generators } = await storage.getActorFeeds(did, params.limit, params.cursor);
+      res.json({ cursor: undefined, starterPacks: [], feeds: generators.map((g) => g.uri) });
+    } catch (error) {
+      this._handleError(res, error, 'getActorStarterPacks');
+    }
+  }
+
+  async getListsWithMembership(req: Request, res: Response) {
+    try {
+      const params = getListsWithMembershipSchema.parse(req.query);
+      const did = await this._resolveActor(res, params.actor);
+      if (!did) return;
+      const lists = await storage.getUserLists(did, params.limit);
+      res.json({ cursor: undefined, lists: lists.map((l) => ({ uri: l.uri, cid: l.cid, name: l.name, purpose: l.purpose })) });
+    } catch (error) {
+      this._handleError(res, error, 'getListsWithMembership');
+    }
+  }
+
+  async getStarterPacksWithMembership(req: Request, res: Response) {
+    try {
+      const _ = getStarterPacksWithMembershipSchema.parse(req.query);
+      res.json({ cursor: undefined, starterPacks: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getStarterPacksWithMembership');
+    }
+  }
+
+  async searchStarterPacks(req: Request, res: Response) {
+    try {
+      const params = searchStarterPacksSchema.parse(req.query);
+      res.json({ cursor: undefined, starterPacks: [] });
+    } catch (error) {
+      this._handleError(res, error, 'searchStarterPacks');
+    }
+  }
+
+  async unmuteThread(req: Request, res: Response) {
+    try {
+      const body = muteThreadSchema.parse(req.body);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      const { mutes } = await storage.getThreadMutes(userDid, 1000);
+      const existing = mutes.find((m) => m.threadRootUri === body.root);
+      if (existing) {
+        await storage.deleteThreadMute(existing.uri);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'unmuteThread');
+    }
+  }
+
+  // Bookmark endpoints – minimal stubs
+  async createBookmark(req: Request, res: Response) {
+    try {
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'createBookmark');
+    }
+  }
+
+  async deleteBookmark(req: Request, res: Response) {
+    try {
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ success: true });
+    } catch (error) {
+      this._handleError(res, error, 'deleteBookmark');
+    }
+  }
+
+  async getBookmarks(req: Request, res: Response) {
+    try {
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      res.json({ bookmarks: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getBookmarks');
+    }
+  }
+
+  // Unspecced minimal responses
+  async getPostThreadV2(req: Request, res: Response) {
+    try {
+      const params = getPostThreadV2Schema.parse(req.query);
+      const posts = await storage.getPostThread(params.anchor);
+      const viewerDid = await this.getAuthenticatedDid(req);
+      const serialized = await this.serializePosts(posts, viewerDid || undefined);
+      res.json({ hasOtherReplies: false, thread: serialized.length ? { $type: 'app.bsky.unspecced.defs#threadItemPost', post: serialized[0] } : null, threadgate: null });
+    } catch (error) {
+      this._handleError(res, error, 'getPostThreadV2');
+    }
+  }
+
+  async getPostThreadOtherV2(req: Request, res: Response) {
+    try {
+      const _ = getPostThreadOtherV2Schema.parse(req.query);
+      res.json({ hasOtherReplies: false, items: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getPostThreadOtherV2');
+    }
+  }
+
+  async getSuggestedUsersUnspecced(req: Request, res: Response) {
+    try {
+      const params = suggestedUsersUnspeccedSchema.parse(req.query);
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+      const users = await storage.getSuggestedUsers(userDid, params.limit);
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl })) });
+    } catch (error) {
+      this._handleError(res, error, 'getSuggestedUsersUnspecced');
+    }
+  }
+
+  async getSuggestedFeedsUnspecced(req: Request, res: Response) {
+    try {
+      const _ = unspeccedNoParamsSchema.parse(req.query);
+      const { generators } = await storage.getSuggestedFeeds(10);
+      res.json({ feeds: generators.map((g) => g.uri) });
+    } catch (error) {
+      this._handleError(res, error, 'getSuggestedFeedsUnspecced');
+    }
+  }
+
+  async getOnboardingSuggestedStarterPacks(req: Request, res: Response) {
+    try {
+      const _ = unspeccedNoParamsSchema.parse(req.query);
+      res.json({ starterPacks: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getOnboardingSuggestedStarterPacks');
+    }
+  }
+
+  async getTaggedSuggestions(req: Request, res: Response) {
+    try {
+      const _ = unspeccedNoParamsSchema.parse(req.query);
+      res.json({ suggestions: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getTaggedSuggestions');
+    }
+  }
+
+  async getTrendingTopics(req: Request, res: Response) {
+    try {
+      const _ = unspeccedNoParamsSchema.parse(req.query);
+      res.json({ topics: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getTrendingTopics');
+    }
+  }
+
+  async getTrends(req: Request, res: Response) {
+    try {
+      const _ = unspeccedNoParamsSchema.parse(req.query);
+      res.json({ trends: [] });
+    } catch (error) {
+      this._handleError(res, error, 'getTrends');
+    }
+  }
+
+  async getUnspeccedConfig(req: Request, res: Response) {
+    try {
+      res.json({ liveNowConfig: { enabled: false } });
+    } catch (error) {
+      this._handleError(res, error, 'getUnspeccedConfig');
+    }
+  }
+
+  async getAgeAssuranceState(req: Request, res: Response) {
+    try {
+      res.json({ state: 'unknown' });
+    } catch (error) {
+      this._handleError(res, error, 'getAgeAssuranceState');
+    }
+  }
+
+  async initAgeAssurance(req: Request, res: Response) {
+    try {
+      res.json({ ok: true });
+    } catch (error) {
+      this._handleError(res, error, 'initAgeAssurance');
     }
   }
 
