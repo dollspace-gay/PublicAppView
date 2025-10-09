@@ -28,6 +28,7 @@ import {
   adminLimiter,
   deletionLimiter,
 } from "./middleware/rate-limit";
+import { xrpcProxyMiddleware } from "./middleware/xrpc-proxy";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -188,6 +189,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (claimed.length > 0) {
                 console.log(`[REDIS] Worker ${workerId} pipeline ${pipelineId} auto-claimed ${claimed.length} pending messages`);
                 events = [...events, ...claimed];
+              }
+            }
+            
+            // MONITORING: Check queue depth every 10 seconds and alert if critical
+            if (iterationCount % 100 === 0) { // ~100 iterations × 100ms = 10 seconds
+              const queueDepth = await redisQueue.getQueueDepth();
+              if (queueDepth > 250000) { // Critical: >50% of max buffer (500k)
+                console.error(`[REDIS] CRITICAL: Queue depth at ${queueDepth} - workers falling behind!`);
+                logCollector.error('Redis queue depth critical - workers cannot keep up', { 
+                  queueDepth, 
+                  workerId, 
+                  pipelineId 
+                });
+              } else if (queueDepth > 100000) { // Warning: >20% of buffer
+                console.warn(`[REDIS] WARNING: Queue depth at ${queueDepth} - consider scaling workers`);
               }
             }
             
@@ -531,7 +547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.days > 3) {
         const { repoBackfillService } = await import("./services/repo-backfill");
         
-        repoBackfillService.backfillSingleRepo(userDid, false).then(() => {
+        repoBackfillService.backfillSingleRepo(userDid, data.days).then(() => {
           console.log(`[USER_BACKFILL] Completed repository backfill for ${userDid}`);
         }).catch((error: Error) => {
           console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
@@ -1843,7 +1859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[API] Starting repo backfill for ${data.did}...`);
       // Skip date check for test endpoint to allow testing even when BACKFILL_DAYS=0
-      await repoBackfillService.backfillSingleRepo(data.did, true);
+      await repoBackfillService.backfillSingleRepo(data.did);
       
       const progress = repoBackfillService.getProgress();
       res.json({ 
@@ -1896,8 +1912,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced profile endpoints
   app.get("/xrpc/app.bsky.actor.getProfiles", xrpcApi.getProfiles.bind(xrpcApi));
   app.get("/xrpc/app.bsky.actor.getSuggestions", xrpcApi.getSuggestions.bind(xrpcApi));
-  app.get("/xrpc/app.bsky.actor.getPreferences", xrpcApi.getPreferences.bind(xrpcApi));
-  app.post("/xrpc/app.bsky.actor.putPreferences", xrpcApi.putPreferences.bind(xrpcApi));
+  app.get(
+    "/xrpc/app.bsky.actor.getPreferences",
+    xrpcApi.getPreferences.bind(xrpcApi),
+  );
+  app.post(
+    "/xrpc/app.bsky.actor.putPreferences",
+    xrpcApi.putPreferences.bind(xrpcApi),
+  );
 
   // Graph endpoints
   app.get("/xrpc/app.bsky.graph.getBlocks", xrpcApi.getBlocks.bind(xrpcApi));
@@ -1929,6 +1951,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/xrpc/app.bsky.notification.putPreferences", xrpcApi.putNotificationPreferences.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
+
+  // XRPC Proxy Middleware - catch-all for unhandled authenticated requests
+  app.use(xrpcProxyMiddleware);
 
   // Health and readiness endpoints for container orchestration
   app.get("/health", (_req, res) => {

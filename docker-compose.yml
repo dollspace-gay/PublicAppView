@@ -3,7 +3,14 @@ version: '3.8'
 services:
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 8gb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    # CRITICAL FIX: Changed eviction policy to prevent firehose stream eviction
+    # - noeviction: Prevents Redis from evicting any keys (including streams) when memory is full
+    #   This ensures firehose events are never lost due to memory pressure
+    # - appendonly yes: Enables AOF persistence for durability across restarts
+    # - appendfsync everysec: Balances performance and durability (sync every second)
+    command: redis-server --maxmemory 8gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data,Z
     ports:
       - "6379:6379"
     healthcheck:
@@ -74,3 +81,4 @@ app:
 
 volumes:
   postgres_data:
+  redis_data:

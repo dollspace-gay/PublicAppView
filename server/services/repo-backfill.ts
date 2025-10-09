@@ -75,15 +75,18 @@ export class RepoBackfillService {
     this.backfillDays = !isNaN(backfillDaysRaw) && backfillDaysRaw >= -1 ? backfillDaysRaw : 0;
   }
 
-  async backfillSingleRepo(did: string, skipDateCheck: boolean = false): Promise<void> {
-    // Set cutoff date if needed (unless skipped for testing)
-    if (!skipDateCheck && this.backfillDays > 0) {
+  async backfillSingleRepo(did: string, days?: number): Promise<void> {
+    // If 'days' is provided, use it. Otherwise, fall back to the instance-level setting.
+    const backfillDuration = days !== undefined ? days : this.backfillDays;
+
+    // Set cutoff date if needed
+    if (backfillDuration > 0) {
       this.cutoffDate = new Date();
-      this.cutoffDate.setDate(this.cutoffDate.getDate() - this.backfillDays);
-      console.log(`[REPO_BACKFILL] Cutoff date: ${this.cutoffDate.toISOString()}`);
+      this.cutoffDate.setDate(this.cutoffDate.getDate() - backfillDuration);
+      console.log(`[REPO_BACKFILL] Cutoff date for ${did}: ${this.cutoffDate.toISOString()} (${backfillDuration} days)`);
     } else {
       this.cutoffDate = null;
-      console.log(`[REPO_BACKFILL] No cutoff date (fetching all records)`);
+      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (fetching all records)`);
     }
 
     console.log(`[REPO_BACKFILL] Fetching complete repository for ${did}...`);

@@ -1,6 +1,7 @@
 import { storage, type IStorage } from "../storage";
 import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
+import { didResolver } from "./did-resolver";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
@@ -19,8 +20,20 @@ interface PendingOp {
   enqueuedAt: number;
 }
 
+interface PendingUserOp {
+  type: 'follow' | 'block';
+  payload: InsertFollow | InsertBlock;
+  enqueuedAt: number;
+}
+
 interface PendingListItem {
   payload: InsertListItem;
+  enqueuedAt: number;
+}
+
+interface PendingUserCreationOp {
+  repo: string;
+  op: any;
   enqueuedAt: number;
 }
 
@@ -28,20 +41,32 @@ export class EventProcessor {
   private storage: IStorage;
   private pendingOps: Map<string, PendingOp[]> = new Map();
   private pendingOpIndex: Map<string, string> = new Map(); // opUri -> postUri
+  private pendingUserOps: Map<string, PendingUserOp[]> = new Map(); // userDid -> pending ops
+  private pendingUserOpIndex: Map<string, string> = new Map(); // opUri -> userDid
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
-  private readonly TTL_MS = 10 * 60 * 1000; // 10 minute TTL for cleanup
+  private pendingUserCreationOps: Map<string, PendingUserCreationOp[]> = new Map(); // did -> ops
+  private readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hour TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
+  private totalPendingUserOps = 0; // Counter for pending user ops
   private totalPendingListItems = 0; // Counter for pending list items
+  private totalPendingUserCreationOps = 0;
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
     pendingExpired: 0,
     pendingDropped: 0,
+    pendingUserOpsQueued: 0,
+    pendingUserOpsFlushed: 0,
+    pendingUserOpsExpired: 0,
+    pendingUserOpsDropped: 0,
     pendingListItemsQueued: 0,
     pendingListItemsFlushed: 0,
     pendingListItemsExpired: 0,
     pendingListItemsDropped: 0,
+    pendingUserCreationOpsQueued: 0,
+    pendingUserCreationOpsFlushed: 0,
+    pendingUserCreationOpsExpired: 0,
   };
   private dataCollectionCache = new Map<string, boolean>(); // DID -> dataCollectionForbidden
 
@@ -91,6 +116,7 @@ export class EventProcessor {
     const now = Date.now();
     let expired = 0;
     let expiredListItems = 0;
+    let expiredUserOps = 0;
 
     // Sweep pending likes/reposts
     for (const [postUri, ops] of Array.from(this.pendingOps.entries())) {
@@ -109,6 +135,26 @@ export class EventProcessor {
         this.pendingOps.delete(postUri);
       } else if (validOps.length < ops.length) {
         this.pendingOps.set(postUri, validOps);
+      }
+    }
+
+    // Sweep pending user ops
+    for (const [userDid, ops] of Array.from(this.pendingUserOps.entries())) {
+      const validOps = ops.filter((op: PendingUserOp) => {
+        if (now - op.enqueuedAt > this.TTL_MS) {
+          expiredUserOps++;
+          // Remove from index
+          const opUri = op.payload.uri;
+          this.pendingUserOpIndex.delete(opUri);
+          return false;
+        }
+        return true;
+      });
+
+      if (validOps.length === 0) {
+        this.pendingUserOps.delete(userDid);
+      } else if (validOps.length < ops.length) {
+        this.pendingUserOps.set(userDid, validOps);
       }
     }
 
@@ -134,20 +180,60 @@ export class EventProcessor {
     if (expired > 0) {
       this.totalPendingCount -= expired;
       this.metrics.pendingExpired += expired;
-      // Only log if significant (>10k to reduce noise under heavy load)
-      if (expired > 10000) {
-        console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded, database overload)`);
-      }
+      console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
+    }
+
+    if (expiredUserOps > 0) {
+      this.totalPendingUserOps -= expiredUserOps;
+      this.metrics.pendingUserOpsExpired += expiredUserOps;
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
     }
 
     if (expiredListItems > 0) {
       this.totalPendingListItems -= expiredListItems;
       this.metrics.pendingListItemsExpired += expiredListItems;
-      // Only log if significant (>100 to reduce noise)
-      if (expiredListItems > 100) {
-        console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+    }
+
+    let expiredUserCreationOps = 0;
+    for (const [did, ops] of Array.from(this.pendingUserCreationOps.entries())) {
+      const validOps = ops.filter((op: PendingUserCreationOp) => {
+        if (now - op.enqueuedAt > this.TTL_MS) {
+          expiredUserCreationOps++;
+          return false;
+        }
+        return true;
+      });
+
+      if (validOps.length === 0) {
+        this.pendingUserCreationOps.delete(did);
+      } else if (validOps.length < ops.length) {
+        this.pendingUserCreationOps.set(did, validOps);
       }
     }
+
+    if (expiredUserCreationOps > 0) {
+      this.totalPendingUserCreationOps -= expiredUserCreationOps;
+      this.metrics.pendingUserCreationOpsExpired += expiredUserCreationOps;
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`);
+    }
+  }
+
+  private enqueuePendingUserCreationOp(did: string, repo: string, op: any) {
+    const queue = this.pendingUserCreationOps.get(did) || [];
+
+    const pendingOp: PendingUserCreationOp = {
+      repo,
+      op,
+      enqueuedAt: Date.now(),
+    };
+
+    queue.push(pendingOp);
+    this.pendingUserCreationOps.set(did, queue);
+
+    this.totalPendingUserCreationOps++;
+    this.metrics.pendingUserCreationOpsQueued++;
+    console.log(`[EVENT_PROCESSOR] Queued op for user creation: ${did}`);
   }
 
   private enqueuePending(postUri: string, op: PendingOp) {
@@ -237,6 +323,67 @@ export class EventProcessor {
     }
   }
 
+  private enqueuePendingUserOp(userDid: string, op: PendingUserOp) {
+    const opUri = op.payload.uri;
+
+    if (this.pendingUserOpIndex.has(opUri)) {
+      return;
+    }
+
+    const queue = this.pendingUserOps.get(userDid) || [];
+    queue.push(op);
+    this.pendingUserOps.set(userDid, queue);
+    this.pendingUserOpIndex.set(opUri, userDid);
+    this.totalPendingUserOps++;
+    this.metrics.pendingUserOpsQueued++;
+  }
+
+  private async flushPendingUserOps(userDid: string) {
+    const ops = this.pendingUserOps.get(userDid);
+    if (!ops || ops.length === 0) {
+      return;
+    }
+
+    this.pendingUserOps.delete(userDid);
+
+    for (const op of ops) {
+      try {
+        if (op.type === 'follow') {
+          await this.storage.createFollow(op.payload as InsertFollow);
+        } else if (op.type === 'block') {
+          await this.storage.createBlock(op.payload as InsertBlock);
+        }
+        this.metrics.pendingUserOpsFlushed++;
+        this.pendingUserOpIndex.delete(op.payload.uri);
+        this.totalPendingUserOps--;
+      } catch (error) {
+        // Skip on error
+      }
+    }
+  }
+
+  private cancelPendingUserOp(opUri: string) {
+    const userDid = this.pendingUserOpIndex.get(opUri);
+    if (!userDid) return;
+
+    const queue = this.pendingUserOps.get(userDid);
+    if (!queue) return;
+
+    const filteredQueue = queue.filter(op => op.payload.uri !== opUri);
+    const removed = queue.length - filteredQueue.length;
+
+    if (filteredQueue.length === 0) {
+      this.pendingUserOps.delete(userDid);
+    } else if (removed > 0) {
+      this.pendingUserOps.set(userDid, filteredQueue);
+    }
+
+    if (removed > 0) {
+      this.totalPendingUserOps -= removed;
+      this.pendingUserOpIndex.delete(opUri);
+    }
+  }
+
   private enqueuePendingListItem(listUri: string, item: PendingListItem) {
     const itemUri = item.payload.uri;
     
@@ -288,6 +435,24 @@ export class EventProcessor {
     }
   }
 
+  private async flushPendingUserCreationOps(did: string) {
+    const ops = this.pendingUserCreationOps.get(did);
+    if (!ops || ops.length === 0) {
+      return;
+    }
+
+    this.pendingUserCreationOps.delete(did);
+
+    console.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`);
+
+    for (const pendingOp of ops) {
+      // Reprocess the original commit operation
+      await this.processCommit({ repo: pendingOp.repo, ops: [pendingOp.op] });
+      this.totalPendingUserCreationOps--;
+      this.metrics.pendingUserCreationOpsFlushed++;
+    }
+  }
+
   getMetrics() {
     return {
       ...this.metrics,
@@ -299,15 +464,25 @@ export class EventProcessor {
     try {
       const user = await this.storage.getUser(did);
       if (!user) {
+        // Proactively resolve handle to avoid race conditions where a profile is indexed
+        // before the handle is known, leading to "profile not found" errors.
+        const handle = await didResolver.resolveHandle(did);
         await this.storage.createUser({
           did,
-          handle: did,
+          handle: handle || did, // Fallback to DID if resolution fails
         });
       }
+      // If we reach here, the user *should* exist, either from before or from creation.
+      // Now, flush all pending operations for this user.
+      await this.flushPendingUserOps(did);
+      await this.flushPendingUserCreationOps(did);
       return true;
     } catch (error: any) {
-      // Ignore unique constraint violations (user already exists from parallel insert)
+      // If createUser resulted in a unique constraint violation, it means the user was created
+      // by a parallel process. We can treat this as a success and flush the queues.
       if (error.code === '23505') {
+        await this.flushPendingUserOps(did);
+        await this.flushPendingUserCreationOps(did);
         return true;
       }
       console.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
@@ -339,7 +514,7 @@ export class EventProcessor {
               await this.processPost(uri, cid, repo, record);
               break;
             case "app.bsky.feed.like":
-              await this.processLike(uri, repo, record);
+              await this.processLike(repo, op);
               break;
             case "app.bsky.feed.repost":
               await this.processRepost(uri, repo, record);
@@ -348,7 +523,7 @@ export class EventProcessor {
               await this.processProfile(repo, record);
               break;
             case "app.bsky.graph.follow":
-              await this.processFollow(uri, repo, record);
+              await this.processFollow(repo, op);
               break;
             case "app.bsky.graph.block":
               await this.processBlock(uri, repo, record);
@@ -363,7 +538,7 @@ export class EventProcessor {
               await this.processFeedGenerator(uri, cid, repo, record);
               break;
             case "app.bsky.graph.starterpack":
-              await this.processStarterPack(uri, cid, repo, record);
+              await this.processStarterPack(repo, op);
               break;
             case "app.bsky.labeler.service":
               await this.processLabelerService(uri, cid, repo, record);
@@ -395,17 +570,10 @@ export class EventProcessor {
     const { did, handle } = event;
     
     try {
-      const existingUser = await this.storage.getUser(did);
-      if (existingUser) {
-        await this.storage.updateUser(did, { handle });
-        console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
-      }
-    } catch (error: any) {
-      if (error?.code === '23505') {
-        console.log(`[EVENT_PROCESSOR] Skipped duplicate identity update for ${did}`);
-      } else {
-        console.error(`[EVENT_PROCESSOR] Error processing identity:`, error);
-      }
+      await this.storage.upsertUserHandle(did, handle);
+      console.log(`[IDENTITY] Upserted handle for ${did} to ${handle}`);
+    } catch (error) {
+      console.error(`[EVENT_PROCESSOR] Error processing identity for ${did}:`, error);
     }
   }
 
@@ -494,10 +662,15 @@ export class EventProcessor {
     await this.flushPending(uri);
   }
 
-  private async processLike(uri: string, userDid: string, record: any) {
+  private async processLike(repo: string, op: any) {
+    const { path, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const userDid = repo;
+
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready`);
+      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(userDid, repo, op);
       return;
     }
     
@@ -627,93 +800,134 @@ export class EventProcessor {
   }
 
   private async processProfile(did: string, record: any) {
-    await this.storage.createUser({
-      did,
-      handle: did,
+    // Proactively resolve handle to have it available immediately on profile creation.
+    const handle = await didResolver.resolveHandle(did);
+    const existingUser = await this.storage.getUser(did);
+
+    const profileData = {
+      handle: handle || did, // Fallback to DID if resolution fails
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
-    });
+      bannerUrl: record.banner?.ref?.$link,
+      profileRecord: record,
+    };
+
+    if (existingUser) {
+      await this.storage.updateUser(did, profileData);
+    } else {
+      await this.storage.createUser({ did, ...profileData });
+    }
   }
 
-  private async processFollow(uri: string, followerDid: string, record: any) {
-    const followerReady = await this.ensureUser(followerDid);
-    const followingReady = await this.ensureUser(record.subject);
+  private async processFollow(repo: string, op: any) {
+    const { path, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const followerDid = repo;
 
-    if (!followerReady || !followingReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - users not ready`);
+    // Ensure the user performing the action exists
+    const followerReady = await this.ensureUser(followerDid);
+    if (!followerReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(followerDid, repo, op);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(followerDid)) {
       return;
     }
 
+    const followingDid = record.subject;
     const follow: InsertFollow = {
       uri,
       followerDid,
-      followingDid: record.subject,
+      followingDid,
       createdAt: new Date(record.createdAt),
     };
 
+    // Check if the target user exists
+    const followingUser = await this.storage.getUser(followingDid);
+    if (!followingUser) {
+      this.enqueuePendingUserOp(followingDid, {
+        type: 'follow',
+        payload: follow,
+        enqueuedAt: Date.now(),
+      });
+      return;
+    }
+
+    // Both users exist, proceed with creation
     try {
       await this.storage.createFollow(follow);
-    } catch (error: any) {
-      // Handle foreign key constraint violations gracefully
-      if (error.code === '23503') {
-        console.warn(`[EVENT_PROCESSOR] Foreign key violation for follow ${uri} - will retry later`);
-        return;
-      }
-      throw error;
-    }
-    
-    // Create notification for follow
-    try {
+      // Create notification for follow
       await this.storage.createNotification({
         uri: `${uri}/notification`,
-        recipientDid: record.subject,
+        recipientDid: followingDid,
         authorDid: followerDid,
         reason: 'follow',
         reasonSubject: undefined,
         isRead: false,
         createdAt: new Date(record.createdAt),
       });
-    } catch (error) {
-      console.error(`[NOTIFICATION] Error creating follow notification:`, error);
+    } catch (error: any) {
+      if (error.code === '23503') { // Foreign key violation (race condition)
+        this.enqueuePendingUserOp(followingDid, {
+          type: 'follow',
+          payload: follow,
+          enqueuedAt: Date.now(),
+        });
+      } else if (error.code !== '23505') { // Ignore duplicate errors
+        console.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
+      }
     }
   }
 
   private async processBlock(uri: string, blockerDid: string, record: any) {
+    // Ensure the user performing the action exists
     const blockerReady = await this.ensureUser(blockerDid);
-    const blockedReady = await this.ensureUser(record.subject);
-
-    if (!blockerReady || !blockedReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - users not ready`);
+    if (!blockerReady) {
+      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(blockerDid)) {
       return;
     }
 
+    const blockedDid = record.subject;
     const block: InsertBlock = {
       uri,
       blockerDid,
-      blockedDid: record.subject,
+      blockedDid,
       createdAt: new Date(record.createdAt),
     };
 
+    // Check if the target user exists
+    const blockedUser = await this.storage.getUser(blockedDid);
+    if (!blockedUser) {
+      this.enqueuePendingUserOp(blockedDid, {
+        type: 'block',
+        payload: block,
+        enqueuedAt: Date.now(),
+      });
+      return;
+    }
+
+    // Both users exist, proceed with creation
     try {
       await this.storage.createBlock(block);
     } catch (error: any) {
-      // Handle foreign key constraint violations gracefully
-      if (error.code === '23503') {
-        console.warn(`[EVENT_PROCESSOR] Foreign key violation for block ${uri} - will retry later`);
-        return;
+      if (error.code === '23503') { // Foreign key violation (race condition)
+        this.enqueuePendingUserOp(blockedDid, {
+          type: 'block',
+          payload: block,
+          enqueuedAt: Date.now(),
+        });
+      } else if (error.code !== '23505') { // Ignore duplicate errors
+        console.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
       }
-      throw error;
     }
   }
 
@@ -839,10 +1053,15 @@ export class EventProcessor {
     await this.storage.createFeedGenerator(feedGenerator);
   }
 
-  private async processStarterPack(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processStarterPack(repo: string, op: any) {
+    const { path, cid, record } = op;
+    const uri = `at://${repo}/${path}`;
+    const creatorDid = repo;
+
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready`);
+      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(creatorDid, repo, op);
       return;
     }
     
@@ -893,6 +1112,8 @@ export class EventProcessor {
     // Cancel pending op if it's a like/repost being deleted
     if (collection === "app.bsky.feed.like" || collection === "app.bsky.feed.repost") {
       this.cancelPendingOp(uri);
+    } else if (collection === "app.bsky.graph.follow" || collection === "app.bsky.graph.block") {
+      this.cancelPendingUserOp(uri);
     }
     
     // If it's a post being deleted, clear all pending likes/reposts for it

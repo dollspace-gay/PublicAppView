@@ -504,6 +504,78 @@ export class PDSClient {
       };
     }
   }
+
+  /**
+   * Forwards a raw XRPC request to a PDS.
+   * This is used for proxying methods that are not implemented by the AppView.
+   * It uses a strict allow-list for headers to prevent forwarding problematic ones.
+   */
+  async proxyXRPC(
+    pdsEndpoint: string,
+    method: string,
+    path: string,
+    query: Record<string, any>,
+    accessToken: string,
+    body: any,
+    headers: any,
+  ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
+    const searchParams = new URLSearchParams();
+    for (const key in query) {
+      const value = query[key];
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          searchParams.append(key, item);
+        }
+      } else if (value !== undefined) {
+        searchParams.append(key, String(value));
+      }
+    }
+
+    const queryString = searchParams.toString();
+    const url = `${pdsEndpoint}${path}${queryString ? `?${queryString}` : ''}`;
+
+    // Sanitize headers to prevent forwarding potentially problematic ones.
+    const forwardedHeaders: Record<string, string> = {
+      'authorization': `Bearer ${accessToken}`,
+    };
+    if (headers['accept']) {
+      forwardedHeaders['accept'] = headers['accept'] as string;
+    }
+    if (headers['user-agent']) {
+      forwardedHeaders['user-agent'] = headers['user-agent'] as string;
+    }
+    if (headers['accept-language']) {
+      forwardedHeaders['accept-language'] = headers['accept-language'] as string;
+    }
+
+    const fetchOptions: RequestInit = {
+      method,
+      headers: forwardedHeaders,
+      signal: AbortSignal.timeout(20000),
+    };
+
+    if (method !== 'GET' && body && Object.keys(body).length > 0) {
+      fetchOptions.body = JSON.stringify(body);
+      (fetchOptions.headers as Record<string, string>)['content-type'] = 'application/json';
+    }
+
+    const response = await fetch(url, fetchOptions);
+
+    const responseBody = await response.json().catch(() => response.text());
+
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== 'set-cookie') {
+        responseHeaders[key] = value;
+      }
+    });
+
+    return {
+      status: response.status,
+      headers: responseHeaders,
+      body: responseBody,
+    };
+  }
 }
 
 export const pdsClient = new PDSClient();

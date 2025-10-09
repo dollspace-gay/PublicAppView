@@ -11,7 +11,19 @@ export interface IStorage {
   getUserByHandle(handle: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  upsertUserHandle(did: string, handle: string): Promise<void>;
   getSuggestedUsers(viewerDid?: string, limit?: number): Promise<User[]>;
+  getUserFollowerCount(did: string): Promise<number>;
+  getUsersFollowerCounts(dids: string[]): Promise<Map<string, number>>;
+  getUserFollowingCount(did: string): Promise<number>;
+  getUsersFollowingCounts(dids: string[]): Promise<Map<string, number>>;
+  getUserPostCount(did: string): Promise<number>;
+  getUsersPostCounts(dids: string[]): Promise<Map<string, number>>;
+  getUserListCount(did: string): Promise<number>;
+  getUsersListCounts(dids: string[]): Promise<Map<string, number>>;
+  getUserFeedGeneratorCount(did: string): Promise<number>;
+  getUsersFeedGeneratorCounts(dids: string[]): Promise<Map<string, number>>;
+  getUserProfileRecord(did: string): Promise<any | undefined>;
 
   // Post operations
   getPost(uri: string): Promise<Post | undefined>;
@@ -27,11 +39,15 @@ export interface IStorage {
   deleteLike(uri: string): Promise<void>;
   getPostLikes(postUri: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
   getActorLikes(userDid: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
+  getLikeUri(userDid: string, postUri: string): Promise<string | undefined>;
+  getLikeUris(userDid: string, postUris: string[]): Promise<Map<string, string>>;
 
   // Repost operations
   createRepost(repost: InsertRepost): Promise<Repost>;
   deleteRepost(uri: string): Promise<void>;
   getPostReposts(postUri: string, limit?: number, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }>;
+  getRepostUri(userDid: string, postUri: string): Promise<string | undefined>;
+  getRepostUris(userDid: string, postUris: string[]): Promise<Map<string, string>>;
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
@@ -49,6 +65,11 @@ export interface IStorage {
   createMute(mute: InsertMute): Promise<Mute>;
   deleteMute(uri: string): Promise<void>;
   getMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: Mute[], cursor?: string }>;
+  findMutingListForUser(viewerDid: string, targetDid: string): Promise<List | null>;
+  findMutingListsForUsers(
+    viewerDid: string,
+    targetDids: string[],
+  ): Promise<Map<string, List>>;
   
   // List mute operations
   createListMute(listMute: InsertListMute): Promise<ListMute>;
@@ -73,13 +94,13 @@ export interface IStorage {
   
   // Relationship operations
   getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
-    following: boolean;
-    followedBy: boolean;
-    blocking: boolean;
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
     blockedBy: boolean;
     muting: boolean;
   }>>;
-  getKnownFollowers(actorDid: string, viewerDid: string, limit?: number, cursor?: string): Promise<{ followers: User[], cursor?: string }>;
+  getKnownFollowers(actorDid: string, viewerDid: string, limit?: number, cursor?: string): Promise<{ followers: User[], cursor?: string, count: number }>;
   getSuggestedFollowsByActor(actorDid: string, limit?: number): Promise<User[]>;
 
   // Session operations
@@ -255,6 +276,7 @@ export class DatabaseStorage implements IStorage {
           displayName: sanitized.displayName,
           avatarUrl: sanitized.avatarUrl,
           description: sanitized.description,
+          profileRecord: sanitized.profileRecord,
         },
       })
       .returning();
@@ -262,12 +284,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const sanitized = sanitizeObject(data);
     const [user] = await db
       .update(users)
-      .set(data)
+      .set(sanitized)
       .where(eq(users.did, did))
       .returning();
     return user || undefined;
+  }
+
+  async upsertUserHandle(did: string, handle: string): Promise<void> {
+    await this.db
+      .insert(users)
+      .values({ did, handle })
+      .onConflictDoUpdate({
+        target: users.did,
+        set: { handle },
+      });
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
@@ -302,6 +335,209 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .orderBy(desc(users.createdAt))
       .limit(limit);
+  }
+
+  async getUserFollowerCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(follows)
+      .where(eq(follows.followingDid, did));
+    return result.count;
+  }
+
+  async getUsersFollowerCounts(dids: string[]): Promise<Map<string, number>> {
+    if (dids.length === 0) return new Map();
+    const results = await this.db
+      .select({
+        did: follows.followingDid,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(follows)
+      .where(inArray(follows.followingDid, dids))
+      .groupBy(follows.followingDid);
+    return new Map(results.map((r) => [r.did, r.count]));
+  }
+
+  async getUserFollowingCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(follows)
+      .where(eq(follows.followerDid, did));
+    return result.count;
+  }
+
+  async getUsersFollowingCounts(dids: string[]): Promise<Map<string, number>> {
+    if (dids.length === 0) return new Map();
+    const results = await this.db
+      .select({
+        did: follows.followerDid,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(follows)
+      .where(inArray(follows.followerDid, dids))
+      .groupBy(follows.followerDid);
+    return new Map(results.map((r) => [r.did, r.count]));
+  }
+
+  async getUserPostCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(posts)
+      .where(eq(posts.authorDid, did));
+    return result.count;
+  }
+
+  async getUsersPostCounts(dids: string[]): Promise<Map<string, number>> {
+    if (dids.length === 0) return new Map();
+    const results = await this.db
+      .select({
+        did: posts.authorDid,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(posts)
+      .where(inArray(posts.authorDid, dids))
+      .groupBy(posts.authorDid);
+    return new Map(results.map((r) => [r.did, r.count]));
+  }
+
+  async getUserListCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(lists)
+      .where(eq(lists.creatorDid, did));
+    return result.count;
+  }
+
+  async getUsersListCounts(dids: string[]): Promise<Map<string, number>> {
+    if (dids.length === 0) return new Map();
+    const results = await this.db
+      .select({
+        did: lists.creatorDid,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(lists)
+      .where(inArray(lists.creatorDid, dids))
+      .groupBy(lists.creatorDid);
+    return new Map(results.map((r) => [r.did, r.count]));
+  }
+
+  async getUserFeedGeneratorCount(did: string): Promise<number> {
+    const [result] = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(feedGenerators)
+      .where(eq(feedGenerators.creatorDid, did));
+    return result.count;
+  }
+
+  async getUsersFeedGeneratorCounts(
+    dids: string[],
+  ): Promise<Map<string, number>> {
+    if (dids.length === 0) return new Map();
+    const results = await this.db
+      .select({
+        did: feedGenerators.creatorDid,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(feedGenerators)
+      .where(inArray(feedGenerators.creatorDid, dids))
+      .groupBy(feedGenerators.creatorDid);
+    return new Map(results.map((r) => [r.did, r.count]));
+  }
+
+  async getUserProfileRecord(did: string): Promise<any | undefined> {
+    const [user] = await this.db
+      .select({ profileRecord: users.profileRecord })
+      .from(users)
+      .where(eq(users.did, did))
+      .limit(1);
+
+    return user ? user.profileRecord : undefined;
+  }
+
+  async findMutingListForUser(viewerDid: string, targetDid: string): Promise<List | null> {
+    const mutedLists = await this.db.select({ listUri: listMutes.listUri })
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, viewerDid));
+
+    if (mutedLists.length === 0) return null;
+
+    const listUris = mutedLists.map(l => l.listUri);
+
+    const [listItemRecord] = await this.db.select({ listUri: listItems.listUri })
+      .from(listItems)
+      .where(and(
+        eq(listItems.subjectDid, targetDid),
+        inArray(listItems.listUri, listUris)
+      ))
+      .limit(1);
+
+    if (!listItemRecord) return null;
+
+    const list = await this.getList(listItemRecord.listUri);
+    return list || null;
+  }
+
+  async findMutingListsForUsers(
+    viewerDid: string,
+    targetDids: string[],
+  ): Promise<Map<string, List>> {
+    if (targetDids.length === 0) {
+      return new Map();
+    }
+
+    const mutedListRecords = await this.db
+      .select({ listUri: listMutes.listUri })
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, viewerDid));
+
+    if (mutedListRecords.length === 0) {
+      return new Map();
+    }
+
+    const mutedListUris = mutedListRecords.map((l) => l.listUri);
+
+    const listMembership = await this.db
+      .select({
+        listUri: listItems.listUri,
+        subjectDid: listItems.subjectDid,
+      })
+      .from(listItems)
+      .where(
+        and(
+          inArray(listItems.subjectDid, targetDids),
+          inArray(listItems.listUri, mutedListUris),
+        ),
+      );
+
+    if (listMembership.length === 0) {
+      return new Map();
+    }
+
+    // A user could be in multiple muted lists. We only need to return one.
+    const userToListUri = new Map<string, string>();
+    for (const item of listMembership) {
+      if (!userToListUri.has(item.subjectDid)) {
+        userToListUri.set(item.subjectDid, item.listUri);
+      }
+    }
+
+    const listsToFetch = Array.from(new Set(userToListUri.values()));
+    const fetchedLists = await this.db
+      .select()
+      .from(lists)
+      .where(inArray(lists.uri, listsToFetch));
+
+    const listsByUri = new Map(fetchedLists.map((l) => [l.uri, l]));
+    const result = new Map<string, List>();
+
+    userToListUri.forEach((listUri, did) => {
+      const list = listsByUri.get(listUri);
+      if (list) {
+        result.set(did, list);
+      }
+    });
+
+    return result;
   }
 
   async getPost(uri: string): Promise<Post | undefined> {
@@ -427,6 +663,26 @@ export class DatabaseStorage implements IStorage {
     return { likes: items, cursor: nextCursor };
   }
 
+  async getLikeUri(userDid: string, postUri: string): Promise<string | undefined> {
+    const [like] = await this.db.select({ uri: likes.uri })
+      .from(likes)
+      .where(and(
+        eq(likes.userDid, userDid),
+        eq(likes.postUri, postUri)
+      ))
+      .limit(1);
+    return like?.uri;
+  }
+
+  async getLikeUris(userDid: string, postUris: string[]): Promise<Map<string, string>> {
+    if (postUris.length === 0) return new Map();
+    const results = await this.db
+      .select({ uri: likes.uri, postUri: likes.postUri })
+      .from(likes)
+      .where(and(eq(likes.userDid, userDid), inArray(likes.postUri, postUris)));
+    return new Map(results.map((r) => [r.postUri, r.uri]));
+  }
+
   async createRepost(repost: InsertRepost): Promise<Repost> {
     const sanitized = sanitizeObject(repost);
     const [newRepost] = await this.db
@@ -460,6 +716,28 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
 
     return { reposts: items, cursor: nextCursor };
+  }
+
+  async getRepostUri(userDid: string, postUri: string): Promise<string | undefined> {
+    const [repost] = await this.db.select({ uri: reposts.uri })
+      .from(reposts)
+      .where(and(
+        eq(reposts.userDid, userDid),
+        eq(reposts.postUri, postUri)
+      ))
+      .limit(1);
+    return repost?.uri;
+  }
+
+  async getRepostUris(userDid: string, postUris: string[]): Promise<Map<string, string>> {
+    if (postUris.length === 0) return new Map();
+    const results = await this.db
+      .select({ uri: reposts.uri, postUri: reposts.postUri })
+      .from(reposts)
+      .where(
+        and(eq(reposts.userDid, userDid), inArray(reposts.postUri, postUris)),
+      );
+    return new Map(results.map((r) => [r.postUri, r.uri]));
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
@@ -723,28 +1001,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
-    following: boolean;
-    followedBy: boolean;
-    blocking: boolean;
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
     blockedBy: boolean;
     muting: boolean;
   }>> {
     if (targetDids.length === 0) return new Map();
 
     const [followingList, followersList, blockingList, blockedByList, mutingList] = await Promise.all([
-      this.db.select({ did: follows.followingDid })
+      this.db.select({ did: follows.followingDid, uri: follows.uri })
         .from(follows)
         .where(and(
           eq(follows.followerDid, viewerDid),
           inArray(follows.followingDid, targetDids)
         )),
-      this.db.select({ did: follows.followerDid })
+      this.db.select({ did: follows.followerDid, uri: follows.uri })
         .from(follows)
         .where(and(
           eq(follows.followingDid, viewerDid),
           inArray(follows.followerDid, targetDids)
         )),
-      this.db.select({ did: blocks.blockedDid })
+      this.db.select({ did: blocks.blockedDid, uri: blocks.uri })
         .from(blocks)
         .where(and(
           eq(blocks.blockerDid, viewerDid),
@@ -764,18 +1042,18 @@ export class DatabaseStorage implements IStorage {
         )),
     ]);
 
-    const followingSet = new Set(followingList.map(f => f.did));
-    const followersSet = new Set(followersList.map(f => f.did));
-    const blockingSet = new Set(blockingList.map(b => b.did));
+    const followingMap = new Map(followingList.map(f => [f.did, f.uri]));
+    const followersMap = new Map(followersList.map(f => [f.did, f.uri]));
+    const blockingMap = new Map(blockingList.map(b => [b.did, b.uri]));
     const blockedBySet = new Set(blockedByList.map(b => b.did));
     const mutingSet = new Set(mutingList.map(m => m.did));
 
     const relationships = new Map();
     for (const targetDid of targetDids) {
       relationships.set(targetDid, {
-        following: followingSet.has(targetDid),
-        followedBy: followersSet.has(targetDid),
-        blocking: blockingSet.has(targetDid),
+        following: followingMap.get(targetDid),
+        followedBy: followersMap.get(targetDid),
+        blocking: blockingMap.get(targetDid),
         blockedBy: blockedBySet.has(targetDid),
         muting: mutingSet.has(targetDid),
       });
@@ -784,23 +1062,34 @@ export class DatabaseStorage implements IStorage {
     return relationships;
   }
 
-  async getKnownFollowers(actorDid: string, viewerDid: string, limit = 50, cursor?: string): Promise<{ followers: User[], cursor?: string }> {
+  async getKnownFollowers(actorDid: string, viewerDid: string, limit = 50, cursor?: string): Promise<{ followers: User[], cursor?: string, count: number }> {
     // Compute intersection in SQL: Find users who follow the actor AND are followed by the viewer
     // This scales properly and supports true cursor pagination
     
     // Use raw SQL with proper table aliasing for the self-join
     const cursorCondition = cursor ? sql`AND u.indexed_at < ${new Date(cursor)}` : sql``;
+
+    // Run two queries: one for the total count, one for the paginated results
+    const [countResult, results] = await Promise.all([
+      this.db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)
+        FROM users u
+        INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
+        INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
+      `),
+      this.db.execute(sql`
+        SELECT u.did, u.handle, u.display_name, u.avatar_url, u.banner_url, u.description, u.indexed_at, u.profile_record, u.created_at
+        FROM users u
+        INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
+        INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
+        WHERE 1=1 ${cursorCondition}
+        ORDER BY u.indexed_at DESC
+        LIMIT ${limit + 1}
+      `)
+    ]);
     
-    const results = await this.db.execute(sql`
-      SELECT u.did, u.handle, u.display_name, u.avatar_url, u.description, u.indexed_at
-      FROM users u
-      INNER JOIN follows f1 ON u.did = f1.follower_did AND f1.following_did = ${actorDid}
-      INNER JOIN follows f2 ON u.did = f2.following_did AND f2.follower_did = ${viewerDid}
-      WHERE 1=1 ${cursorCondition}
-      ORDER BY u.indexed_at DESC
-      LIMIT ${limit + 1}
-    `);
-    
+    const totalCount = parseInt(countResult.rows[0]?.count || '0', 10);
+
     const rows = results.rows as any[];
     const hasMore = rows.length > limit;
     const followers: User[] = (hasMore ? rows.slice(0, limit) : rows).map(row => ({
@@ -808,15 +1097,17 @@ export class DatabaseStorage implements IStorage {
       handle: row.handle,
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
+      bannerUrl: row.banner_url,
       description: row.description,
+      profileRecord: row.profile_record,
       searchVector: null,
-      createdAt: new Date(),
+      createdAt: row.created_at,
       indexedAt: row.indexed_at,
     }));
     
     const nextCursor = hasMore ? followers[followers.length - 1].indexedAt.toISOString() : undefined;
 
-    return { followers, cursor: nextCursor };
+    return { followers, cursor: nextCursor, count: totalCount };
   }
 
   async getSuggestedFollowsByActor(actorDid: string, limit = 25): Promise<User[]> {
