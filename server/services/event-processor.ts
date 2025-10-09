@@ -1,6 +1,7 @@
 import { storage, type IStorage } from "../storage";
 import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
+import { didResolver } from "./did-resolver";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
@@ -299,9 +300,12 @@ export class EventProcessor {
     try {
       const user = await this.storage.getUser(did);
       if (!user) {
+        // Proactively resolve handle to avoid race conditions where a profile is indexed
+        // before the handle is known, leading to "profile not found" errors.
+        const handle = await didResolver.resolveHandle(did);
         await this.storage.createUser({
           did,
-          handle: did,
+          handle: handle || did, // Fallback to DID if resolution fails
         });
       }
       return true;
@@ -627,12 +631,15 @@ export class EventProcessor {
   }
 
   private async processProfile(did: string, record: any) {
+    // Proactively resolve handle to have it available immediately on profile creation.
+    const handle = await didResolver.resolveHandle(did);
     await this.storage.createUser({
       did,
-      handle: did,
+      handle: handle || did, // Fallback to DID if resolution fails
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
+      bannerUrl: record.banner?.ref?.$link,
       profileRecord: record,
     });
   }

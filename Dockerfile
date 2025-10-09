@@ -26,9 +26,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Install drizzle-kit and typescript for runtime migrations.
+# Install drizzle-kit, typescript and dotenv for runtime migrations.
 # These are dev dependencies but are needed by the entrypoint script.
-RUN npm install drizzle-kit@0.31.4 typescript
+RUN npm install drizzle-kit@0.31.4 typescript dotenv
 
 # Install PM2 globally for cluster mode
 RUN npm install -g pm2
