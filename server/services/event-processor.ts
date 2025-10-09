@@ -498,12 +498,29 @@ export class EventProcessor {
     try {
       const existingUser = await this.storage.getUser(did);
       if (existingUser) {
-        await this.storage.updateUser(did, { handle });
-        console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
+        // Only update if the handle is different to avoid unnecessary writes
+        if (existingUser.handle !== handle) {
+            await this.storage.updateUser(did, { handle });
+            console.log(`[IDENTITY] Updated handle for ${did} to ${handle}`);
+        }
+      } else {
+        // User doesn't exist, create a new record with the handle.
+        // The full profile details will be populated later by a profile event.
+        await this.storage.createUser({ did, handle });
+        console.log(`[IDENTITY] Created new user via identity event: ${did} -> ${handle}`);
       }
     } catch (error: any) {
+      // The createUser call can fail with a unique constraint violation if another process
+      // creates the user between our `getUser` and `createUser` calls (a race condition).
+      // If this happens, we can try to update the handle just in case the other process
+      // didn't have the latest handle.
       if (error?.code === '23505') {
-        console.log(`[EVENT_PROCESSOR] Skipped duplicate identity update for ${did}`);
+        try {
+          await this.storage.updateUser(did, { handle });
+          console.log(`[IDENTITY] Updated handle for ${did} to ${handle} after race condition.`);
+        } catch (updateError) {
+           console.error(`[EVENT_PROCESSOR] Error updating handle for ${did} after identity race condition:`, updateError);
+        }
       } else {
         console.error(`[EVENT_PROCESSOR] Error processing identity:`, error);
       }
