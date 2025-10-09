@@ -221,6 +221,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Run all pipelines concurrently (don't await - let them run in background)
     Promise.allSettled(consumerPipelines);
+    
+    // Start periodic retry mechanism for pending operations
+    setInterval(async () => {
+      try {
+        const retriedCount = await eventProcessor.retryPendingOperations();
+        if (retriedCount > 0) {
+          console.log(`[REDIS] Retried ${retriedCount} pending operations`);
+        }
+      } catch (error) {
+        console.error(`[REDIS] Error during retry cycle:`, error);
+      }
+    }, 30000); // Retry every 30 seconds
   }
 
   // WebDID endpoint - Serve DID document for did:web resolution
@@ -337,8 +349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ensure user exists in database
       const existingUser = await storage.getUser(did);
       if (!existingUser) {
-        const result2 = await didResolver.resolveHandleToPDS(did);
-        const handle = result2?.did === did ? result2.pdsEndpoint.split('@')[1] : did;
+        // Resolve DID to get handle
+        const handle = await didResolver.resolveDIDToHandle(did);
         
         await storage.createUser({
           did,
@@ -1844,6 +1856,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[ADMIN] Failed to remove label:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to remove label" });
+    }
+  });
+
+  // Retry pending operations (admin only)
+  app.post("/api/admin/retry-pending", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const retriedCount = await eventProcessor.retryPendingOperations();
+      res.json({ 
+        success: true, 
+        message: `Retried ${retriedCount} pending operations`,
+        retriedCount 
+      });
+    } catch (error) {
+      console.error("[ADMIN] Failed to retry pending operations:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to retry pending operations" });
+    }
+  });
+
+  // Get pending operations metrics (admin only)
+  app.get("/api/admin/pending-metrics", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const metrics = eventProcessor.getMetrics();
+      res.json({ success: true, metrics });
+    } catch (error) {
+      console.error("[ADMIN] Failed to get pending metrics:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get pending metrics" });
     }
   });
 
