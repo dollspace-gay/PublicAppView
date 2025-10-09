@@ -457,20 +457,104 @@ export class EventProcessor {
     return {
       ...this.metrics,
       pendingCount: this.totalPendingCount,
+      pendingUserOpsCount: this.totalPendingUserOps,
+      pendingListItemsCount: this.totalPendingListItems,
+      pendingUserCreationOpsCount: this.totalPendingUserCreationOps,
     };
+  }
+
+  /**
+   * Retry processing pending operations for users that might now have their data available
+   */
+  async retryPendingOperations() {
+    console.log(`[EVENT_PROCESSOR] Retrying pending operations...`);
+    
+    let retriedCount = 0;
+    
+    // Retry pending user creation operations
+    for (const [did, ops] of Array.from(this.pendingUserCreationOps.entries())) {
+      try {
+        // Check if user now exists
+        const user = await this.storage.getUser(did);
+        if (user) {
+          // User exists, flush the operations
+          await this.flushPendingUserCreationOps(did);
+          retriedCount += ops.length;
+        }
+      } catch (error) {
+        console.error(`[EVENT_PROCESSOR] Error retrying user creation ops for ${did}:`, error);
+      }
+    }
+    
+    // Retry pending user operations
+    for (const [userDid, ops] of Array.from(this.pendingUserOps.entries())) {
+      try {
+        // Check if user now exists
+        const user = await this.storage.getUser(userDid);
+        if (user) {
+          // User exists, flush the operations
+          await this.flushPendingUserOps(userDid);
+          retriedCount += ops.length;
+        }
+      } catch (error) {
+        console.error(`[EVENT_PROCESSOR] Error retrying user ops for ${userDid}:`, error);
+      }
+    }
+    
+    // Retry pending list items
+    for (const [listUri, items] of Array.from(this.pendingListItems.entries())) {
+      try {
+        // Check if list now exists
+        const list = await this.storage.getList(listUri);
+        if (list) {
+          // List exists, flush the items
+          await this.flushPendingListItems(listUri);
+          retriedCount += items.length;
+        }
+      } catch (error) {
+        console.error(`[EVENT_PROCESSOR] Error retrying list items for ${listUri}:`, error);
+      }
+    }
+    
+    // Retry pending likes/reposts
+    for (const [postUri, ops] of Array.from(this.pendingOps.entries())) {
+      try {
+        // Check if post now exists
+        const post = await this.storage.getPost(postUri);
+        if (post) {
+          // Post exists, flush the operations
+          await this.flushPending(postUri);
+          retriedCount += ops.length;
+        }
+      } catch (error) {
+        console.error(`[EVENT_PROCESSOR] Error retrying pending ops for ${postUri}:`, error);
+      }
+    }
+    
+    if (retriedCount > 0) {
+      console.log(`[EVENT_PROCESSOR] Successfully retried ${retriedCount} pending operations`);
+    }
+    
+    return retriedCount;
   }
 
   private async ensureUser(did: string): Promise<boolean> {
     try {
       const user = await this.storage.getUser(did);
       if (!user) {
-        // Proactively resolve handle to avoid race conditions where a profile is indexed
-        // before the handle is known, leading to "profile not found" errors.
-        const handle = await didResolver.resolveHandle(did);
+        // Resolve DID to get handle from DID document
+        const handle = await didResolver.resolveDIDToHandle(did);
+        
         await this.storage.createUser({
           did,
-          handle: handle || did, // Fallback to DID if resolution fails
+          handle: handle || did, // Use resolved handle or fallback to DID
         });
+        
+        if (handle) {
+          console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        } else {
+          console.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
+        }
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -800,12 +884,13 @@ export class EventProcessor {
   }
 
   private async processProfile(did: string, record: any) {
-    // Proactively resolve handle to have it available immediately on profile creation.
-    const handle = await didResolver.resolveHandle(did);
+    // Resolve DID to get handle from DID document
+    const handle = await didResolver.resolveDIDToHandle(did);
+    
     const existingUser = await this.storage.getUser(did);
 
     const profileData = {
-      handle: handle || did, // Fallback to DID if resolution fails
+      handle: handle || did, // Use resolved handle or fallback to DID
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
@@ -815,8 +900,16 @@ export class EventProcessor {
 
     if (existingUser) {
       await this.storage.updateUser(did, profileData);
+      if (handle) {
+        console.log(`[EVENT_PROCESSOR] Updated user ${did} with handle ${handle}`);
+      }
     } else {
       await this.storage.createUser({ did, ...profileData });
+      if (handle) {
+        console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+      } else {
+        console.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
+      }
     }
   }
 
