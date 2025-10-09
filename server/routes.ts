@@ -532,7 +532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.days > 3) {
         const { repoBackfillService } = await import("./services/repo-backfill");
         
-        repoBackfillService.backfillSingleRepo(userDid, false).then(() => {
+        repoBackfillService.backfillSingleRepo(userDid, data.days).then(() => {
           console.log(`[USER_BACKFILL] Completed repository backfill for ${userDid}`);
         }).catch((error: Error) => {
           console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
@@ -1844,7 +1844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`[API] Starting repo backfill for ${data.did}...`);
       // Skip date check for test endpoint to allow testing even when BACKFILL_DAYS=0
-      await repoBackfillService.backfillSingleRepo(data.did, true);
+      await repoBackfillService.backfillSingleRepo(data.did);
       
       const progress = repoBackfillService.getProgress();
       res.json({ 
