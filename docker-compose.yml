@@ -9,8 +9,6 @@ services:
     # - appendonly yes: Enables AOF persistence for durability across restarts
     # - appendfsync everysec: Balances performance and durability (sync every second)
     command: redis-server --maxmemory 8gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_data:/data,Z
     ports:
       - "6379:6379"
     healthcheck:
@@ -40,7 +38,7 @@ services:
     restart: unless-stopped
     shm_size: 10gb
 
- app:
+  app:
     volumes:
       # Mount the secret keys (read-only)
       - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
@@ -81,4 +79,3 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
