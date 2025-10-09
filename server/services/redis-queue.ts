@@ -136,12 +136,14 @@ class RedisQueue {
 
     try {
       // Use XADD to append to stream with maxlen to prevent infinite growth
-      // Keep last 100k events in stream (auto-trim older ones)
+      // INCREASED: Keep last 500k events in stream (up from 100k) to provide larger buffer
+      // This prevents data loss if workers temporarily fall behind during high load
+      // Approximate trimming (~) is more efficient than exact trimming
       await this.redis.xadd(
         this.STREAM_KEY,
         "MAXLEN",
         "~",
-        "100000",
+        "500000",
         "*",
         "type",
         event.type,
