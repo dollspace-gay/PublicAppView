@@ -39,7 +39,7 @@ export class EventProcessor {
   private pendingUserOpIndex: Map<string, string> = new Map(); // opUri -> userDid
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
-  private readonly TTL_MS = 10 * 60 * 1000; // 10 minute TTL for cleanup
+  private readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hour TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
   private totalPendingUserOps = 0; // Counter for pending user ops
   private totalPendingListItems = 0; // Counter for pending list items
@@ -169,27 +169,19 @@ export class EventProcessor {
     if (expired > 0) {
       this.totalPendingCount -= expired;
       this.metrics.pendingExpired += expired;
-      // Only log if significant (>10k to reduce noise under heavy load)
-      if (expired > 10000) {
-        console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded, database overload)`);
-      }
+      console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
     }
 
     if (expiredUserOps > 0) {
       this.totalPendingUserOps -= expiredUserOps;
       this.metrics.pendingUserOpsExpired += expiredUserOps;
-      if (expiredUserOps > 100) {
-        console.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
-      }
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
     }
 
     if (expiredListItems > 0) {
       this.totalPendingListItems -= expiredListItems;
       this.metrics.pendingListItemsExpired += expiredListItems;
-      // Only log if significant (>100 to reduce noise)
-      if (expiredListItems > 100) {
-        console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
-      }
+      console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
     }
   }
 
