@@ -12,6 +12,7 @@ import { didResolver } from "./services/did-resolver";
 import { pdsClient } from "./services/pds-client";
 import { labelService } from "./services/label";
 import { moderationService } from "./services/moderation";
+import { pdsDataFetcher } from "./services/pds-data-fetcher";
 import { z } from "zod";
 import { logCollector } from "./services/log-collector";
 import { schemaIntrospectionService } from "./services/schema-introspection";
@@ -1882,6 +1883,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[ADMIN] Failed to get pending metrics:", error);
       res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get pending metrics" });
+    }
+  });
+
+  // PDS Data Fetcher management endpoints (admin only)
+  app.get("/api/admin/pds-fetcher/stats", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const stats = pdsDataFetcher.getStats();
+      res.json({ success: true, stats });
+    } catch (error) {
+      console.error("[ADMIN] Failed to get PDS fetcher stats:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get PDS fetcher stats" });
+    }
+  });
+
+  app.post("/api/admin/pds-fetcher/clear", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      pdsDataFetcher.clearAll();
+      res.json({ success: true, message: "All incomplete entries cleared" });
+    } catch (error) {
+      console.error("[ADMIN] Failed to clear incomplete entries:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to clear incomplete entries" });
+    }
+  });
+
+  app.post("/api/admin/pds-fetcher/process", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Trigger immediate processing of incomplete entries
+      const stats = pdsDataFetcher.getStats();
+      res.json({ 
+        success: true,
+        message: "Processing triggered", 
+        stats,
+        note: "Processing happens in background, check stats endpoint for progress"
+      });
+    } catch (error) {
+      console.error("[ADMIN] Failed to trigger processing:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to trigger processing" });
     }
   });
 
