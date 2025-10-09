@@ -192,6 +192,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
             
+            // MONITORING: Check queue depth every 10 seconds and alert if critical
+            if (iterationCount % 100 === 0) { // ~100 iterations × 100ms = 10 seconds
+              const queueDepth = await redisQueue.getQueueDepth();
+              if (queueDepth > 250000) { // Critical: >50% of max buffer (500k)
+                console.error(`[REDIS] CRITICAL: Queue depth at ${queueDepth} - workers falling behind!`);
+                logCollector.error('Redis queue depth critical - workers cannot keep up', { 
+                  queueDepth, 
+                  workerId, 
+                  pipelineId 
+                });
+              } else if (queueDepth > 100000) { // Warning: >20% of buffer
+                console.warn(`[REDIS] WARNING: Queue depth at ${queueDepth} - consider scaling workers`);
+              }
+            }
+            
             if (events.length > 0) {
               // Process all events in batch with Promise.allSettled for fault tolerance
               await Promise.allSettled(events.map(processEvent));
