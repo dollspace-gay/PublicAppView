@@ -29,6 +29,7 @@ interface MetricsData {
     totalLikes: number;
     totalReposts: number;
     totalFollows: number;
+    activeUsers?: number;
   };
   eventCounts: {
     "#commit": number;
@@ -201,7 +202,7 @@ export default function Dashboard() {
               eventsProcessed={metrics.eventsProcessed}
               dbRecords={metrics.dbRecords}
               apiRequests={metrics.apiRequestsPerMinute}
-              activeUsers={metrics.stats.totalUsers}
+              activeUsers={metrics.stats.activeUsers || metrics.stats.totalUsers}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8 mb-8">

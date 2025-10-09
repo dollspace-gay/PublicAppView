@@ -2318,11 +2318,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       reconnectDelay: 1000,
     };
 
+    // Get active users count (users active in last 24 hours)
+    const activeUsers = await storage.getActiveUsersCount();
+
     res.json({
       eventsProcessed: clusterMetrics.totalEvents,
       dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
       apiRequestsPerMinute: metricsService.getApiRequestsPerMinute(),
-      stats,
+      stats: {
+        ...stats,
+        activeUsers, // Add active users to stats
+      },
       eventCounts: clusterMetrics.eventCounts,
       systemHealth,
       firehoseStatus: {

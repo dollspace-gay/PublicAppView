@@ -266,6 +266,10 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const sanitized = sanitizeObject(insertUser);
+    
+    // Check if user already exists first
+    const existingUser = await this.getUser(sanitized.did);
+    
     const [user] = await this.db
       .insert(users)
       .values(sanitized)
@@ -280,6 +284,18 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .returning();
+    
+    // Only increment Redis counter for dashboard metrics if this was a new user
+    if (!existingUser) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('users', 1);
+      } catch (error) {
+        // Silent failure - don't block user creation if Redis is down
+        console.warn("[Storage] Failed to increment user counter:", error);
+      }
+    }
+    
     return user;
   }
 
@@ -294,6 +310,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUserHandle(did: string, handle: string): Promise<void> {
+    // Check if user already exists first
+    const existingUser = await this.getUser(did);
+    
     await this.db
       .insert(users)
       .values({ did, handle })
@@ -301,6 +320,17 @@ export class DatabaseStorage implements IStorage {
         target: users.did,
         set: { handle },
       });
+    
+    // Only increment counter if this was a new user
+    if (!existingUser) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('users', 1);
+      } catch (error) {
+        // Silent failure - don't block user creation if Redis is down
+        console.warn("[Storage] Failed to increment user counter:", error);
+      }
+    }
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
@@ -552,11 +582,32 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Increment Redis counter for dashboard metrics
+    if (newPost) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('posts', 1);
+      } catch (error) {
+        // Silent failure - don't block post creation if Redis is down
+        console.warn("[Storage] Failed to increment post counter:", error);
+      }
+    }
+    
     return newPost;
   }
 
   async deletePost(uri: string): Promise<void> {
     await this.db.delete(posts).where(eq(posts.uri, uri));
+    
+    // Decrement Redis counter for dashboard metrics
+    try {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('posts', -1);
+    } catch (error) {
+      // Silent failure - don't block post deletion if Redis is down
+      console.warn("[Storage] Failed to decrement post counter:", error);
+    }
   }
 
   async getAuthorPosts(authorDid: string, limit = 50, cursor?: string): Promise<Post[]> {
@@ -614,11 +665,32 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Increment Redis counter for dashboard metrics
+    if (newLike) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('likes', 1);
+      } catch (error) {
+        // Silent failure - don't block like creation if Redis is down
+        console.warn("[Storage] Failed to increment like counter:", error);
+      }
+    }
+    
     return newLike;
   }
 
   async deleteLike(uri: string): Promise<void> {
     await this.db.delete(likes).where(eq(likes.uri, uri));
+    
+    // Decrement Redis counter for dashboard metrics
+    try {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('likes', -1);
+    } catch (error) {
+      // Silent failure - don't block like deletion if Redis is down
+      console.warn("[Storage] Failed to decrement like counter:", error);
+    }
   }
 
   async getPostLikes(postUri: string, limit = 100, cursor?: string): Promise<{ likes: Like[], cursor?: string }> {
@@ -690,11 +762,32 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Increment Redis counter for dashboard metrics
+    if (newRepost) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('reposts', 1);
+      } catch (error) {
+        // Silent failure - don't block repost creation if Redis is down
+        console.warn("[Storage] Failed to increment repost counter:", error);
+      }
+    }
+    
     return newRepost;
   }
 
   async deleteRepost(uri: string): Promise<void> {
     await this.db.delete(reposts).where(eq(reposts.uri, uri));
+    
+    // Decrement Redis counter for dashboard metrics
+    try {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('reposts', -1);
+    } catch (error) {
+      // Silent failure - don't block repost deletion if Redis is down
+      console.warn("[Storage] Failed to decrement repost counter:", error);
+    }
   }
 
   async getPostReposts(postUri: string, limit = 100, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }> {
@@ -747,11 +840,32 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Increment Redis counter for dashboard metrics
+    if (newFollow) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('follows', 1);
+      } catch (error) {
+        // Silent failure - don't block follow creation if Redis is down
+        console.warn("[Storage] Failed to increment follow counter:", error);
+      }
+    }
+    
     return newFollow;
   }
 
   async deleteFollow(uri: string): Promise<void> {
     await this.db.delete(follows).where(eq(follows.uri, uri));
+    
+    // Decrement Redis counter for dashboard metrics
+    try {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('follows', -1);
+    } catch (error) {
+      // Silent failure - don't block follow deletion if Redis is down
+      console.warn("[Storage] Failed to decrement follow counter:", error);
+    }
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
@@ -790,11 +904,32 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Increment Redis counter for dashboard metrics
+    if (newBlock) {
+      try {
+        const { redisQueue } = await import("./services/redis-queue");
+        await redisQueue.incrementRecordCount('blocks', 1);
+      } catch (error) {
+        // Silent failure - don't block block creation if Redis is down
+        console.warn("[Storage] Failed to increment block counter:", error);
+      }
+    }
+    
     return newBlock;
   }
 
   async deleteBlock(uri: string): Promise<void> {
     await this.db.delete(blocks).where(eq(blocks.uri, uri));
+    
+    // Decrement Redis counter for dashboard metrics
+    try {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('blocks', -1);
+    } catch (error) {
+      // Silent failure - don't block block deletion if Redis is down
+      console.warn("[Storage] Failed to decrement block counter:", error);
+    }
   }
 
   async getBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: Block[], cursor?: string }> {
@@ -2211,6 +2346,32 @@ export class DatabaseStorage implements IStorage {
         totalFollows: 0,
         totalBlocks: 0,
       };
+    }
+  }
+
+  async getActiveUsersCount(): Promise<number> {
+    try {
+      // Count users who have been active in the last 24 hours
+      // A user is considered active if they have any record (post, like, repost, follow, block) in the last 24 hours
+      const result = await this.db.execute<{ count: number }>(sql`
+        WITH active_users AS (
+          SELECT DISTINCT author_did as user_did FROM posts WHERE indexed_at > NOW() - INTERVAL '24 hours'
+          UNION
+          SELECT DISTINCT user_did FROM likes WHERE indexed_at > NOW() - INTERVAL '24 hours'
+          UNION
+          SELECT DISTINCT user_did FROM reposts WHERE indexed_at > NOW() - INTERVAL '24 hours'
+          UNION
+          SELECT DISTINCT follower_did as user_did FROM follows WHERE indexed_at > NOW() - INTERVAL '24 hours'
+          UNION
+          SELECT DISTINCT blocker_did as user_did FROM blocks WHERE indexed_at > NOW() - INTERVAL '24 hours'
+        )
+        SELECT COUNT(*) as count FROM active_users
+      `);
+      
+      return result.rows[0]?.count || 0;
+    } catch (error) {
+      console.error("[Storage] Failed to get active users count:", error);
+      return 0;
     }
   }
 }
