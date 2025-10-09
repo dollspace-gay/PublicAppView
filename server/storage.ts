@@ -266,6 +266,11 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const sanitized = sanitizeObject(insertUser);
+    
+    // Check if user already exists to determine if this is a new user
+    const existingUser = await this.getUser(sanitized.did);
+    const isNewUser = !existingUser;
+    
     const [user] = await this.db
       .insert(users)
       .values(sanitized)
@@ -280,6 +285,13 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .returning();
+    
+    // Update Redis counter for dashboard metrics (only if this was a new user)
+    if (isNewUser) {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('users');
+    }
+    
     return user;
   }
 
@@ -294,6 +306,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUserHandle(did: string, handle: string): Promise<void> {
+    // Check if user already exists to determine if this is a new user
+    const existingUser = await this.getUser(did);
+    const isNewUser = !existingUser;
+    
     await this.db
       .insert(users)
       .values({ did, handle })
@@ -301,6 +317,12 @@ export class DatabaseStorage implements IStorage {
         target: users.did,
         set: { handle },
       });
+    
+    // Update Redis counter for dashboard metrics (only if this was a new user)
+    if (isNewUser) {
+      const { redisQueue } = await import("./services/redis-queue");
+      await redisQueue.incrementRecordCount('users');
+    }
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
@@ -552,11 +574,20 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('posts');
+    
     return newPost;
   }
 
   async deletePost(uri: string): Promise<void> {
     await this.db.delete(posts).where(eq(posts.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('posts', -1);
   }
 
   async getAuthorPosts(authorDid: string, limit = 50, cursor?: string): Promise<Post[]> {
@@ -614,11 +645,20 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('likes');
+    
     return newLike;
   }
 
   async deleteLike(uri: string): Promise<void> {
     await this.db.delete(likes).where(eq(likes.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('likes', -1);
   }
 
   async getPostLikes(postUri: string, limit = 100, cursor?: string): Promise<{ likes: Like[], cursor?: string }> {
@@ -690,11 +730,20 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('reposts');
+    
     return newRepost;
   }
 
   async deleteRepost(uri: string): Promise<void> {
     await this.db.delete(reposts).where(eq(reposts.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('reposts', -1);
   }
 
   async getPostReposts(postUri: string, limit = 100, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }> {
@@ -747,11 +796,20 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('follows');
+    
     return newFollow;
   }
 
   async deleteFollow(uri: string): Promise<void> {
     await this.db.delete(follows).where(eq(follows.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('follows', -1);
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
@@ -790,11 +848,20 @@ export class DatabaseStorage implements IStorage {
       .values(sanitized)
       .onConflictDoNothing()
       .returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('blocks');
+    
     return newBlock;
   }
 
   async deleteBlock(uri: string): Promise<void> {
     await this.db.delete(blocks).where(eq(blocks.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('blocks', -1);
   }
 
   async getBlocks(blockerDid: string, limit = 100, cursor?: string): Promise<{ blocks: Block[], cursor?: string }> {
@@ -1348,6 +1415,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUserData(userDid: string): Promise<void> {
+    // Count records before deletion for Redis counter updates
+    const [postCount, likeCount, repostCount, followCount, blockCount] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` }).from(posts).where(eq(posts.authorDid, userDid)),
+      db.select({ count: sql<number>`count(*)::int` }).from(likes).where(eq(likes.userDid, userDid)),
+      db.select({ count: sql<number>`count(*)::int` }).from(reposts).where(eq(reposts.userDid, userDid)),
+      db.select({ count: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followerDid, userDid)),
+      db.select({ count: sql<number>`count(*)::int` }).from(blocks).where(eq(blocks.blockerDid, userDid)),
+    ]);
+
     await db.transaction(async (tx) => {
       // Delete all user-generated content
       await tx.delete(posts).where(eq(posts.authorDid, userDid));
@@ -1392,6 +1468,16 @@ export class DatabaseStorage implements IStorage {
       // Note: Labels are NOT deleted - they must be preserved for moderation purposes
       // This ensures the instance can still apply moderation labels even after data deletion
     });
+    
+    // Update Redis counters for deleted records
+    const { redisQueue } = await import("./services/redis-queue");
+    await Promise.all([
+      redisQueue.incrementRecordCount('posts', -postCount[0].count),
+      redisQueue.incrementRecordCount('likes', -likeCount[0].count),
+      redisQueue.incrementRecordCount('reposts', -repostCount[0].count),
+      redisQueue.incrementRecordCount('follows', -followCount[0].count),
+      redisQueue.incrementRecordCount('blocks', -blockCount[0].count),
+    ]);
     
     // Invalidate cache to ensure immediate opt-out enforcement
     const { eventProcessor } = await import("./services/event-processor");
