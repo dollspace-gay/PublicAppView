@@ -1279,22 +1279,58 @@ export class DatabaseStorage implements IStorage {
     const followList = await this.getFollows(userDid);
     const followingDids = followList.map(f => f.followingDid);
     
-    // If user has follows, prioritize posts from followed users
-    // Otherwise, show all posts (for new users or users with no follows)
-    const conditions = followingDids.length > 0 
-      ? [inArray(posts.authorDid, followingDids)]
-      : [];
+    console.log(`[STORAGE_DEBUG] getTimeline for ${userDid}: ${followingDids.length} follows`);
+    
+    if (followingDids.length === 0) {
+      // If user has no follows, show all posts (for new users)
+      console.log(`[STORAGE_DEBUG] No follows, showing all posts`);
+      const conditions = [];
+      if (cursor) {
+        conditions.push(sql`${posts.indexedAt} < ${cursor}`);
+      }
+      
+      const allPosts = await db
+        .select()
+        .from(posts)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(posts.indexedAt))
+        .limit(limit);
+        
+      console.log(`[STORAGE_DEBUG] Retrieved ${allPosts.length} posts from all users`);
+      return allPosts;
+    }
+
+    // AT Protocol compliant timeline: include posts from followed users
+    // and reposts by followed users
+    console.log(`[STORAGE_DEBUG] Following DIDs: ${followingDids.slice(0, 5).join(', ')}${followingDids.length > 5 ? '...' : ''}`);
+    
+    const conditions = [
+      sql`(
+        -- Original posts from followed users
+        ${posts.authorDid} = ANY(${followingDids})
+        OR
+        -- Reposts by followed users
+        EXISTS (
+          SELECT 1 FROM ${reposts} 
+          WHERE ${reposts.userDid} = ANY(${followingDids}) 
+          AND ${reposts.postUri} = ${posts.uri}
+        )
+      )`
+    ];
     
     if (cursor) {
       conditions.push(sql`${posts.indexedAt} < ${cursor}`);
     }
 
-    return await db
+    const timelinePosts = await db
       .select()
       .from(posts)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(posts.indexedAt))
       .limit(limit);
+      
+    console.log(`[STORAGE_DEBUG] Retrieved ${timelinePosts.length} posts from followed users and reposts`);
+    return timelinePosts;
   }
 
   async createSession(session: InsertSession): Promise<Session> {

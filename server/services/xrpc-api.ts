@@ -548,7 +548,15 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
 
+      // Debug: Check user's follows and total posts in database
+      const followList = await storage.getFollows(userDid);
+      const totalPosts = await storage.getStats();
+      
+      console.log(`[TIMELINE_DEBUG] User ${userDid} has ${followList.length} follows, ${totalPosts.totalPosts} total posts in DB`);
+
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
+      
+      console.log(`[TIMELINE_DEBUG] Retrieved ${posts.length} posts for timeline`);
 
       const settings = await storage.getUserSettings(userDid);
       if (settings) {

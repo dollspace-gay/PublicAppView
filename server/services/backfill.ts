@@ -52,7 +52,7 @@ export class BackfillService {
   private batchCounter = 0;
   
   constructor(
-    private relayUrl: string = process.env.RELAY_URL || "wss://bsky.network"
+    private relayUrl: string = process.env.RELAY_URL || "wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos"
   ) {
     // 0 = backfill disabled, -1 = total backfill (all available history), >0 = backfill X days
     const backfillDaysRaw = parseInt(process.env.BACKFILL_DAYS || "0");
