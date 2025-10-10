@@ -1279,11 +1279,11 @@ export class DatabaseStorage implements IStorage {
     const followList = await this.getFollows(userDid);
     const followingDids = followList.map(f => f.followingDid);
     
-    if (followingDids.length === 0) {
-      return [];
-    }
-
-    const conditions = [inArray(posts.authorDid, followingDids)];
+    // If user has follows, prioritize posts from followed users
+    // Otherwise, show all posts (for new users or users with no follows)
+    const conditions = followingDids.length > 0 
+      ? [inArray(posts.authorDid, followingDids)]
+      : [];
     
     if (cursor) {
       conditions.push(sql`${posts.indexedAt} < ${cursor}`);
@@ -1292,7 +1292,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(posts)
-      .where(and(...conditions))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(posts.indexedAt))
       .limit(limit);
   }
