@@ -856,36 +856,11 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // Prefer upstream behavior by proxying to user's PDS if using local session token
-      const token = authService.extractToken(req);
-      const sessionPayload = token ? authService.verifySessionToken(token) : null;
-      if (sessionPayload) {
-        const session = await validateAndRefreshSession(sessionPayload.sessionId);
-        if (!session) return res.status(401).json({ error: 'SessionNotFound' });
-        const pdsEndpoint = session.pdsEndpoint;
-        const proxied = await pdsClient.proxyXRPC(
-          pdsEndpoint,
-          'GET',
-          '/xrpc/app.bsky.actor.getPreferences',
-          req.query as any,
-          session.accessToken,
-          undefined,
-          req.headers,
-        );
-        return res.status(proxied.status).set(proxied.headers).send(proxied.body);
-      }
-
-      // Fallback: local storage (for third-party AT Protocol access tokens)
-      const did = await this.requireAuthDid(req, res);
-      if (!did) return;
-      const prefs = await storage.getUserPreferences(did);
-      const preferences: any[] = [];
-      preferences.push({ $type: 'app.bsky.actor.defs#adultContentPref', enabled: !!prefs?.adultContent });
-      preferences.push({ $type: 'app.bsky.actor.defs#contentLabelPref', labelers: [], values: prefs?.contentLabels ?? {} });
-      preferences.push({ $type: 'app.bsky.actor.defs#feedViewPref', hideReplies: !!(prefs?.feedViewPrefs as any)?.hideReplies, hideReposts: !!(prefs?.feedViewPrefs as any)?.hideReposts, hideQuotePosts: !!(prefs?.feedViewPrefs as any)?.hideQuotePosts });
-      preferences.push({ $type: 'app.bsky.actor.defs#threadViewPref', sort: (prefs?.threadViewPrefs as any)?.sort || 'newest', prioritizeFollowedUsers: !!(prefs?.threadViewPrefs as any)?.prioritizeFollowedUsers });
-      preferences.push({ $type: 'app.bsky.actor.defs#savedFeedsPrefV2', items: Array.isArray(prefs?.savedFeeds) ? prefs!.savedFeeds : [] });
-      res.json({ preferences });
+      // AppViews are read-only and don't store user-specific preferences.
+      // Return a default empty list to satisfy client expectations.
+      res.json({
+        preferences: [],
+      });
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
