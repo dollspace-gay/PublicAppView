@@ -77,6 +77,28 @@ export const starterPackSchema = z.object({
   createdAt: z.string(),
 }).passthrough();
 
+export const listSchema = z.object({
+  $type: z.literal("app.bsky.graph.list"),
+  name: z.string(),
+  purpose: z.string(),
+  description: z.optional(z.string()),
+  avatar: z.optional(z.any()),
+  createdAt: z.string(),
+}).passthrough();
+
+export const listItemSchema = z.object({
+  $type: z.literal("app.bsky.graph.listitem"),
+  list: z.string(),
+  subject: z.string(),
+  createdAt: z.string(),
+}).passthrough();
+
+export const labelerServiceSchema = z.object({
+  $type: z.literal("app.bsky.labeler.service"),
+  policies: z.any(),
+  createdAt: z.string(),
+}).passthrough();
+
 export class LexiconValidator {
   private validCount = 0;
   private invalidCount = 0;
@@ -116,6 +138,18 @@ export class LexiconValidator {
           break;
         case "app.bsky.graph.starterpack":
           starterPackSchema.parse(record);
+          this.validCount++;
+          break;
+        case "app.bsky.graph.list":
+          listSchema.parse(record);
+          this.validCount++;
+          break;
+        case "app.bsky.graph.listitem":
+          listItemSchema.parse(record);
+          this.validCount++;
+          break;
+        case "app.bsky.labeler.service":
+          labelerServiceSchema.parse(record);
           this.validCount++;
           break;
         default:
@@ -166,7 +200,10 @@ export class LexiconValidator {
       { name: "app.bsky.actor.profile", version: "v1.0.0" },
       { name: "app.bsky.graph.follow", version: "v1.0.0" },
       { name: "app.bsky.graph.block", version: "v1.0.0" },
+      { name: "app.bsky.graph.list", version: "v1.0.0" },
+      { name: "app.bsky.graph.listitem", version: "v1.0.0" },
       { name: "app.bsky.graph.starterpack", version: "v1.0.0" },
+      { name: "app.bsky.labeler.service", version: "v1.0.0" },
     ];
   }
 }
