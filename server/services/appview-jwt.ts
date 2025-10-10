@@ -6,6 +6,7 @@
  */
 
 import jwt from "jsonwebtoken";
+import fs from "fs";
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required");
@@ -13,6 +14,7 @@ if (!process.env.SESSION_SECRET) {
 
 const JWT_SECRET = process.env.SESSION_SECRET;
 const JWT_EXPIRY = "5m"; // Short-lived tokens for feed generator requests
+const PRIVATE_KEY_PATH = process.env.APPVIEW_PRIVATE_KEY_PATH || "/app/appview-private.pem";
 
 export interface AppViewJWTPayload {
   iss: string; // Issuer: AppView DID
@@ -23,15 +25,37 @@ export interface AppViewJWTPayload {
 
 export class AppViewJWTService {
   private appViewDid: string;
+  private privateKeyPem: string | null;
+  private signingAlg: "ES256" | "HS256";
 
   constructor() {
     this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+    this.privateKeyPem = null;
+    this.signingAlg = "HS256";
     
     if (!process.env.APPVIEW_DID) {
       console.warn(
         "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.local'. " +
         "Set APPVIEW_DID environment variable for production use."
       );
+    }
+
+    // Prefer ES256 with a mounted private key PEM when available.
+    try {
+      if (fs.existsSync(PRIVATE_KEY_PATH)) {
+        const pem = fs.readFileSync(PRIVATE_KEY_PATH, "utf-8").trim();
+        if (pem.includes("BEGIN EC PRIVATE KEY") || pem.includes("BEGIN PRIVATE KEY")) {
+          this.privateKeyPem = pem;
+          this.signingAlg = "ES256";
+          console.log(`[AppViewJWT] Loaded ES256 private key from ${PRIVATE_KEY_PATH}`);
+        } else {
+          console.warn(`[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`);
+        }
+      } else {
+        console.warn(`[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`);
+      }
+    } catch (err) {
+      console.warn(`[AppViewJWT] Failed to initialize ES256 key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
     }
   }
 
@@ -50,7 +74,15 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    return jwt.sign(payload, JWT_SECRET, { 
+    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    if (this.privateKeyPem) {
+      return jwt.sign(payload, this.privateKeyPem, {
+        algorithm: "ES256",
+        expiresIn: JWT_EXPIRY,
+      });
+    }
+
+    return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
       expiresIn: JWT_EXPIRY,
     });
