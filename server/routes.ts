@@ -2300,12 +2300,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Extract DID from refresh token to find PDS
-      // Note: Refresh tokens from PDS contain the DID - we need to decode it
-      // For now, we'll proxy to a known PDS or require the client to specify
-      // In production, decode JWT to get DID, then resolve to PDS
-      
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      // Decode refresh token to extract DID and resolve the correct PDS
+      const { authService } = await import('./services/auth');
+      const decoded = (await import('jsonwebtoken')).then(m => m.decode(refreshToken) as any);
+      const payload = await decoded;
+      let pdsEndpoint: string | null = null;
+      if (payload?.sub && typeof payload.sub === 'string' && payload.sub.startsWith('did:')) {
+        const { didResolver } = await import('./services/did-resolver');
+        pdsEndpoint = await didResolver.resolveDIDToPDS(payload.sub);
+      }
+      // Fallback if decode failed
+      if (!pdsEndpoint) {
+        pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      }
       
       const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
       
@@ -2338,8 +2345,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get PDS endpoint from token or use default
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      // Resolve the correct PDS from the access token's iss or sub DID
+      const jwt = await import('jsonwebtoken');
+      const payload: any = jwt.decode(accessToken);
+      let pdsEndpoint: string | null = null;
+      if (payload?.iss && typeof payload.iss === 'string') {
+        // Some PDS include issuer as their DID/host
+        const { didResolver } = await import('./services/did-resolver');
+        if (payload.iss.startsWith('did:')) {
+          pdsEndpoint = await didResolver.resolveDIDToPDS(payload.iss);
+        } else if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith('did:')) {
+          pdsEndpoint = await didResolver.resolveDIDToPDS(payload.sub);
+        }
+      } else if (payload?.sub && typeof payload.sub === 'string' && payload.sub.startsWith('did:')) {
+        const { didResolver } = await import('./services/did-resolver');
+        pdsEndpoint = await didResolver.resolveDIDToPDS(payload.sub);
+      }
+      if (!pdsEndpoint) {
+        pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      }
       
       const result = await pdsClient.getSession(pdsEndpoint, accessToken);
       
