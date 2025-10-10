@@ -1,11 +1,5 @@
-#!/usr/bin/env node
-
-/**
- * Debug script to investigate follow synchronization issues
- * Run with: node debug-follows.js <user-handle>
- */
-
-import { createClient } from '@atproto/api';
+#!/usr/bin/env tsx
+import { BskyAgent } from "@atproto/api";
 
 async function debugFollows(handle) {
   console.log(`🔍 Debugging follows for user: ${handle}`);
@@ -13,17 +7,15 @@ async function debugFollows(handle) {
   try {
     // 1. Check PDS directly for follows
     console.log('\n1. Checking PDS for follows...');
-    const pdsClient = createClient({
-      service: 'https://oyster.us-east.host.bsky.network'
-    });
+    const pdsAgent = new BskyAgent({ service: 'https://oyster.us-east.host.bsky.network' });
     
     // Get user's DID from handle
-    const profile = await pdsClient.api.app.bsky.actor.getProfile({ actor: handle });
+    const profile = await pdsAgent.api.app.bsky.actor.getProfile({ actor: handle });
     const userDid = profile.data.did;
     console.log(`   User DID: ${userDid}`);
     
     // Get follows from PDS
-    const follows = await pdsClient.api.app.bsky.graph.getFollows({ 
+    const follows = await pdsAgent.api.app.bsky.graph.getFollows({ 
       actor: userDid,
       limit: 100 
     });
@@ -38,12 +30,10 @@ async function debugFollows(handle) {
     
     // 2. Check appview for follows
     console.log('\n2. Checking appview for follows...');
-    const appviewClient = createClient({
-      service: 'https://appview.dollspace.gay'
-    });
+    const appviewAgent = new BskyAgent({ service: 'https://appview.dollspace.gay' });
     
     try {
-      const appviewFollows = await appviewClient.api.app.bsky.graph.getFollows({ 
+      const appviewFollows = await appviewAgent.api.app.bsky.graph.getFollows({ 
         actor: userDid,
         limit: 100 
       });
@@ -62,7 +52,7 @@ async function debugFollows(handle) {
     // 3. Check if user exists in appview
     console.log('\n3. Checking if user exists in appview...');
     try {
-      const profile = await appviewClient.api.app.bsky.actor.getProfile({ actor: userDid });
+      const profile = await appviewAgent.api.app.bsky.actor.getProfile({ actor: userDid });
       console.log(`   ✅ User exists in appview: ${profile.data.displayName || profile.data.handle}`);
     } catch (error) {
       console.log(`   ❌ User not found in appview: ${error.message}`);
@@ -71,7 +61,7 @@ async function debugFollows(handle) {
     // 4. Check timeline directly
     console.log('\n4. Checking timeline...');
     try {
-      const timeline = await appviewClient.api.app.bsky.feed.getTimeline({ limit: 5 });
+      const timeline = await appviewAgent.api.app.bsky.feed.getTimeline({ limit: 5 });
       console.log(`   Timeline posts count: ${timeline.data.feed.length}`);
       
       if (timeline.data.feed.length > 0) {
@@ -85,7 +75,28 @@ async function debugFollows(handle) {
       console.log(`   ❌ Error getting timeline: ${error.message}`);
     }
     
-    // 5. Summary
+    // 5. Check debug endpoint
+    console.log('\n5. Checking debug endpoint...');
+    try {
+      const debugResponse = await fetch(`https://appview.dollspace.gay/api/debug/user/${userDid}`);
+      if (debugResponse.ok) {
+        const debugData = await debugResponse.json();
+        console.log(`   Debug data:`);
+        console.log(`   - User exists: ${debugData.user ? 'Yes' : 'No'}`);
+        console.log(`   - Data collection forbidden: ${debugData.settings?.dataCollectionForbidden || 'Unknown'}`);
+        console.log(`   - Follows in DB: ${debugData.follows?.count || 0}`);
+        
+        if (debugData.settings?.dataCollectionForbidden) {
+          console.log('   🚨 ISSUE: dataCollectionForbidden is true - this blocks follow processing!');
+        }
+      } else {
+        console.log(`   ❌ Debug endpoint error: ${debugResponse.status}`);
+      }
+    } catch (error) {
+      console.log(`   ❌ Error calling debug endpoint: ${error.message}`);
+    }
+    
+    // 6. Summary
     console.log('\n📊 Summary:');
     console.log(`   PDS follows: ${follows.data.follows.length}`);
     console.log(`   Appview follows: ${appviewFollows?.data?.follows?.length || 'ERROR'}`);
@@ -112,8 +123,8 @@ async function debugFollows(handle) {
 // Get handle from command line arguments
 const handle = process.argv[2];
 if (!handle) {
-  console.log('Usage: node debug-follows.js <user-handle>');
-  console.log('Example: node debug-follows.js alice.bsky.social');
+  console.log('Usage: tsx debug-simple.js <user-handle>');
+  console.log('Example: tsx debug-simple.js alice.bsky.social');
   process.exit(1);
 }
 
