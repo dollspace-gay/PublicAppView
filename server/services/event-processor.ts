@@ -3,6 +3,7 @@ import { lexiconValidator } from "./lexicon-validator";
 import { labelService } from "./label";
 import { didResolver } from "./did-resolver";
 import { pdsDataFetcher } from "./pds-data-fetcher";
+import { smartConsole } from "./console-wrapper";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
@@ -181,19 +182,19 @@ export class EventProcessor {
     if (expired > 0) {
       this.totalPendingCount -= expired;
       this.metrics.pendingExpired += expired;
-      console.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
+      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
     }
 
     if (expiredUserOps > 0) {
       this.totalPendingUserOps -= expiredUserOps;
       this.metrics.pendingUserOpsExpired += expiredUserOps;
-      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
+      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
     }
 
     if (expiredListItems > 0) {
       this.totalPendingListItems -= expiredListItems;
       this.metrics.pendingListItemsExpired += expiredListItems;
-      console.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
     }
 
     let expiredUserCreationOps = 0;
@@ -216,7 +217,7 @@ export class EventProcessor {
     if (expiredUserCreationOps > 0) {
       this.totalPendingUserCreationOps -= expiredUserCreationOps;
       this.metrics.pendingUserCreationOpsExpired += expiredUserCreationOps;
-      console.log(`[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`);
+      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`);
     }
   }
 
@@ -234,7 +235,7 @@ export class EventProcessor {
 
     this.totalPendingUserCreationOps++;
     this.metrics.pendingUserCreationOpsQueued++;
-    console.log(`[EVENT_PROCESSOR] Queued op for user creation: ${did}`);
+    smartConsole.log(`[EVENT_PROCESSOR] Queued op for user creation: ${did}`);
   }
 
   private enqueuePending(postUri: string, op: PendingOp) {
@@ -268,7 +269,7 @@ export class EventProcessor {
     // Delete immediately to prevent new ops from being lost
     this.pendingOps.delete(postUri);
 
-    console.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending operations for ${postUri}`);
+    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending operations for ${postUri}`);
 
     for (const op of ops) {
       try {
@@ -286,7 +287,7 @@ export class EventProcessor {
         this.totalPendingCount--;
       } catch (error: any) {
         // If still failing, skip it
-        console.error(`[EVENT_PROCESSOR] Error flushing pending ${op.type}:`, error.message);
+        smartConsole.error(`[EVENT_PROCESSOR] Error flushing pending ${op.type}:`, error.message);
         // Still remove from index and count
         const opUri = op.payload.uri;
         this.pendingOpIndex.delete(opUri);
@@ -416,7 +417,7 @@ export class EventProcessor {
     // Delete immediately to prevent new items from being lost
     this.pendingListItems.delete(listUri);
 
-    console.log(`[EVENT_PROCESSOR] Flushing ${items.length} pending list items for ${listUri}`);
+    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${items.length} pending list items for ${listUri}`);
 
     for (const item of items) {
       try {
@@ -428,7 +429,7 @@ export class EventProcessor {
         this.totalPendingListItems--;
       } catch (error: any) {
         // If still failing, skip it
-        console.error(`[EVENT_PROCESSOR] Error flushing pending list item:`, error.message);
+        smartConsole.error(`[EVENT_PROCESSOR] Error flushing pending list item:`, error.message);
         // Still remove from index and count
         this.pendingListItemIndex.delete(item.payload.uri);
         this.totalPendingListItems--;
@@ -444,7 +445,7 @@ export class EventProcessor {
 
     this.pendingUserCreationOps.delete(did);
 
-    console.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`);
+    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`);
 
     for (const pendingOp of ops) {
       // Reprocess the original commit operation
@@ -468,7 +469,7 @@ export class EventProcessor {
    * Retry processing pending operations for users that might now have their data available
    */
   async retryPendingOperations() {
-    console.log(`[EVENT_PROCESSOR] Retrying pending operations...`);
+    smartConsole.log(`[EVENT_PROCESSOR] Retrying pending operations...`);
     
     let retriedCount = 0;
     
@@ -483,7 +484,7 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        console.error(`[EVENT_PROCESSOR] Error retrying user creation ops for ${did}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error retrying user creation ops for ${did}:`, error);
       }
     }
     
@@ -498,7 +499,7 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        console.error(`[EVENT_PROCESSOR] Error retrying user ops for ${userDid}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error retrying user ops for ${userDid}:`, error);
       }
     }
     
@@ -513,7 +514,7 @@ export class EventProcessor {
           retriedCount += items.length;
         }
       } catch (error) {
-        console.error(`[EVENT_PROCESSOR] Error retrying list items for ${listUri}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error retrying list items for ${listUri}:`, error);
       }
     }
     
@@ -528,12 +529,12 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        console.error(`[EVENT_PROCESSOR] Error retrying pending ops for ${postUri}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error retrying pending ops for ${postUri}:`, error);
       }
     }
     
     if (retriedCount > 0) {
-      console.log(`[EVENT_PROCESSOR] Successfully retried ${retriedCount} pending operations`);
+      smartConsole.log(`[EVENT_PROCESSOR] Successfully retried ${retriedCount} pending operations`);
     }
     
     return retriedCount;
@@ -548,7 +549,7 @@ export class EventProcessor {
         
         if (!handle) {
           // If we can't resolve the handle, mark as incomplete for PDS fetching
-          console.warn(`[EVENT_PROCESSOR] Could not resolve handle for ${did}, marking for PDS fetch`);
+          smartConsole.warn(`[EVENT_PROCESSOR] Could not resolve handle for ${did}, marking for PDS fetch`);
           pdsDataFetcher.markIncomplete('user', did);
           return false;
         }
@@ -558,7 +559,7 @@ export class EventProcessor {
           handle: handle,
         });
         
-        console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        smartConsole.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -573,7 +574,7 @@ export class EventProcessor {
         await this.flushPendingUserCreationOps(did);
         return true;
       }
-      console.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
+      smartConsole.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
       return false;
     }
   }
@@ -618,7 +619,7 @@ export class EventProcessor {
       
       pdsDataFetcher.markIncomplete(type, did, uri, { action, constraint });
     } catch (error) {
-      console.error(`[EVENT_PROCESSOR] Error marking incomplete entry:`, error);
+      smartConsole.error(`[EVENT_PROCESSOR] Error marking incomplete entry:`, error);
     }
   }
 
@@ -667,10 +668,10 @@ export class EventProcessor {
           await this.processLabelerService(uri, cid, authorDid, record);
           break;
         default:
-          console.log(`[EVENT_PROCESSOR] Unknown record type: ${recordType}`);
+          smartConsole.log(`[EVENT_PROCESSOR] Unknown record type: ${recordType}`);
       }
     } catch (error) {
-      console.error(`[EVENT_PROCESSOR] Error processing record ${uri}:`, error);
+      smartConsole.error(`[EVENT_PROCESSOR] Error processing record ${uri}:`, error);
     }
   }
 
@@ -689,7 +690,7 @@ export class EventProcessor {
 
           // Validate record
           if (!lexiconValidator.validate(recordType, record)) {
-            console.log(`[VALIDATOR] Invalid record: ${recordType} at ${uri}`);
+            smartConsole.log(`[VALIDATOR] Invalid record: ${recordType} at ${uri}`);
             continue;
           }
 
@@ -737,17 +738,17 @@ export class EventProcessor {
       } catch (error: any) {
         // Handle duplicate key errors gracefully (common during firehose reconnections)
         if (error?.code === '23505') {
-          console.log(`[EVENT_PROCESSOR] Skipped duplicate ${action} ${uri}`);
+          smartConsole.log(`[EVENT_PROCESSOR] Skipped duplicate ${action} ${uri}`);
         } 
         // Handle foreign key constraint violations (record references missing data)
         else if (error?.code === '23503') {
-          console.log(`[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`);
+          smartConsole.log(`[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`);
           
           // Mark as incomplete for PDS data fetching
           this.markIncompleteForFetch(action, uri, error.constraint);
         } 
         else {
-          console.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
+          smartConsole.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
         }
       }
     }
@@ -758,21 +759,21 @@ export class EventProcessor {
     
     try {
       await this.storage.upsertUserHandle(did, handle);
-      console.log(`[IDENTITY] Upserted handle for ${did} to ${handle}`);
+      smartConsole.log(`[IDENTITY] Upserted handle for ${did} to ${handle}`);
     } catch (error) {
-      console.error(`[EVENT_PROCESSOR] Error processing identity for ${did}:`, error);
+      smartConsole.error(`[EVENT_PROCESSOR] Error processing identity for ${did}:`, error);
     }
   }
 
   async processAccount(event: any) {
     const { did, active } = event;
-    console.log(`[ACCOUNT] Account status change: ${did} - active: ${active}`);
+    smartConsole.log(`[ACCOUNT] Account status change: ${did} - active: ${active}`);
   }
 
   private async processPost(uri: string, cid: string, authorDid: string, record: any) {
     const authorReady = await this.ensureUser(authorDid);
     if (!authorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
       return;
     }
     
@@ -810,7 +811,7 @@ export class EventProcessor {
           });
         }
       } catch (error) {
-        console.error(`[NOTIFICATION] Error creating reply notification:`, error);
+        smartConsole.error(`[NOTIFICATION] Error creating reply notification:`, error);
       }
     }
 
@@ -842,7 +843,7 @@ export class EventProcessor {
         }
       }
     } catch (error) {
-      console.error(`[NOTIFICATION] Error creating mention notifications:`, error);
+        smartConsole.error(`[NOTIFICATION] Error creating mention notifications:`, error);
     }
     
     // Flush any pending operations for this post
@@ -856,7 +857,7 @@ export class EventProcessor {
 
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`);
       this.enqueuePendingUserCreationOp(userDid, repo, op);
       return;
     }
@@ -903,7 +904,7 @@ export class EventProcessor {
             createdAt: new Date(record.createdAt),
           });
         } catch (error) {
-          console.error(`[NOTIFICATION] Error creating like notification:`, error);
+          smartConsole.error(`[NOTIFICATION] Error creating like notification:`, error);
         }
       }
     } catch (error: any) {
@@ -923,7 +924,7 @@ export class EventProcessor {
   private async processRepost(uri: string, userDid: string, record: any) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
       return;
     }
     
@@ -969,7 +970,7 @@ export class EventProcessor {
             createdAt: new Date(record.createdAt),
           });
         } catch (error) {
-          console.error(`[NOTIFICATION] Error creating repost notification:`, error);
+          smartConsole.error(`[NOTIFICATION] Error creating repost notification:`, error);
         }
       }
     } catch (error: any) {
@@ -1004,14 +1005,14 @@ export class EventProcessor {
     if (existingUser) {
       await this.storage.updateUser(did, profileData);
       if (handle) {
-        console.log(`[EVENT_PROCESSOR] Updated user ${did} with handle ${handle}`);
+        smartConsole.log(`[EVENT_PROCESSOR] Updated user ${did} with handle ${handle}`);
       }
     } else {
       await this.storage.createUser({ did, ...profileData });
       if (handle) {
-        console.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        smartConsole.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
       } else {
-        console.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
+        smartConsole.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
       }
     }
   }
@@ -1024,7 +1025,7 @@ export class EventProcessor {
     // Ensure the user performing the action exists
     const followerReady = await this.ensureUser(followerDid);
     if (!followerReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`);
       this.enqueuePendingUserCreationOp(followerDid, repo, op);
       return;
     }
@@ -1074,7 +1075,7 @@ export class EventProcessor {
           enqueuedAt: Date.now(),
         });
       } else if (error.code !== '23505') { // Ignore duplicate errors
-        console.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
       }
     }
   }
@@ -1083,7 +1084,7 @@ export class EventProcessor {
     // Ensure the user performing the action exists
     const blockerReady = await this.ensureUser(blockerDid);
     if (!blockerReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`);
       return;
     }
 
@@ -1122,7 +1123,7 @@ export class EventProcessor {
           enqueuedAt: Date.now(),
         });
       } else if (error.code !== '23505') { // Ignore duplicate errors
-        console.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
       }
     }
   }
@@ -1130,7 +1131,7 @@ export class EventProcessor {
   private async processList(uri: string, cid: string, creatorDid: string, record: any) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`);
       return;
     }
     
@@ -1161,7 +1162,7 @@ export class EventProcessor {
     const subjectReady = await this.ensureUser(record.subject);
     
     if (!creatorReady || !subjectReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`);
       return;
     }
     
@@ -1213,12 +1214,12 @@ export class EventProcessor {
         neg: record.neg || false,
         createdAt: new Date(record.cid ? record.createdAt : Date.now()),
       });
-      console.log(`[LABEL] Applied label ${record.val} to ${record.uri || record.did} from ${src}`);
+      smartConsole.log(`[LABEL] Applied label ${record.val} to ${record.uri || record.did} from ${src}`);
     } catch (error: any) {
       if (error?.code === '23505') {
-        console.log(`[EVENT_PROCESSOR] Skipped duplicate label ${record.val} for ${record.uri || record.did}`);
+        smartConsole.log(`[EVENT_PROCESSOR] Skipped duplicate label ${record.val} for ${record.uri || record.did}`);
       } else {
-        console.error(`[EVENT_PROCESSOR] Error processing label:`, error);
+        smartConsole.error(`[EVENT_PROCESSOR] Error processing label:`, error);
       }
     }
   }
@@ -1226,7 +1227,7 @@ export class EventProcessor {
   private async processFeedGenerator(uri: string, cid: string, creatorDid: string, record: any) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`);
       return;
     }
     
@@ -1256,7 +1257,7 @@ export class EventProcessor {
 
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`);
       this.enqueuePendingUserCreationOp(creatorDid, repo, op);
       return;
     }
@@ -1283,7 +1284,7 @@ export class EventProcessor {
   private async processLabelerService(uri: string, cid: string, creatorDid: string, record: any) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      console.warn(`[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`);
       return;
     }
     
@@ -1301,7 +1302,7 @@ export class EventProcessor {
     };
 
     await this.storage.createLabelerService(labelerService);
-    console.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
+    smartConsole.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
   }
 
   // Guard against invalid or missing dates in upstream records
@@ -1329,7 +1330,7 @@ export class EventProcessor {
           this.totalPendingCount--;
         }
         this.pendingOps.delete(uri);
-        console.log(`[EVENT_PROCESSOR] Cleared ${ops.length} pending operations for deleted post ${uri}`);
+        smartConsole.log(`[EVENT_PROCESSOR] Cleared ${ops.length} pending operations for deleted post ${uri}`);
       }
     }
     
