@@ -2410,7 +2410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const firehoseStatus = redisStatus || {
       connected: false,
       isConnected: false,
-      url: process.env.RELAY_URL || "wss://bsky.network",
+      url: process.env.RELAY_URL || "wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos",
       currentCursor: null,
       queueDepth: 0,
       activeProcessing: 0,
