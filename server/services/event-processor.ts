@@ -4,6 +4,7 @@ import { labelService } from "./label";
 import { didResolver } from "./did-resolver";
 import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
+import { logAggregator } from "./log-aggregator";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
@@ -559,7 +560,8 @@ export class EventProcessor {
           handle: handle,
         });
         
-        smartConsole.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        // Use aggregated logging for user creation to reduce spam
+        logAggregator.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -641,7 +643,7 @@ export class EventProcessor {
           await this.processRepost(uri, authorDid, record);
           break;
         case "app.bsky.graph.follow":
-          await this.processFollow(uri, authorDid, record);
+          await this.processFollow(authorDid, { path: uri.split('at://')[1].split(authorDid + '/')[1], record });
           break;
         case "app.bsky.graph.block":
           await this.processBlock(uri, authorDid, record);
@@ -1010,7 +1012,8 @@ export class EventProcessor {
     } else {
       await this.storage.createUser({ did, ...profileData });
       if (handle) {
-        smartConsole.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        // Use aggregated logging for user creation to reduce spam
+        logAggregator.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
       } else {
         smartConsole.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
       }

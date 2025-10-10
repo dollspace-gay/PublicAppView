@@ -28,7 +28,7 @@ export class LogAggregator {
 
   constructor(config: Partial<LogAggregatorConfig> = {}) {
     this.config = {
-      flushInterval: config.flushInterval || 10000, // 10 seconds default
+      flushInterval: config.flushInterval || 100000, // 100 seconds default
       maxAggregatedLogs: config.maxAggregatedLogs || 1000,
       enableAggregation: config.enableAggregation !== false,
     };
@@ -159,6 +159,7 @@ export class LogAggregator {
         level: 'error',
         count: 1,
         firstSeen: now,
+        lastSeen: now,
         metadata,
       });
     }
@@ -251,7 +252,7 @@ function getLogAggregator(): LogAggregator {
       });
     } else {
       _logAggregator = new LogAggregator({
-        flushInterval: parseInt(process.env.LOG_AGGREGATION_INTERVAL || '10000'),
+        flushInterval: parseInt(process.env.LOG_AGGREGATION_INTERVAL || '100000'), // 100 seconds default
         maxAggregatedLogs: parseInt(process.env.LOG_AGGREGATION_MAX_LOGS || '1000'),
         enableAggregation: process.env.LOG_AGGREGATION_ENABLED !== 'false',
       });
