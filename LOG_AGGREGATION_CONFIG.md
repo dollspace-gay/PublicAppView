@@ -10,8 +10,8 @@ You can configure the log aggregation behavior using these environment variables
 # Enable/disable log aggregation (default: true)
 LOG_AGGREGATION_ENABLED=true
 
-# How often to flush aggregated logs in milliseconds (default: 10000 = 10 seconds)
-LOG_AGGREGATION_INTERVAL=10000
+# How often to flush aggregated logs in milliseconds (default: 100000 = 100 seconds)
+LOG_AGGREGATION_INTERVAL=100000
 
 # Maximum number of aggregated log entries to keep in memory (default: 1000)
 LOG_AGGREGATION_MAX_LOGS=1000
@@ -27,7 +27,7 @@ The log aggregation system:
 
 2. **Groups similar messages** - Logs with similar patterns are grouped together and counted
 
-3. **Flushes periodically** - Every 10 seconds (configurable), aggregated logs are output with counts
+3. **Flushes periodically** - Every 100 seconds (configurable), aggregated logs are output with counts
 
 4. **Preserves important logs** - Non-spammy logs (like server startup, critical errors) are output immediately
 
