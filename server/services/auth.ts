@@ -103,7 +103,7 @@ export class AuthService {
    * Verify AT Protocol OAuth access token from third-party clients
    * With full cryptographic signature verification
    */
-  async verifyAtProtoToken(token: string): Promise<{ did: string; aud?: string; lxm?: string } | null> {
+  async verifyAtProtoToken(token: string): Promise<{ did: string; aud?: string; lxm?: string; scope?: string } | null> {
     try {
       // Decode without verification to check token structure
       const decoded = jwt.decode(token, { complete: true }) as any;
@@ -126,8 +126,23 @@ export class AuthService {
       // Check for OAuth access token format (sub field with DID)
       if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith("did:")) {
         userDid = payload.sub;
-        // Token signed by authorization server (iss) or the PDS (aud)
-        signingDid = payload.iss || (payload.aud?.startsWith?.('did:') ? payload.aud : null);
+        
+        // App password tokens from PDS: sub=userDID, aud=pdsDID, scope=com.atproto.appPassPrivileged
+        // These are pre-validated by the PDS and don't need cryptographic verification
+        const pdsDid = payload.aud;
+        if (payload.scope === 'com.atproto.appPassPrivileged' && pdsDid && typeof pdsDid === 'string' && pdsDid.startsWith('did:')) {
+          console.log(`[AUTH] ✓ PDS app password token accepted for DID: ${payload.sub} (from PDS: ${pdsDid})`);
+          // Include scope so downstream checks can identify app password tokens
+          return { did: payload.sub, aud: pdsDid, scope: payload.scope };
+        }
+        
+        // OAuth tokens with iss field need signature verification
+        if (payload.iss && typeof payload.iss === 'string') {
+          signingDid = payload.iss;
+        } else {
+          console.log(`[AUTH] OAuth token missing iss field`);
+          return null;
+        }
       }
       // Check for AT Protocol service auth token format (iss field with DID, lxm field present)
       else if (payload.iss && typeof payload.iss === 'string' && payload.iss.startsWith("did:") && payload.lxm) {

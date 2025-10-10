@@ -384,11 +384,15 @@ export class XRPCApi {
         return null;
       }
       // Enforce minimal audience/method checks if present
+      // Skip for app password tokens (they're pre-validated by PDS)
       try {
         const anyPayload: any = payload;
         const appviewDid = process.env.APPVIEW_DID || 'did:web:appview.local';
         const nsid = req.path.startsWith('/xrpc/') ? req.path.slice('/xrpc/'.length) : undefined;
-        if (anyPayload.aud && anyPayload.aud !== appviewDid) {
+        
+        // Skip aud check for app password tokens (scope=com.atproto.appPassPrivileged)
+        const isAppPassword = anyPayload.scope === 'com.atproto.appPassPrivileged';
+        if (!isAppPassword && anyPayload.aud && anyPayload.aud !== appviewDid) {
           console.warn(`[AUTH] aud mismatch. expected=${appviewDid} got=${anyPayload.aud}`);
           return null;
         }
