@@ -75,6 +75,19 @@ export const reposts = pgTable("reposts", {
   uniqueRepost: uniqueIndex("unique_repost_user_post").on(table.userDid, table.postUri),
 }));
 
+// Bookmarks table (unspecced but widely used by clients)
+export const bookmarks = pgTable("bookmarks", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  postUri: varchar("post_uri", { length: 512 }).notNull().references(() => posts.uri, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("idx_bookmarks_user_did").on(table.userDid),
+  postIdx: index("idx_bookmarks_post_uri").on(table.postUri),
+  uniqueBookmark: uniqueIndex("unique_bookmark_user_post").on(table.userDid, table.postUri),
+}));
+
 // Follows table
 export const follows = pgTable("follows", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
@@ -586,6 +599,8 @@ export const insertStarterPackSchema = createInsertSchema(starterPacks).omit({ i
 export const insertLabelerServiceSchema = createInsertSchema(labelerServices).omit({ indexedAt: true, likeCount: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertVideoJobSchema = createInsertSchema(videoJobs).omit({ id: true, createdAt: true, updatedAt: true });
+// Bookmark insert schema/types
+export const insertBookmarkSchema = createInsertSchema(bookmarks).omit({ indexedAt: true });
 export const insertFirehoseCursorSchema = createInsertSchema(firehoseCursor).omit({ id: true, updatedAt: true });
 
 // Types
@@ -644,6 +659,7 @@ export type InsertLabelerService = z.infer<typeof insertLabelerServiceSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type VideoJob = typeof videoJobs.$inferSelect;
+export type Bookmark = typeof bookmarks.$inferSelect;
 export type InsertVideoJob = z.infer<typeof insertVideoJobSchema>;
 export type FirehoseCursor = typeof firehoseCursor.$inferSelect;
 export type InsertFirehoseCursor = z.infer<typeof insertFirehoseCursorSchema>;

@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -48,6 +48,12 @@ export interface IStorage {
   getPostReposts(postUri: string, limit?: number, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }>;
   getRepostUri(userDid: string, postUri: string): Promise<string | undefined>;
   getRepostUris(userDid: string, postUris: string[]): Promise<Map<string, string>>;
+
+  // Bookmark operations
+  createBookmark(bookmark: { uri: string; userDid: string; postUri: string; createdAt: Date }): Promise<Bookmark>;
+  deleteBookmark(uri: string): Promise<void>;
+  getBookmarks(userDid: string, limit?: number, cursor?: string): Promise<{ bookmarks: Bookmark[], cursor?: string }>;
+  getBookmarkUri(userDid: string, postUri: string): Promise<string | undefined>;
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
@@ -195,6 +201,9 @@ export interface IStorage {
   deleteStarterPack(uri: string): Promise<void>;
   getStarterPack(uri: string): Promise<StarterPack | undefined>;
   getStarterPacks(uris: string[]): Promise<StarterPack[]>;
+  listStarterPacks(limit?: number, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }>;
+  getStarterPacksByCreator(creatorDid: string, limit?: number, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }>;
+  searchStarterPacksByName(q: string, limit?: number, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }>;
   
   // Labeler service operations
   createLabelerService(service: InsertLabelerService): Promise<LabelerService>;
@@ -787,6 +796,51 @@ export class DatabaseStorage implements IStorage {
         and(eq(reposts.userDid, userDid), inArray(reposts.postUri, postUris)),
       );
     return new Map(results.map((r) => [r.postUri, r.uri]));
+  }
+
+  // Bookmark operations
+  async createBookmark(bookmark: { uri: string; userDid: string; postUri: string; createdAt: Date }): Promise<Bookmark> {
+    const [row] = await this.db
+      .insert(bookmarks)
+      .values({
+        uri: bookmark.uri,
+        userDid: bookmark.userDid,
+        postUri: bookmark.postUri,
+        createdAt: bookmark.createdAt,
+      })
+      .onConflictDoNothing()
+      .returning();
+    return row as Bookmark;
+  }
+
+  async deleteBookmark(uri: string): Promise<void> {
+    await this.db.delete(bookmarks).where(eq(bookmarks.uri, uri));
+  }
+
+  async getBookmarks(userDid: string, limit = 50, cursor?: string): Promise<{ bookmarks: Bookmark[]; cursor?: string }> {
+    const conditions = [eq(bookmarks.userDid, userDid)];
+    if (cursor) {
+      conditions.push(sql`${bookmarks.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await this.db
+      .select()
+      .from(bookmarks)
+      .where(and(...conditions))
+      .orderBy(desc(bookmarks.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { bookmarks: items as Bookmark[], cursor: nextCursor };
+  }
+
+  async getBookmarkUri(userDid: string, postUri: string): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ uri: bookmarks.uri })
+      .from(bookmarks)
+      .where(and(eq(bookmarks.userDid, userDid), eq(bookmarks.postUri, postUri)))
+      .limit(1);
+    return row?.uri;
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
@@ -1960,6 +2014,57 @@ export class DatabaseStorage implements IStorage {
   async getStarterPacks(uris: string[]): Promise<StarterPack[]> {
     if (uris.length === 0) return [];
     return await this.db.select().from(starterPacks).where(inArray(starterPacks.uri, uris));
+  }
+
+  async listStarterPacks(limit = 50, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
+    const conditions: any[] = [];
+    if (cursor) {
+      conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await db
+      .select()
+      .from(starterPacks)
+      .where(conditions.length ? and(...conditions) : undefined as any)
+      .orderBy(desc(starterPacks.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { starterPacks: items, cursor: nextCursor };
+  }
+
+  async getStarterPacksByCreator(creatorDid: string, limit = 50, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
+    const conditions: any[] = [eq(starterPacks.creatorDid, creatorDid)];
+    if (cursor) {
+      conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await db
+      .select()
+      .from(starterPacks)
+      .where(and(...conditions))
+      .orderBy(desc(starterPacks.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { starterPacks: items, cursor: nextCursor };
+  }
+
+  async searchStarterPacksByName(q: string, limit = 25, cursor?: string): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
+    const conditions: any[] = [sql`${starterPacks.name} ILIKE ${'%' + q + '%'}`];
+    if (cursor) {
+      conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await db
+      .select()
+      .from(starterPacks)
+      .where(and(...conditions))
+      .orderBy(desc(starterPacks.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { starterPacks: items, cursor: nextCursor };
   }
 
   // Labeler service operations
