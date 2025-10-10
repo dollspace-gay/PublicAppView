@@ -10,6 +10,7 @@ class RedisQueue {
   private redis: Redis | null = null;
   private readonly STREAM_KEY = "firehose:events";
   private readonly CONSUMER_GROUP = "firehose-processors";
+  private readonly DEAD_LETTER_STREAM_KEY = "firehose:dead-letters";
   private readonly METRICS_KEY = "cluster:metrics";
   private isInitialized = false;
   
@@ -256,13 +257,13 @@ class RedisQueue {
     }
 
     try {
-      // Get pending messages that have been idle for more than idleTimeMs
+      // Get up to 100 pending messages; we'll filter by idle/attempts
       const pending = await this.redis.xpending(
         this.STREAM_KEY,
         this.CONSUMER_GROUP,
         "-",
         "+",
-        10
+        100
       );
 
       if (!pending || pending.length === 0) {
@@ -271,9 +272,71 @@ class RedisQueue {
 
       const events: Array<FirehoseEvent & { messageId: string }> = [];
       
-      for (const [messageId, _consumer, idleMs] of pending as any[]) {
-        if (idleMs > idleTimeMs) {
-          // Claim this message from the dead consumer
+      const maxDeliveries = parseInt(process.env.REDIS_MAX_DELIVERIES || '10', 10);
+      const deadLetterMaxLen = parseInt(process.env.REDIS_DEAD_LETTER_MAXLEN || '10000', 10);
+
+      for (const entry of pending as any[]) {
+        const messageId = entry[0];
+        const idleMs = entry[2];
+        const deliveries = entry[3];
+
+        if (idleMs <= idleTimeMs) {
+          continue;
+        }
+
+        // If a message has exceeded max delivery attempts, move it to a dead-letter stream and ack it
+        if (typeof deliveries === 'number' && deliveries >= maxDeliveries) {
+          try {
+            const claimed = await this.redis.xclaim(
+              this.STREAM_KEY,
+              this.CONSUMER_GROUP,
+              consumerId,
+              idleTimeMs,
+              messageId
+            );
+
+            if (claimed && claimed.length > 0) {
+              const [claimedId, fields] = claimed[0] as any[];
+              try {
+                const type = fields[1] as "commit" | "identity" | "account";
+                const data = JSON.parse(fields[3]);
+                const seq = fields[5] || undefined;
+
+                // Write to dead-letter stream (bounded length)
+                await this.redis.xadd(
+                  this.DEAD_LETTER_STREAM_KEY,
+                  "MAXLEN",
+                  "~",
+                  String(deadLetterMaxLen),
+                  "*",
+                  "type",
+                  type,
+                  "data",
+                  JSON.stringify(data),
+                  "seq",
+                  seq || "",
+                  "origId",
+                  claimedId,
+                  "deliveries",
+                  String(deliveries)
+                );
+
+                // Ack to remove from pending
+                await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, claimedId);
+                console.warn(`[REDIS] Moved poison message to dead-letter after ${deliveries} deliveries: ${claimedId}`);
+              } catch (parseErr) {
+                console.error("[REDIS] Error handling dead-letter message:", parseErr);
+                await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, claimedId);
+              }
+            }
+          } catch (claimErr) {
+            console.error("[REDIS] Error claiming poison message:", claimErr);
+          }
+          continue;
+        }
+
+        // Otherwise, claim and reprocess
+        try {
           const claimed = await this.redis.xclaim(
             this.STREAM_KEY,
             this.CONSUMER_GROUP,
@@ -295,6 +358,8 @@ class RedisQueue {
               }
             }
           }
+        } catch (err) {
+          console.error("[REDIS] Error claiming pending messages:", err);
         }
       }
 
@@ -313,16 +378,64 @@ class RedisQueue {
     }
   }
 
+  // Queue depth = total pending (unacked) messages for the consumer group
   async getQueueDepth(): Promise<number> {
     if (!this.redis || !this.isInitialized) {
       return 0;
     }
 
     try {
-      const length = await this.redis.xlen(this.STREAM_KEY);
-      return length;
+      const summary = await this.redis.xpending(this.STREAM_KEY, this.CONSUMER_GROUP);
+      // summary = [ pending, smallestId, greatestId, [ [consumer, count], ... ] ]
+      if (Array.isArray(summary) && summary.length > 0) {
+        const pendingTotal = Number(summary[0] || 0);
+        return isNaN(pendingTotal) ? 0 : pendingTotal;
+      }
+      return 0;
     } catch (error) {
       return 0;
+    }
+  }
+
+  // Current stream length (bounded by XADD MAXLEN)
+  async getStreamLength(): Promise<number> {
+    if (!this.redis || !this.isInitialized) {
+      return 0;
+    }
+    try {
+      return await this.redis.xlen(this.STREAM_KEY);
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  async getDeadLetterLength(): Promise<number> {
+    if (!this.redis || !this.isInitialized) {
+      return 0;
+    }
+    try {
+      return await this.redis.xlen(this.DEAD_LETTER_STREAM_KEY);
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  async getDeadLetters(count: number = 100): Promise<Array<Record<string, any>>> {
+    if (!this.redis || !this.isInitialized) {
+      return [];
+    }
+    try {
+      const items = await this.redis.xrevrange(this.DEAD_LETTER_STREAM_KEY, '+', '-', 'COUNT', count);
+      return (items as any[]).map((entry: any[]) => {
+        const [id, fields] = entry;
+        const obj: Record<string, any> = { id };
+        for (let i = 0; i < fields.length; i += 2) {
+          obj[fields[i]] = fields[i + 1];
+        }
+        return obj;
+      });
+    } catch (error) {
+      return [];
     }
   }
 

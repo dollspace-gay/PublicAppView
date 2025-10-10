@@ -195,15 +195,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             // MONITORING: Check queue depth every 10 seconds and alert if critical
             if (iterationCount % 100 === 0) { // ~100 iterations × 100ms = 10 seconds
+              // Use pending count as the real backlog (unacked)
               const queueDepth = await redisQueue.getQueueDepth();
-              if (queueDepth > 250000) { // Critical: >50% of max buffer (500k)
+              if (queueDepth > 200000) { // Critical: high pending backlog
                 console.error(`[REDIS] CRITICAL: Queue depth at ${queueDepth} - workers falling behind!`);
                 logCollector.error('Redis queue depth critical - workers cannot keep up', { 
                   queueDepth, 
                   workerId, 
                   pipelineId 
                 });
-              } else if (queueDepth > 100000) { // Warning: >20% of buffer
+              } else if (queueDepth > 80000) { // Warning threshold
                 console.warn(`[REDIS] WARNING: Queue depth at ${queueDepth} - consider scaling workers`);
               }
             }
@@ -2445,11 +2446,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       firehoseStatus: {
         ...firehoseStatus,
         isConnected: firehoseStatus.connected,
-        queueDepth: await redisQueue.getQueueDepth(),
+        queueDepth: await redisQueue.getQueueDepth(), // pending (unacked) messages
+        streamLength: await redisQueue.getStreamLength(), // total entries (bounded)
+        deadLetterLength: await redisQueue.getDeadLetterLength(),
       },
       errorRate: clusterMetrics.errors > 0 ? (clusterMetrics.errors / clusterMetrics.totalEvents) * 100 : 0,
       lastUpdate: new Date(),
     });
+  });
+
+  // Minimal dead-letter inspection endpoint (admin only in production)
+  app.get("/api/redis/dead-letters", async (_req, res) => {
+    try {
+      const items = await redisQueue.getDeadLetters(100);
+      res.json({ items });
+    } catch (err) {
+      console.error('[REDIS] Error listing dead letters:', err);
+      res.status(500).json({ error: 'InternalServerError' });
+    }
   });
 
   // Get supported lexicons

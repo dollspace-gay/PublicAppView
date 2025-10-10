@@ -88,7 +88,7 @@ check_stream_status() {
 
 # Function to check queue depth
 check_queue_depth() {
-    echo "📊 Checking Queue Depth..."
+    echo "📊 Checking Queue Backlog (pending)..."
     
     # Try to get metrics from API
     METRICS=$(curl -s http://localhost:5000/api/metrics 2>/dev/null || echo "{}")
@@ -99,17 +99,21 @@ check_queue_depth() {
     fi
     
     QUEUE_DEPTH=$(echo $METRICS | jq -r '.firehoseStatus.queueDepth // 0' 2>/dev/null || echo "0")
+    STREAM_LEN=$(echo $METRICS | jq -r '.firehoseStatus.streamLength // 0' 2>/dev/null || echo "0")
+    DEADLETTERS=$(echo $METRICS | jq -r '.firehoseStatus.deadLetterLength // 0' 2>/dev/null || echo "0")
     CONNECTED=$(echo $METRICS | jq -r '.firehoseStatus.isConnected // false' 2>/dev/null || echo "false")
-    
-    echo "   Queue depth: $QUEUE_DEPTH events"
+
+    echo "   Pending (XPENDING): $QUEUE_DEPTH"
+    echo "   Stream length (XLEN): $STREAM_LEN"
+    echo "   Dead letters: $DEADLETTERS"
     echo "   Firehose connected: $CONNECTED"
-    
-    if [ "$QUEUE_DEPTH" -gt 250000 ]; then
-        echo -e "   ${RED}❌ CRITICAL: Queue depth >250k - workers falling behind!${NC}"
-    elif [ "$QUEUE_DEPTH" -gt 100000 ]; then
-        echo -e "   ${YELLOW}⚠️  WARNING: Queue depth >100k - monitor workers${NC}"
+
+    if [ "$QUEUE_DEPTH" -gt 200000 ]; then
+        echo -e "   ${RED}❌ CRITICAL: Pending >200k - workers falling behind!${NC}"
+    elif [ "$QUEUE_DEPTH" -gt 80000 ]; then
+        echo -e "   ${YELLOW}⚠️  WARNING: Pending >80k - monitor workers${NC}"
     else
-        echo -e "   ${GREEN}✅ Queue depth healthy${NC}"
+        echo -e "   ${GREEN}✅ Pending backlog healthy${NC}"
     fi
     
     echo ""
