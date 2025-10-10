@@ -4,6 +4,8 @@
  * Resolves DIDs to PDS endpoints and verifies identity
  */
 
+import { smartConsole } from './console-wrapper';
+
 interface DIDDocument {
   id: string;
   alsoKnownAs?: string[];
@@ -55,7 +57,7 @@ export class DIDResolver {
     if (Date.now() - this.lastFailureTime > this.circuitBreakerTimeout) {
       this.circuitOpen = false;
       this.failureCount = 0;
-      console.log('[DID_RESOLVER] Circuit breaker reset, attempting resolution again');
+      smartConsole.log('[DID_RESOLVER] Circuit breaker reset, attempting resolution again');
       return false;
     }
     
@@ -79,7 +81,7 @@ export class DIDResolver {
     
     if (this.failureCount >= this.circuitBreakerThreshold) {
       this.circuitOpen = true;
-      console.warn(`[DID_RESOLVER] Circuit breaker opened after ${this.failureCount} consecutive failures`);
+      smartConsole.warn(`[DID_RESOLVER] Circuit breaker opened after ${this.failureCount} consecutive failures`);
     }
   }
 
@@ -110,14 +112,14 @@ export class DIDResolver {
         // Log specific error types
         if (error instanceof Error) {
           if (error.name === 'TimeoutError') {
-            console.warn(`[DID_RESOLVER] Timeout on attempt ${attempt + 1}, retrying in ${delay}ms`);
+            smartConsole.warn(`[DID_RESOLVER] Timeout on attempt ${attempt + 1}, retrying in ${delay}ms`);
           } else if (error.message.includes('fetch')) {
-            console.warn(`[DID_RESOLVER] Network error on attempt ${attempt + 1}, retrying in ${delay}ms:`, error.message);
+            smartConsole.warn(`[DID_RESOLVER] Network error on attempt ${attempt + 1}, retrying in ${delay}ms:`, error.message);
           } else {
-            console.warn(`[DID_RESOLVER] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error.message);
+            smartConsole.warn(`[DID_RESOLVER] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error.message);
           }
         } else {
-          console.warn(`[DID_RESOLVER] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error);
+          smartConsole.warn(`[DID_RESOLVER] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error);
         }
         
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -142,7 +144,7 @@ export class DIDResolver {
       const didFromHTTPS = await this.resolveHandleViaHTTPS(handle);
       return didFromHTTPS;
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving handle ${handle}:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving handle ${handle}:`, error);
       return null;
     }
   }
@@ -166,7 +168,7 @@ export class DIDResolver {
 
         if (!response.ok) {
           if (response.status === 404) {
-            console.warn(`[DID_RESOLVER] Handle not found: ${handle}`);
+            smartConsole.warn(`[DID_RESOLVER] Handle not found: ${handle}`);
             return null;
           }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -182,7 +184,7 @@ export class DIDResolver {
         return did;
       });
     } catch (error) {
-      console.warn(`[DID_RESOLVER] Error resolving handle via HTTPS ${handle}:`, error);
+      smartConsole.warn(`[DID_RESOLVER] Error resolving handle via HTTPS ${handle}:`, error);
       return null;
     }
   }
@@ -197,11 +199,11 @@ export class DIDResolver {
       } else if (did.startsWith('did:web:')) {
         return await this.resolveWebDID(did);
       } else {
-        console.error(`[DID_RESOLVER] Unsupported DID method: ${did}`);
+        smartConsole.error(`[DID_RESOLVER] Unsupported DID method: ${did}`);
         return null;
       }
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving DID ${did}:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did}:`, error);
       return null;
     }
   }
@@ -209,7 +211,7 @@ export class DIDResolver {
   private async resolvePLCDID(did: string): Promise<DIDDocument | null> {
     // Check circuit breaker
     if (this.isCircuitOpen()) {
-      console.warn(`[DID_RESOLVER] Circuit breaker is open, skipping PLC DID resolution for ${did}`);
+      smartConsole.warn(`[DID_RESOLVER] Circuit breaker is open, skipping PLC DID resolution for ${did}`);
       return null;
     }
 
@@ -225,7 +227,7 @@ export class DIDResolver {
 
         if (!response.ok) {
           if (response.status === 404) {
-            console.warn(`[DID_RESOLVER] DID not found: ${did}`);
+            smartConsole.warn(`[DID_RESOLVER] DID not found: ${did}`);
             return null;
           }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -250,14 +252,14 @@ export class DIDResolver {
       
       if (error instanceof Error) {
         if (error.name === 'TimeoutError') {
-          console.error(`[DID_RESOLVER] Timeout resolving PLC DID ${did} after ${this.maxRetries + 1} attempts`);
+          smartConsole.error(`[DID_RESOLVER] Timeout resolving PLC DID ${did} after ${this.maxRetries + 1} attempts`);
         } else if (error.message.includes('fetch')) {
-          console.error(`[DID_RESOLVER] Network error resolving PLC DID ${did}:`, error.message);
+          smartConsole.error(`[DID_RESOLVER] Network error resolving PLC DID ${did}:`, error.message);
         } else {
-          console.error(`[DID_RESOLVER] Error resolving PLC DID ${did}:`, error.message);
+          smartConsole.error(`[DID_RESOLVER] Error resolving PLC DID ${did}:`, error.message);
         }
       } else {
-        console.error(`[DID_RESOLVER] Unknown error resolving PLC DID ${did}:`, error);
+        smartConsole.error(`[DID_RESOLVER] Unknown error resolving PLC DID ${did}:`, error);
       }
       return null;
     }
@@ -278,7 +280,7 @@ export class DIDResolver {
 
         if (!response.ok) {
           if (response.status === 404) {
-            console.warn(`[DID_RESOLVER] Web DID not found: ${did}`);
+            smartConsole.warn(`[DID_RESOLVER] Web DID not found: ${did}`);
             return null;
           }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -296,14 +298,14 @@ export class DIDResolver {
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'TimeoutError') {
-          console.error(`[DID_RESOLVER] Timeout resolving Web DID ${did} after ${this.maxRetries + 1} attempts`);
+          smartConsole.error(`[DID_RESOLVER] Timeout resolving Web DID ${did} after ${this.maxRetries + 1} attempts`);
         } else if (error.message.includes('fetch')) {
-          console.error(`[DID_RESOLVER] Network error resolving Web DID ${did}:`, error.message);
+          smartConsole.error(`[DID_RESOLVER] Network error resolving Web DID ${did}:`, error.message);
         } else {
-          console.error(`[DID_RESOLVER] Error resolving Web DID ${did}:`, error.message);
+          smartConsole.error(`[DID_RESOLVER] Error resolving Web DID ${did}:`, error.message);
         }
       } else {
-        console.error(`[DID_RESOLVER] Unknown error resolving Web DID ${did}:`, error);
+        smartConsole.error(`[DID_RESOLVER] Unknown error resolving Web DID ${did}:`, error);
       }
       return null;
     }
@@ -354,33 +356,33 @@ export class DIDResolver {
       // Step 1: Resolve handle to DID
       const did = await this.resolveHandle(handle);
       if (!did) {
-        console.error(`[DID_RESOLVER] Could not resolve handle ${handle} to DID`);
+        smartConsole.error(`[DID_RESOLVER] Could not resolve handle ${handle} to DID`);
         return null;
       }
 
       // Step 2: Resolve DID to DID document
       const didDoc = await this.resolveDID(did);
       if (!didDoc) {
-        console.error(`[DID_RESOLVER] Could not resolve DID ${did} to document`);
+        smartConsole.error(`[DID_RESOLVER] Could not resolve DID ${did} to document`);
         return null;
       }
 
       // Step 3: Verify bidirectional mapping
       if (!this.verifyHandle(didDoc, handle)) {
-        console.error(`[DID_RESOLVER] Handle ${handle} not confirmed in DID document`);
+        smartConsole.error(`[DID_RESOLVER] Handle ${handle} not confirmed in DID document`);
         return null;
       }
 
       // Step 4: Extract PDS endpoint
       const pdsEndpoint = this.getPDSEndpoint(didDoc);
       if (!pdsEndpoint) {
-        console.error(`[DID_RESOLVER] No PDS endpoint found in DID document for ${did}`);
+        smartConsole.error(`[DID_RESOLVER] No PDS endpoint found in DID document for ${did}`);
         return null;
       }
 
       return { did, pdsEndpoint };
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving handle ${handle} to PDS:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving handle ${handle} to PDS:`, error);
       return null;
     }
   }
@@ -397,7 +399,7 @@ export class DIDResolver {
 
       return this.getPDSEndpoint(didDoc);
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving DID ${did} to PDS:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did} to PDS:`, error);
       return null;
     }
   }
@@ -435,7 +437,7 @@ export class DIDResolver {
 
       return this.getFeedGeneratorEndpoint(didDoc);
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving DID ${did} to Feed Generator:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did} to Feed Generator:`, error);
       return null;
     }
   }
@@ -483,7 +485,7 @@ export class DIDResolver {
     this.circuitOpen = false;
     this.failureCount = 0;
     this.lastFailureTime = 0;
-    console.log('[DID_RESOLVER] Circuit breaker manually reset');
+    smartConsole.log('[DID_RESOLVER] Circuit breaker manually reset');
   }
 
   /**
@@ -493,20 +495,20 @@ export class DIDResolver {
     try {
       const didDoc = await this.resolveDID(did);
       if (!didDoc) {
-        console.warn(`[DID_RESOLVER] Could not resolve DID document for ${did}`);
+        smartConsole.warn(`[DID_RESOLVER] Could not resolve DID document for ${did}`);
         return null;
       }
 
       const handle = this.getHandleFromDIDDocument(didDoc);
       if (!handle) {
-        console.warn(`[DID_RESOLVER] No handle found in DID document for ${did}`);
+        smartConsole.warn(`[DID_RESOLVER] No handle found in DID document for ${did}`);
         return null;
       }
 
-      console.log(`[DID_RESOLVER] Resolved DID ${did} to handle ${handle}`);
+      smartConsole.log(`[DID_RESOLVER] Resolved DID ${did} to handle ${handle}`);
       return handle;
     } catch (error) {
-      console.error(`[DID_RESOLVER] Error resolving DID ${did} to handle:`, error);
+      smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did} to handle:`, error);
       return null;
     }
   }
