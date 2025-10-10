@@ -590,7 +590,7 @@ export class EventProcessor {
       const did = uriParts[2]; // at://did:plc:xxx/collection/rkey
       
       // Determine the type based on the action and constraint
-      let type: 'user' | 'post' | 'like' | 'repost' | 'follow' = 'user';
+      let type: 'user' | 'post' | 'like' | 'repost' | 'follow' | 'list' | 'listitem' | 'feedgen' | 'starterpack' | 'labeler' | 'record' = 'user';
       
       if (action === 'create' || action === 'update') {
         if (uri.includes('/app.bsky.feed.post/')) {
@@ -601,6 +601,18 @@ export class EventProcessor {
           type = 'repost';
         } else if (uri.includes('/app.bsky.graph.follow/')) {
           type = 'follow';
+        } else if (uri.includes('/app.bsky.graph.listitem/')) {
+          type = 'listitem';
+        } else if (uri.includes('/app.bsky.graph.list/')) {
+          type = 'list';
+        } else if (uri.includes('/app.bsky.feed.generator/')) {
+          type = 'feedgen';
+        } else if (uri.includes('/app.bsky.graph.starterpack/')) {
+          type = 'starterpack';
+        } else if (uri.includes('/app.bsky.labeler.service/')) {
+          type = 'labeler';
+        } else {
+          type = 'record';
         }
       }
       
@@ -639,11 +651,17 @@ export class EventProcessor {
         case "app.bsky.graph.listitem":
           await this.processListItem(uri, cid, authorDid, record);
           break;
+        case "app.bsky.graph.list":
+          await this.processList(uri, cid, authorDid, record);
+          break;
+        case "app.bsky.graph.listitem":
+          await this.processListItem(uri, cid, authorDid, record);
+          break;
         case "app.bsky.feed.generator":
           await this.processFeedGenerator(uri, cid, authorDid, record);
           break;
-        case "app.bsky.feed.starterpack":
-          await this.processStarterPack(uri, cid, authorDid, record);
+        case "app.bsky.graph.starterpack":
+          await this.processStarterPack(authorDid, { path: uri.split('at://')[1].split(authorDid + '/')[1], cid, record });
           break;
         case "app.bsky.labeler.service":
           await this.processLabelerService(uri, cid, authorDid, record);
@@ -771,7 +789,7 @@ export class EventProcessor {
       parentUri: record.reply?.parent.uri,
       rootUri: record.reply?.root.uri,
       embed: record.embed,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createPost(post);
@@ -853,7 +871,7 @@ export class EventProcessor {
       uri,
       userDid,
       postUri,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     // Check if post exists
@@ -919,7 +937,7 @@ export class EventProcessor {
       uri,
       userDid,
       postUri,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     // Check if post exists
@@ -1021,7 +1039,7 @@ export class EventProcessor {
       uri,
       followerDid,
       followingDid,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     // Check if the target user exists
@@ -1079,7 +1097,7 @@ export class EventProcessor {
       uri,
       blockerDid,
       blockedDid,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     // Check if the target user exists
@@ -1129,7 +1147,7 @@ export class EventProcessor {
       purpose: record.purpose,
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createList(list);
@@ -1157,7 +1175,7 @@ export class EventProcessor {
       cid,
       listUri: record.list,
       subjectDid: record.subject,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     // Check if parent list exists before attempting insert (prevents FK errors in logs)
@@ -1225,7 +1243,7 @@ export class EventProcessor {
       displayName: sanitizeRequiredText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: record.avatar?.ref?.$link,
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createFeedGenerator(feedGenerator);
@@ -1256,7 +1274,7 @@ export class EventProcessor {
       description: sanitizeText(record.description),
       listUri: record.list,
       feeds: record.feeds?.map((f: any) => f.uri) || [],
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createStarterPack(starterPack);
@@ -1279,11 +1297,18 @@ export class EventProcessor {
       cid,
       creatorDid,
       policies: record.policies || { labelValues: [], labelValueDefinitions: [] },
-      createdAt: new Date(record.createdAt),
+      createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createLabelerService(labelerService);
     console.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
+  }
+
+  // Guard against invalid or missing dates in upstream records
+  private safeDate(value: string | Date | undefined): Date {
+    if (!value) return new Date();
+    const d = value instanceof Date ? value : new Date(value);
+    return isNaN(d.getTime()) ? new Date() : d;
   }
 
   private async processDelete(uri: string, collection: string) {

@@ -17,7 +17,18 @@ interface PDSDataFetchResult {
 }
 
 interface IncompleteEntry {
-  type: 'user' | 'post' | 'like' | 'repost' | 'follow';
+  type:
+    | 'user'
+    | 'post'
+    | 'like'
+    | 'repost'
+    | 'follow'
+    | 'list'
+    | 'listitem'
+    | 'feedgen'
+    | 'starterpack'
+    | 'labeler'
+    | 'record'; // generic record fetch by URI
   did: string;
   uri?: string;
   missingData?: any;
@@ -40,7 +51,23 @@ export class PDSDataFetcher {
   /**
    * Mark an entry as incomplete and needing data fetch
    */
-  markIncomplete(type: 'user' | 'post' | 'like' | 'repost' | 'follow', did: string, uri?: string, missingData?: any) {
+  markIncomplete(
+    type:
+      | 'user'
+      | 'post'
+      | 'like'
+      | 'repost'
+      | 'follow'
+      | 'list'
+      | 'listitem'
+      | 'feedgen'
+      | 'starterpack'
+      | 'labeler'
+      | 'record',
+    did: string,
+    uri?: string,
+    missingData?: any,
+  ) {
     const key = `${type}:${did}:${uri || ''}`;
     const existing = this.incompleteEntries.get(key);
     
@@ -146,9 +173,17 @@ export class PDSDataFetcher {
           return await this.fetchUserData(entry.did, pdsEndpoint);
         case 'post':
           return await this.fetchPostData(entry.did, entry.uri!, pdsEndpoint);
+        case 'list':
+        case 'listitem':
+        case 'feedgen':
+        case 'starterpack':
+        case 'labeler':
+        case 'record':
+          return await this.fetchRecordByUri(entry.uri!, pdsEndpoint);
         case 'like':
         case 'repost':
         case 'follow':
+          // Ensure the actor exists first; referenced subject fetch is handled via 'post'/'record' marks
           return await this.fetchUserData(entry.did, pdsEndpoint);
         default:
           return {
@@ -269,6 +304,56 @@ export class PDSDataFetcher {
         error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
+  }
+
+  /**
+   * Fetch any record by its AT URI and process it through the event processor
+   */
+  private async fetchRecordByUri(uri: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
+    try {
+      const { repo, collection, rkey } = this.parseAtUri(uri);
+
+      const recordResponse = await fetch(
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${repo}&collection=${collection}&rkey=${rkey}`,
+        {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS),
+        },
+      );
+
+      if (!recordResponse.ok) {
+        return { success: false, error: `Record fetch failed: ${recordResponse.status}` };
+      }
+
+      const recordData = await recordResponse.json();
+
+      if (recordData.uri && recordData.cid && recordData.value) {
+        await eventProcessor.processRecord(recordData.uri, recordData.cid, repo, recordData.value);
+        return { success: true, data: recordData };
+      }
+
+      return { success: false, error: 'Record response missing required fields' };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Parse AT URI of the form at://did:.../collection/rkey
+   */
+  private parseAtUri(uri: string): { repo: string; collection: string; rkey: string } {
+    const parts = uri.split('/');
+    if (parts.length < 5) {
+      throw new Error(`Invalid AT URI: ${uri}`);
+    }
+    // parts: ['at:', '', 'did:plc:...', 'app.bsky.collection', 'rkey']
+    const repo = parts[2];
+    const collection = parts[3];
+    const rkey = parts[4];
+    return { repo, collection, rkey };
   }
 
   /**
