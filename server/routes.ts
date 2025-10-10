@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { firehoseClient } from "./services/firehose";
@@ -238,13 +238,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // WebDID endpoint - Serve DID document for did:web resolution
-  app.get("/.well-known/did.json", async (_req, res) => {
+  const serveDIDDocument = async (_req: Request, res: Response) => {
     try {
       const fs = await import('fs/promises');
       const didDoc = await fs.readFile('public/did.json', 'utf-8');
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
       res.send(didDoc);
     } catch (error) {
       // If DID document doesn't exist, return a basic one based on APPVIEW_DID
@@ -275,10 +276,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
       res.json(basicDidDoc);
     }
-  });
+  };
+
+  app.get("/.well-known/did.json", serveDIDDocument);
+  app.get("/did.json", serveDIDDocument);
 
   // CSRF Protection - Set token cookie for all requests
   app.use(csrfProtection.setToken);
@@ -2137,31 +2142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // DID document for did:web resolution (required for appview proxy)
-  app.get("/.well-known/did.json", async (_req, res) => {
-    try {
-      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
-      const hostname = appviewDid.replace("did:web:", "");
-      
-      res.json({
-        "@context": [
-          "https://www.w3.org/ns/did/v1",
-          "https://w3id.org/security/multikey/v1",
-          "https://w3id.org/security/suites/secp256k1-2019/v1"
-        ],
-        "id": appviewDid,
-        "service": [
-          {
-            "id": `${appviewDid}#bsky_appview`,
-            "type": "BskyAppView",
-            "serviceEndpoint": `https://${hostname}`
-          }
-        ]
-      });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to generate DID document" });
-    }
-  });
+  // DID document endpoint removed - now handled earlier in routes.ts at line ~285
 
   // AT Protocol health check endpoint (required for appview proxy)
   app.get("/xrpc/_health", async (_req, res) => {

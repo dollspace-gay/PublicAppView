@@ -877,24 +877,13 @@ export class EventProcessor {
       createdAt: this.safeDate(record.createdAt),
     };
 
-    // Check if post exists
-    const post = await this.storage.getPost(postUri);
-    if (!post) {
-      // Enqueue for later
-      this.enqueuePending(postUri, {
-        type: 'like',
-        payload: like,
-        enqueuedAt: Date.now(),
-      });
-      return;
-    }
-
-    // Post exists, try to create like
+    // Insert like directly - foreign key constraints removed for federated data
     try {
       await this.storage.createLike(like);
       
-      // Create notification for like
-      if (post.authorDid !== userDid) {
+      // Try to create notification if post exists locally
+      const post = await this.storage.getPost(postUri);
+      if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
             uri: `${uri}/notification`,
@@ -910,16 +899,11 @@ export class EventProcessor {
         }
       }
     } catch (error: any) {
-      // Check if it's a FK constraint error (race condition)
-      if (error.code === '23503') {
-        this.enqueuePending(postUri, {
-          type: 'like',
-          payload: like,
-          enqueuedAt: Date.now(),
-        });
-      } else {
-        throw error;
+      // Ignore duplicate key errors (23505)
+      if (error.code === '23505') {
+        return;
       }
+      throw error;
     }
   }
 
@@ -943,24 +927,13 @@ export class EventProcessor {
       createdAt: this.safeDate(record.createdAt),
     };
 
-    // Check if post exists
-    const post = await this.storage.getPost(postUri);
-    if (!post) {
-      // Enqueue for later
-      this.enqueuePending(postUri, {
-        type: 'repost',
-        payload: repost,
-        enqueuedAt: Date.now(),
-      });
-      return;
-    }
-
-    // Post exists, try to create repost
+    // Insert repost directly - foreign key constraints removed for federated data
     try {
       await this.storage.createRepost(repost);
       
-      // Create notification for repost
-      if (post.authorDid !== userDid) {
+      // Try to create notification if post exists locally
+      const post = await this.storage.getPost(postUri);
+      if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
             uri: `${uri}/notification`,
@@ -976,16 +949,11 @@ export class EventProcessor {
         }
       }
     } catch (error: any) {
-      // Check if it's a FK constraint error (race condition)
-      if (error.code === '23503') {
-        this.enqueuePending(postUri, {
-          type: 'repost',
-          payload: repost,
-          enqueuedAt: Date.now(),
-        });
-      } else {
-        throw error;
+      // Ignore duplicate key errors (23505)
+      if (error.code === '23505') {
+        return;
       }
+      throw error;
     }
   }
 
@@ -1046,40 +1014,33 @@ export class EventProcessor {
       createdAt: this.safeDate(record.createdAt),
     };
 
-    // Check if the target user exists
-    const followingUser = await this.storage.getUser(followingDid);
-    if (!followingUser) {
-      this.enqueuePendingUserOp(followingDid, {
-        type: 'follow',
-        payload: follow,
-        enqueuedAt: Date.now(),
-      });
-      return;
-    }
-
-    // Both users exist, proceed with creation
+    // Insert follow directly - foreign key constraints removed for federated data
     try {
       await this.storage.createFollow(follow);
-      // Create notification for follow
-      await this.storage.createNotification({
-        uri: `${uri}/notification`,
-        recipientDid: followingDid,
-        authorDid: followerDid,
-        reason: 'follow',
-        reasonSubject: undefined,
-        isRead: false,
-        createdAt: new Date(record.createdAt),
-      });
-    } catch (error: any) {
-      if (error.code === '23503') { // Foreign key violation (race condition)
-        this.enqueuePendingUserOp(followingDid, {
-          type: 'follow',
-          payload: follow,
-          enqueuedAt: Date.now(),
-        });
-      } else if (error.code !== '23505') { // Ignore duplicate errors
-        smartConsole.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
+      
+      // Try to create notification if target user exists locally
+      const followingUser = await this.storage.getUser(followingDid);
+      if (followingUser) {
+        try {
+          await this.storage.createNotification({
+            uri: `${uri}/notification`,
+            recipientDid: followingDid,
+            authorDid: followerDid,
+            reason: 'follow',
+            reasonSubject: undefined,
+            isRead: false,
+            createdAt: new Date(record.createdAt),
+          });
+        } catch (error) {
+          smartConsole.error(`[NOTIFICATION] Error creating follow notification:`, error);
+        }
       }
+    } catch (error: any) {
+      // Ignore duplicate key errors (23505)
+      if (error.code === '23505') {
+        return;
+      }
+      smartConsole.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
     }
   }
 
@@ -1104,30 +1065,15 @@ export class EventProcessor {
       createdAt: this.safeDate(record.createdAt),
     };
 
-    // Check if the target user exists
-    const blockedUser = await this.storage.getUser(blockedDid);
-    if (!blockedUser) {
-      this.enqueuePendingUserOp(blockedDid, {
-        type: 'block',
-        payload: block,
-        enqueuedAt: Date.now(),
-      });
-      return;
-    }
-
-    // Both users exist, proceed with creation
+    // Insert block directly - foreign key constraints removed for federated data
     try {
       await this.storage.createBlock(block);
     } catch (error: any) {
-      if (error.code === '23503') { // Foreign key violation (race condition)
-        this.enqueuePendingUserOp(blockedDid, {
-          type: 'block',
-          payload: block,
-          enqueuedAt: Date.now(),
-        });
-      } else if (error.code !== '23505') { // Ignore duplicate errors
-        smartConsole.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
+      // Ignore duplicate key errors (23505)
+      if (error.code === '23505') {
+        return;
       }
+      smartConsole.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
     }
   }
 

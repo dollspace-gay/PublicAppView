@@ -63,8 +63,8 @@ cat > public/did.json << EOF
   "assertionMethod": ["did:web:${DOMAIN}#atproto"],
   "service": [
     {
-      "id": "did:web:${DOMAIN}#appview",
-      "type": "AppView",
+      "id": "#bsky_appview",
+      "type": "BskyAppView",
       "serviceEndpoint": "https://${DOMAIN}"
     }
   ]

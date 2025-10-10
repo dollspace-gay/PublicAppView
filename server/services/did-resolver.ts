@@ -27,6 +27,8 @@ export class DIDResolver {
   private failureCount = 0;
   private lastFailureTime = 0;
   private circuitOpen = false;
+  private resolutionCount = 0;
+  private readonly BATCH_LOG_SIZE = 5000;
 
   /**
    * Configure resolver settings
@@ -505,7 +507,12 @@ export class DIDResolver {
         return null;
       }
 
-      smartConsole.log(`[DID_RESOLVER] Resolved DID ${did} to handle ${handle}`);
+      // Batch logging: only log every 5000 resolutions
+      this.resolutionCount++;
+      if (this.resolutionCount % this.BATCH_LOG_SIZE === 0) {
+        smartConsole.log(`[DID_RESOLVER] Resolved ${this.BATCH_LOG_SIZE} DIDs (total: ${this.resolutionCount})`);
+      }
+      
       return handle;
     } catch (error) {
       smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did} to handle:`, error);
