@@ -2188,12 +2188,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Return standard AT Protocol response - no custom fields allowed
+      // Return appview-specific AT Protocol response
+      // AppView services should NOT include PDS-specific fields like:
+      // - availableUserDomains (PDS only)
+      // - inviteCodeRequired (PDS only) 
+      // - phoneVerificationRequired (PDS only)
       res.json({
         did: appviewDid || "did:web:appview.local", // Fallback only for development
-        availableUserDomains: [],
-        inviteCodeRequired: false,
-        phoneVerificationRequired: false,
+        // Note: This is an AppView service, not a PDS
+        // Clients should understand this service does not handle user authentication
+        // or user management - it only provides read-only access to AT Protocol data
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to describe server" });
