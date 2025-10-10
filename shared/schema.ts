@@ -33,7 +33,7 @@ export const users = pgTable("users", {
 export const posts = pgTable("posts", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  authorDid: varchar("author_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  authorDid: varchar("author_did", { length: 255 }).notNull(), // No FK - can reference external users
   text: text("text").notNull(),
   parentUri: varchar("parent_uri", { length: 512 }),
   rootUri: varchar("root_uri", { length: 512 }),
@@ -52,7 +52,7 @@ export const posts = pgTable("posts", {
 // Likes table
 export const likes = pgTable("likes", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  userDid: varchar("user_did", { length: 255 }).notNull(), // No FK - can reference external users
   postUri: varchar("post_uri", { length: 512 }).notNull(), // No FK - can reference external posts
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -65,7 +65,7 @@ export const likes = pgTable("likes", {
 // Reposts table
 export const reposts = pgTable("reposts", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  userDid: varchar("user_did", { length: 255 }).notNull(), // No FK - can reference external users
   postUri: varchar("post_uri", { length: 512 }).notNull(), // No FK - can reference external posts
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -78,7 +78,7 @@ export const reposts = pgTable("reposts", {
 // Bookmarks table (unspecced but widely used by clients)
 export const bookmarks = pgTable("bookmarks", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  userDid: varchar("user_did", { length: 255 }).notNull(), // No FK - can reference external users
   postUri: varchar("post_uri", { length: 512 }).notNull(), // No FK - can reference external posts
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -91,8 +91,8 @@ export const bookmarks = pgTable("bookmarks", {
 // Follows table
 export const follows = pgTable("follows", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  followerDid: varchar("follower_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  followingDid: varchar("following_did", { length: 255 }).notNull(), // No FK - can follow external users
+  followerDid: varchar("follower_did", { length: 255 }).notNull(), // No FK - can reference external users
+  followingDid: varchar("following_did", { length: 255 }).notNull(), // No FK - can reference external users
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -104,8 +104,8 @@ export const follows = pgTable("follows", {
 // Blocks table
 export const blocks = pgTable("blocks", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  blockerDid: varchar("blocker_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  blockedDid: varchar("blocked_did", { length: 255 }).notNull(), // No FK - can block external users
+  blockerDid: varchar("blocker_did", { length: 255 }).notNull(), // No FK - can reference external users
+  blockedDid: varchar("blocked_did", { length: 255 }).notNull(), // No FK - can reference external users
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -117,8 +117,8 @@ export const blocks = pgTable("blocks", {
 // Mutes table - user mutes (soft blocks)
 export const mutes = pgTable("mutes", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  muterDid: varchar("muter_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  mutedDid: varchar("muted_did", { length: 255 }).notNull(), // No FK - can mute external users
+  muterDid: varchar("muter_did", { length: 255 }).notNull(), // No FK - can reference external users
+  mutedDid: varchar("muted_did", { length: 255 }).notNull(), // No FK - can reference external users
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -130,8 +130,8 @@ export const mutes = pgTable("mutes", {
 // List mutes table - muted lists
 export const listMutes = pgTable("list_mutes", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  muterDid: varchar("muter_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  listUri: varchar("list_uri", { length: 512 }).notNull().references(() => lists.uri, { onDelete: "cascade" }),
+  muterDid: varchar("muter_did", { length: 255 }).notNull(), // No FK - can reference external users
+  listUri: varchar("list_uri", { length: 512 }).notNull(), // No FK - can reference external lists
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -143,8 +143,8 @@ export const listMutes = pgTable("list_mutes", {
 // List blocks table - blocked lists
 export const listBlocks = pgTable("list_blocks", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  blockerDid: varchar("blocker_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  listUri: varchar("list_uri", { length: 512 }).notNull().references(() => lists.uri, { onDelete: "cascade" }),
+  blockerDid: varchar("blocker_did", { length: 255 }).notNull(), // No FK - can reference external users
+  listUri: varchar("list_uri", { length: 512 }).notNull(), // No FK - can reference external lists
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -156,8 +156,8 @@ export const listBlocks = pgTable("list_blocks", {
 // Thread mutes table - muted threads
 export const threadMutes = pgTable("thread_mutes", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
-  muterDid: varchar("muter_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  threadRootUri: varchar("thread_root_uri", { length: 512 }).notNull().references(() => posts.uri, { onDelete: "cascade" }),
+  muterDid: varchar("muter_did", { length: 255 }).notNull(), // No FK - can reference external users
+  threadRootUri: varchar("thread_root_uri", { length: 512 }).notNull(), // No FK - can reference external posts
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -315,8 +315,8 @@ export const moderatorAssignments = pgTable("moderator_assignments", {
 export const notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
   uri: varchar("uri", { length: 512 }).notNull().unique(),
-  recipientDid: varchar("recipient_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
-  authorDid: varchar("author_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  recipientDid: varchar("recipient_did", { length: 255 }).notNull(), // No FK - can reference external users
+  authorDid: varchar("author_did", { length: 255 }).notNull(), // No FK - can reference external users
   reason: varchar("reason", { length: 64 }).notNull(), // like, repost, follow, reply, mention, quote
   reasonSubject: varchar("reason_subject", { length: 512 }), // URI of the post/subject
   isRead: boolean("is_read").default(false).notNull(),
@@ -333,7 +333,7 @@ export const notifications = pgTable("notifications", {
 export const lists = pgTable("lists", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull(), // No FK - can reference external users
   name: varchar("name", { length: 255 }).notNull(),
   purpose: varchar("purpose", { length: 64 }).notNull(), // app.bsky.graph.defs#curatelist, app.bsky.graph.defs#modlist
   description: text("description"),
@@ -350,8 +350,8 @@ export const lists = pgTable("lists", {
 export const listItems = pgTable("list_items", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  listUri: varchar("list_uri", { length: 512 }).notNull().references(() => lists.uri, { onDelete: "cascade" }),
-  subjectDid: varchar("subject_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  listUri: varchar("list_uri", { length: 512 }).notNull(), // No FK - can reference external lists
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(), // No FK - can reference external users
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
 }, (table) => ({
@@ -364,7 +364,7 @@ export const listItems = pgTable("list_items", {
 export const feedGenerators = pgTable("feed_generators", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull(), // No FK - can reference external users
   did: varchar("did", { length: 255 }).notNull(), // Service DID that hosts the feed
   displayName: varchar("display_name", { length: 255 }).notNull(),
   description: text("description"),
@@ -383,10 +383,10 @@ export const feedGenerators = pgTable("feed_generators", {
 export const starterPacks = pgTable("starter_packs", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull(), // No FK - can reference external users
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  listUri: varchar("list_uri", { length: 512 }).references(() => lists.uri, { onDelete: "set null" }),
+  listUri: varchar("list_uri", { length: 512 }), // No FK - can reference external lists
   feeds: jsonb("feeds").default(sql`'[]'::jsonb`).notNull(), // Array of feed generator URIs
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -400,7 +400,7 @@ export const starterPacks = pgTable("starter_packs", {
 export const labelerServices = pgTable("labeler_services", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
   cid: varchar("cid", { length: 255 }).notNull(),
-  creatorDid: varchar("creator_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  creatorDid: varchar("creator_did", { length: 255 }).notNull(), // No FK - can reference external users
   policies: jsonb("policies").notNull(), // Label values and label value definitions
   likeCount: integer("like_count").default(0).notNull(),
   createdAt: timestamp("created_at").notNull(),

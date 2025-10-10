@@ -54,6 +54,8 @@ export class EventProcessor {
   private totalPendingUserOps = 0; // Counter for pending user ops
   private totalPendingListItems = 0; // Counter for pending list items
   private totalPendingUserCreationOps = 0;
+  private userCreationCount = 0; // Counter for batch logging
+  private readonly USER_BATCH_LOG_SIZE = 5000; // Log every 5000 user creations
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
@@ -560,8 +562,11 @@ export class EventProcessor {
           handle: handle,
         });
         
-        // Use aggregated logging for user creation to reduce spam
-        logAggregator.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        // Batch logging: only log every 5000 user creations
+        this.userCreationCount++;
+        if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
+          smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+        }
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -980,8 +985,11 @@ export class EventProcessor {
     } else {
       await this.storage.createUser({ did, ...profileData });
       if (handle) {
-        // Use aggregated logging for user creation to reduce spam
-        logAggregator.log(`[EVENT_PROCESSOR] Created user ${did} with handle ${handle}`);
+        // Batch logging: only log every 5000 user creations
+        this.userCreationCount++;
+        if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
+          smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+        }
       } else {
         smartConsole.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
       }

@@ -43,11 +43,7 @@ export const aggregatedConsole = new AggregatedConsole();
 export function shouldAggregateLog(message: string): boolean {
   // Aggregate logs that are likely to be spammy
   const spammyPatterns = [
-    /\[EVENT_PROCESSOR\].*(?:Flushing|Skipping|Created|Updated|Queued|Expired)/,
-    /\[EVENT_PROCESSOR\].*Created user.*with handle/,
     /\[DID_RESOLVER\].*(?:Timeout|Network error|Attempt.*failed|Circuit breaker)/,
-    /\[EVENT_PROCESSOR\].*(?:Skipped duplicate|Skipped.*referenced record)/,
-    /\[EVENT_PROCESSOR\].*(?:Retrying|Successfully retried)/,
   ];
 
   return spammyPatterns.some(pattern => pattern.test(message));
