@@ -126,7 +126,8 @@ export class AuthService {
       // Check for OAuth access token format (sub field with DID)
       if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith("did:")) {
         userDid = payload.sub;
-        signingDid = payload.iss; // Token signed by authorization server
+        // Token signed by authorization server (iss) or the PDS (aud)
+        signingDid = payload.iss || (payload.aud?.startsWith?.('did:') ? payload.aud : null);
       }
       // Check for AT Protocol service auth token format (iss field with DID, lxm field present)
       else if (payload.iss && typeof payload.iss === 'string' && payload.iss.startsWith("did:") && payload.lxm) {
