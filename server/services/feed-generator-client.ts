@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { didResolver } from "./did-resolver";
 import { storage } from "../storage";
+import { appViewJWTService } from "./appview-jwt";
 import type { Post } from "@shared/schema";
 
 const skeletonPostSchema = z.object({
@@ -53,6 +54,14 @@ export class FeedGeneratorClient {
       if (options?.viewerAuthorization) {
         headers["Authorization"] = options.viewerAuthorization;
         console.log(`[FeedGenClient] Forwarded viewer Authorization header to feedgen`);
+      } else if (params.feedGeneratorDid) {
+        try {
+          const serviceToken = appViewJWTService.signFeedGeneratorToken(params.feedGeneratorDid);
+          headers["Authorization"] = `Bearer ${serviceToken}`;
+          console.log(`[FeedGenClient] Attached AppView service Authorization for ${params.feedGeneratorDid}`);
+        } catch (err) {
+          console.warn(`[FeedGenClient] Failed to attach AppView service token:`, err);
+        }
       }
 
       const response = await fetch(url.toString(), {
