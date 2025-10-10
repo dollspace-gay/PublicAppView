@@ -6,6 +6,7 @@ import { feedAlgorithm } from "./feed-algorithm";
 import { feedGeneratorClient } from "./feed-generator-client";
 import { pdsClient } from "./pds-client";
 import { labelService } from "./label";
+import { didResolver } from "./did-resolver";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
 import { z } from "zod";
@@ -856,7 +857,7 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // Prefer upstream behavior by proxying to user's PDS if using local session token
+      // Prefer upstream behavior by proxying to user's PDS
       const token = authService.extractToken(req);
       const sessionPayload = token ? authService.verifySessionToken(token) : null;
       if (sessionPayload) {
@@ -875,7 +876,45 @@ export class XRPCApi {
         return res.status(proxied.status).set(proxied.headers).send(proxied.body);
       }
 
-      // Fallback: local storage (for third-party AT Protocol access tokens)
+      // If not a local session token, this is likely an AT Protocol access token from a client.
+      // Proxy the request to the user's PDS using the AT token as-is to ensure parity.
+      if (token) {
+        try {
+          let pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || 'https://bsky.social';
+          const parts = token.split('.');
+          if (parts.length >= 2) {
+            const payloadB64 = parts[1];
+            const payloadJson = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+            const payload = JSON.parse(payloadJson) as { iss?: string; sub?: string };
+            if (payload.iss) {
+              if (payload.iss.startsWith('http')) {
+                pdsEndpoint = payload.iss.replace(/\/$/, '');
+              } else if (payload.iss.startsWith('did:')) {
+                const resolved = await didResolver.resolveDIDToPDS(payload.iss);
+                if (resolved) pdsEndpoint = resolved;
+              }
+            } else if (payload.sub && payload.sub.startsWith('did:')) {
+              const resolved = await didResolver.resolveDIDToPDS(payload.sub);
+              if (resolved) pdsEndpoint = resolved;
+            }
+          }
+          const proxied = await pdsClient.proxyXRPC(
+            pdsEndpoint,
+            'GET',
+            '/xrpc/app.bsky.actor.getPreferences',
+            req.query as any,
+            token,
+            undefined,
+            req.headers,
+          );
+          return res.status(proxied.status).set(proxied.headers).send(proxied.body);
+        } catch (e) {
+          // Fall through to local handling on error
+          console.warn('[XRPC] Fallback to local preferences due to proxy error:', e);
+        }
+      }
+
+      // Final fallback: local storage (minimal compatibility)
       const did = await this.requireAuthDid(req, res);
       if (!did) return;
       const prefs = await storage.getUserPreferences(did);

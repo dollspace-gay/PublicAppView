@@ -2300,12 +2300,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Extract DID from refresh token to find PDS
-      // Note: Refresh tokens from PDS contain the DID - we need to decode it
-      // For now, we'll proxy to a known PDS or require the client to specify
-      // In production, decode JWT to get DID, then resolve to PDS
-      
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      // Derive PDS endpoint from the JWT without verifying the signature
+      // Prefer issuer (iss), fallback to subject (sub) DID resolution
+      let pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      try {
+        const parts = refreshToken.split('.');
+        if (parts.length >= 2) {
+          const payloadB64 = parts[1];
+          const payloadJson = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+          const payload = JSON.parse(payloadJson) as { iss?: string; sub?: string };
+          if (payload.iss) {
+            if (payload.iss.startsWith('http')) {
+              pdsEndpoint = payload.iss.replace(/\/$/, '');
+            } else if (payload.iss.startsWith('did:')) {
+              const resolved = await didResolver.resolveDIDToPDS(payload.iss);
+              if (resolved) pdsEndpoint = resolved;
+            }
+          } else if (payload.sub && payload.sub.startsWith('did:')) {
+            const resolved = await didResolver.resolveDIDToPDS(payload.sub);
+            if (resolved) pdsEndpoint = resolved;
+          }
+        }
+      } catch (e) {
+        console.warn('[XRPC] Failed to derive PDS from refresh token, using default endpoint');
+      }
       
       const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
       
@@ -2338,8 +2356,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get PDS endpoint from token or use default
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      // Derive PDS endpoint from the JWT without verifying signature
+      let pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length >= 2) {
+          const payloadB64 = parts[1];
+          const payloadJson = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+          const payload = JSON.parse(payloadJson) as { iss?: string; sub?: string };
+          if (payload.iss) {
+            if (payload.iss.startsWith('http')) {
+              pdsEndpoint = payload.iss.replace(/\/$/, '');
+            } else if (payload.iss.startsWith('did:')) {
+              const resolved = await didResolver.resolveDIDToPDS(payload.iss);
+              if (resolved) pdsEndpoint = resolved;
+            }
+          } else if (payload.sub && payload.sub.startsWith('did:')) {
+            const resolved = await didResolver.resolveDIDToPDS(payload.sub);
+            if (resolved) pdsEndpoint = resolved;
+          }
+        }
+      } catch (e) {
+        console.warn('[XRPC] Failed to derive PDS from access token, using default endpoint');
+      }
       
       const result = await pdsClient.getSession(pdsEndpoint, accessToken);
       
