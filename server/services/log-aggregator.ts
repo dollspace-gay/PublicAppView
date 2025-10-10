@@ -227,18 +227,58 @@ export class LogAggregator {
   }
 }
 
-// Create singleton instance
-export const logAggregator = new LogAggregator({
-  flushInterval: parseInt(process.env.LOG_AGGREGATION_INTERVAL || '10000'),
-  maxAggregatedLogs: parseInt(process.env.LOG_AGGREGATION_MAX_LOGS || '1000'),
-  enableAggregation: process.env.LOG_AGGREGATION_ENABLED !== 'false',
-});
+// Lazy-initialized singleton instance
+let _logAggregator: LogAggregator | null = null;
+let _eventListenersAdded = false;
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  logAggregator.destroy();
-});
+function getLogAggregator(): LogAggregator {
+  if (!_logAggregator) {
+    // Only initialize if we're in a runtime environment, not during build
+    // Check for common build tool indicators
+    const isBuildTime = process.env.NODE_ENV === 'production' && 
+                       (process.argv.includes('build') || 
+                        process.argv.includes('esbuild') || 
+                        process.argv.includes('vite') ||
+                        process.argv.includes('tsc') ||
+                        process.argv.includes('--bundle'));
+    
+    if (isBuildTime) {
+      // During build, return a no-op aggregator that just logs directly
+      _logAggregator = new LogAggregator({
+        flushInterval: 0,
+        maxAggregatedLogs: 0,
+        enableAggregation: false,
+      });
+    } else {
+      _logAggregator = new LogAggregator({
+        flushInterval: parseInt(process.env.LOG_AGGREGATION_INTERVAL || '10000'),
+        maxAggregatedLogs: parseInt(process.env.LOG_AGGREGATION_MAX_LOGS || '1000'),
+        enableAggregation: process.env.LOG_AGGREGATION_ENABLED !== 'false',
+      });
 
-process.on('SIGTERM', () => {
-  logAggregator.destroy();
+      // Only add event listeners once, and only if we're in a runtime environment
+      // (not during build/compilation)
+      if (!_eventListenersAdded && typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
+        process.on('SIGINT', () => {
+          _logAggregator?.destroy();
+        });
+
+        process.on('SIGTERM', () => {
+          _logAggregator?.destroy();
+        });
+        
+        _eventListenersAdded = true;
+      }
+    }
+  }
+  return _logAggregator;
+}
+
+// Export a proxy object that lazily initializes the aggregator
+export const logAggregator = new Proxy({} as LogAggregator, {
+  get(target, prop) {
+    const aggregator = getLogAggregator();
+    const value = (aggregator as any)[prop];
+    return typeof value === 'function' ? value.bind(aggregator) : value;
+  }
 });
