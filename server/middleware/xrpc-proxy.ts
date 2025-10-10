@@ -6,10 +6,12 @@ import { pdsClient } from "../services/pds-client";
  * A catch-all middleware to proxy authenticated XRPC requests
  * to the user's Personal Data Server (PDS).
  *
- * This middleware correctly handles the two-token system and token refreshing:
- * 1. It verifies the AppView's session token to identify the user.
- * 2. It validates the session and refreshes the PDS access token if necessary.
- * 3. It uses the valid PDS access token to make the proxied request.
+ * This middleware handles both authentication methods:
+ * 1. Local session tokens: Verifies session, refreshes PDS token if needed, proxies with session's PDS token
+ * 2. AT Protocol access tokens: Verifies token cryptographically, resolves PDS endpoint, proxies with original token
+ *
+ * This enables third-party clients to authenticate using standard AT Protocol access tokens
+ * while maintaining compatibility with the appview's local session system.
  */
 export const xrpcProxyMiddleware = async (
   req: Request,
@@ -22,51 +24,83 @@ export const xrpcProxyMiddleware = async (
   }
 
   try {
-    // 1. Verify the AppView's session token to get the session ID.
-    const appViewToken = authService.extractToken(req);
-    if (!appViewToken) {
+    // 1. Extract and verify the token (handles both local session tokens and AT Protocol access tokens)
+    const token = authService.extractToken(req);
+    if (!token) {
       // If no token, it's not an authenticated request we should proxy.
       return next();
     }
 
-    const sessionPayload = authService.verifySessionToken(appViewToken);
-    if (!sessionPayload) {
-      // If the token is invalid or not a session token, let it fall through.
+    // 2. Verify the token using the unified verification method
+    const authPayload = await authService.verifyToken(token);
+    if (!authPayload?.did) {
+      // If the token is invalid, let it fall through to other handlers
       return next();
     }
 
-    // 2. Validate the session and refresh the PDS token if needed.
-    const session = await validateAndRefreshSession(sessionPayload.sessionId);
-    if (!session) {
-      return res.status(401).json({ error: "SessionNotFound", message: "Your session could not be found or has expired." });
-    }
+    const userDid = authPayload.did;
 
-    // 3. Use the (potentially refreshed) PDS access token.
-    const pdsAccessToken = session.accessToken;
-    const pdsEndpoint = session.pdsEndpoint;
+    // 3. Handle different token types
+    if (authPayload.sessionId) {
+      // Local session token - validate session and refresh PDS token if needed
+      const session = await validateAndRefreshSession(authPayload.sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "SessionNotFound", message: "Your session could not be found or has expired." });
+      }
 
-    if (!pdsAccessToken || !pdsEndpoint) {
+      const pdsAccessToken = session.accessToken;
+      const pdsEndpoint = session.pdsEndpoint;
+
+      if (!pdsAccessToken || !pdsEndpoint) {
         console.error(`[XRPC_PROXY] Session for ${session.userDid} is missing PDS credentials.`);
         return res.status(500).json({ error: "InvalidSessionState", message: "Session is missing PDS credentials." });
+      }
+
+      console.log(
+        `[XRPC_PROXY] Proxying ${req.method} ${req.path} to ${pdsEndpoint} for ${session.userDid} (local session)`
+      );
+
+      // Forward the request to the PDS with the session's access token
+      const pdsResponse = await pdsClient.proxyXRPC(
+          pdsEndpoint,
+          req.method,
+          req.path,
+          req.query,
+          pdsAccessToken,
+          req.body,
+          req.headers
+      );
+
+      res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
+
+    } else {
+      // AT Protocol access token from third-party client - use it directly
+      console.log(
+        `[XRPC_PROXY] Proxying ${req.method} ${req.path} for ${userDid} (AT Protocol token)`
+      );
+
+      // For AT Protocol tokens, we need to determine the PDS endpoint from the user's DID
+      const { didResolver } = await import("../services/did-resolver");
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+      
+      if (!pdsEndpoint) {
+        console.error(`[XRPC_PROXY] Could not resolve PDS endpoint for DID: ${userDid}`);
+        return res.status(500).json({ error: "PDSNotFound", message: "Could not determine PDS endpoint for user." });
+      }
+
+      // Forward the request to the PDS with the original AT Protocol access token
+      const pdsResponse = await pdsClient.proxyXRPC(
+          pdsEndpoint,
+          req.method,
+          req.path,
+          req.query,
+          token, // Use the original AT Protocol access token
+          req.body,
+          req.headers
+      );
+
+      res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
     }
-
-    console.log(
-      `[XRPC_PROXY] Proxying ${req.method} ${req.path} to ${pdsEndpoint} for ${session.userDid}`
-    );
-
-    // 4. Forward the request to the PDS with the correct token.
-    const pdsResponse = await pdsClient.proxyXRPC(
-        pdsEndpoint,
-        req.method,
-        req.path,
-        req.query,
-        pdsAccessToken,
-        req.body,
-        req.headers
-    );
-
-    // 5. Send the PDS response back to the client.
-    res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
 
   } catch (error) {
     console.error(`[XRPC_PROXY] Error proxying request:`, error);
