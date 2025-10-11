@@ -935,23 +935,9 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // Extract and verify user-signed JWT from PDS
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'MissingAuthorization', message: 'Authorization header required' });
-      }
-
-      const token = authHeader.substring(7);
-      const { appViewJWTService } = await import('./appview-jwt');
-      
-      // Verify the user-signed JWT from PDS
-      const payload = await appViewJWTService.verifyUserSignedToken(token, 'app.bsky.actor.getPreferences');
-      if (!payload) {
-        return res.status(401).json({ error: 'InvalidToken', message: 'Token could not be verified' });
-      }
-
-      const userDid = payload.sub; // User DID from the verified token
-      console.log(`[PREFERENCES] Verified user-signed token for ${userDid}`);
+      // Get authenticated user DID using OAuth token verification
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
 
       // Check cache first
       const cached = this.preferencesCache.get(userDid);
@@ -982,23 +968,9 @@ export class XRPCApi {
 
   async putPreferences(req: Request, res: Response) {
     try {
-      // Extract and verify user-signed JWT from PDS
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'MissingAuthorization', message: 'Authorization header required' });
-      }
-
-      const token = authHeader.substring(7);
-      const { appViewJWTService } = await import('./appview-jwt');
-      
-      // Verify the user-signed JWT from PDS
-      const payload = await appViewJWTService.verifyUserSignedToken(token, 'app.bsky.actor.putPreferences');
-      if (!payload) {
-        return res.status(401).json({ error: 'InvalidToken', message: 'Token could not be verified' });
-      }
-
-      const userDid = payload.sub; // User DID from the verified token
-      console.log(`[PREFERENCES] Verified user-signed token for ${userDid}`);
+      // Get authenticated user DID using OAuth token verification
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
 
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
