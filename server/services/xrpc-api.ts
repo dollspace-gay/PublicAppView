@@ -597,6 +597,9 @@ export class XRPCApi {
       };
 
       if (post.embed) {
+        // Debug: Log embed structure to understand what we're working with
+        console.log(`[SERIALIZE_POSTS] Embed for post ${post.uri}:`, JSON.stringify(post.embed, null, 2));
+        
         // Ensure embed has proper $type field and is an object
         if (post.embed && typeof post.embed === 'object' && post.embed.$type) {
           record.embed = post.embed;
