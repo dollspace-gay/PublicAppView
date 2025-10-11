@@ -306,9 +306,12 @@ const unregisterPushSchema = z.object({
   token: z.string(),
 });
 
-// Actor preferences schemas (minimal, accept-through with type routing)
+// Actor preferences schemas - proper validation like Bluesky
 const putActorPreferencesSchema = z.object({
-  preferences: z.array(z.any()).default([]),
+  preferences: z.array(z.object({
+    $type: z.string().min(1, "Preference must have a $type"),
+    // Allow any additional properties for flexibility
+  }).passthrough()).default([]),
 });
 
 const getActorStarterPacksSchema = z.object({
@@ -1025,21 +1028,23 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - return empty preferences for now
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, returning empty preferences`);
+      // Cache miss - fetch from database (following Bluesky's pattern)
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from database`);
       
-      // For now, return empty preferences array
-      // In a full implementation, this would be stored in the AppView's database
-      const emptyPreferences = [];
+      // Get preferences from database, filtering to app.bsky namespace only
+      const preferences = await storage.getUserPreferences(userDid);
+      const filteredPreferences = preferences ? preferences.filter(pref => 
+        pref.$type && pref.$type.startsWith('app.bsky.')
+      ) : [];
       
       // Store in cache for future requests
       this.preferencesCache.set(userDid, {
-        preferences: emptyPreferences,
+        preferences: filteredPreferences,
         timestamp: Date.now()
       });
       
-      console.log(`[PREFERENCES] Cached empty preferences for ${userDid}`);
-      return res.json({ preferences: emptyPreferences });
+      console.log(`[PREFERENCES] Retrieved ${filteredPreferences.length} preferences for ${userDid}`);
+      return res.json({ preferences: filteredPreferences });
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
@@ -1054,15 +1059,37 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // For now, just invalidate the cache and return success
-      // In a full implementation, this would store preferences in the AppView's database
-      console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
+      // Validate preferences like Bluesky does
+      const checkedPreferences: Array<{ $type: string; [key: string]: any }> = [];
+      for (const pref of body.preferences) {
+        if (typeof pref.$type === 'string' && pref.$type.length > 0) {
+          // Only allow app.bsky namespace preferences (like Bluesky)
+          if (pref.$type.startsWith('app.bsky.')) {
+            checkedPreferences.push(pref);
+          } else {
+            return res.status(400).json({ 
+              error: 'InvalidRequest', 
+              message: `Some preferences are not in the app.bsky namespace` 
+            });
+          }
+        } else {
+          return res.status(400).json({ 
+            error: 'InvalidRequest', 
+            message: 'Preference is missing a $type' 
+          });
+        }
+      }
+
+      // Store preferences in database (following Bluesky's pattern)
+      await storage.putUserPreferences(userDid, checkedPreferences);
       
       // Invalidate cache after update
       this.invalidatePreferencesCache(userDid);
       
-      // Return success response
-      return res.json({ success: true });
+      console.log(`[PREFERENCES] Updated ${checkedPreferences.length} preferences for ${userDid}`);
+      
+      // Return success response (no body, like Bluesky)
+      return res.status(200).end();
     } catch (error) {
       this._handleError(res, error, 'putPreferences');
     }

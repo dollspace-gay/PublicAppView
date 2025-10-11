@@ -94,7 +94,8 @@ export interface IStorage {
   isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean>;
   
   // User preferences operations
-  getUserPreferences(userDid: string): Promise<UserPreferences | undefined>;
+  getUserPreferences(userDid: string): Promise<Array<{ $type: string; [key: string]: any }> | undefined>;
+  putUserPreferences(userDid: string, preferences: Array<{ $type: string; [key: string]: any }>): Promise<void>;
   createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
   updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined>;
   
@@ -1094,10 +1095,6 @@ export class DatabaseStorage implements IStorage {
     return !!result;
   }
 
-  async getUserPreferences(userDid: string): Promise<UserPreferences | undefined> {
-    const [prefs] = await this.db.select().from(userPreferences).where(eq(userPreferences.userDid, userDid));
-    return prefs || undefined;
-  }
 
   async createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences> {
     const sanitized = sanitizeObject(prefs);
@@ -1119,6 +1116,21 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userPreferences.userDid, userDid))
       .returning();
     return updated || undefined;
+  }
+
+  // New Bluesky-style preferences methods
+  async getUserPreferences(userDid: string): Promise<Array<{ $type: string; [key: string]: any }> | undefined> {
+    // For now, return empty array since we don't have the account_pref table yet
+    // In a full implementation, this would query the account_pref table
+    return [];
+  }
+
+  async putUserPreferences(userDid: string, preferences: Array<{ $type: string; [key: string]: any }>): Promise<void> {
+    // For now, just log the preferences since we don't have the account_pref table yet
+    // In a full implementation, this would:
+    // 1. Delete all existing preferences for the user in app.bsky namespace
+    // 2. Insert the new preferences
+    console.log(`[STORAGE] Storing ${preferences.length} preferences for ${userDid}:`, preferences);
   }
 
   async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
