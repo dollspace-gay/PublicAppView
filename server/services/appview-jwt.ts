@@ -28,15 +28,14 @@ export class AppViewJWTService {
   private signingAlg: "ES256K" | "HS256";
 
   constructor() {
-    this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+    this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.dollspace.gay";
     this.privateKeyPem = null;
-    this.signingAlg = "HS256";
+    this.signingAlg = "ES256K";
     
     if (!process.env.APPVIEW_DID) {
       console.warn(
-        "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.local'. " +
-        "Set APPVIEW_DID environment variable for production use. " +
-        "Note: The default DID may not be resolvable by PDS instances, which could cause authentication failures."
+        "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.dollspace.gay'. " +
+        "Set APPVIEW_DID environment variable for production use."
       );
     }
 
@@ -74,17 +73,19 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256K if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256K",
-        keyid: "atproto", // Add key ID for consistency
+        keyid: "atproto", // Must match the verification method ID fragment
       });
     }
 
+    // Fallback to HS256 only if no private key available
+    console.warn("[AppViewJWT] No private key available, using HS256 fallback. This may cause PDS authentication failures.");
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      keyid: "atproto", // Add key ID for consistency
+      keyid: "atproto",
     });
   }
 
@@ -105,17 +106,19 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256K if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256K",
-        keyid: "atproto", // Add key ID for PDS compatibility
+        keyid: "atproto", // Must match the verification method ID fragment
       });
     }
 
+    // Fallback to HS256 only if no private key available
+    console.warn("[AppViewJWT] No private key available, using HS256 fallback. This may cause PDS authentication failures.");
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      keyid: "atproto", // Add key ID for PDS compatibility
+      keyid: "atproto",
     });
   }
 
