@@ -34,12 +34,12 @@ echo ""
 # --- Key Generation ---
 echo "🔑 Generating secp256k1 key pair..."
 # 1. Generate a secp256k1 private key
-openssl ecparam -name secp256k1 -genkey -noout -out private.pem
+openssl ecparam -name secp256k1 -genkey -noout -out appview-private.pem
 
 # --- Public Key Formatting for did.json ---
 echo "📄 Formatting public key for DID document..."
 # 2. Extract the raw 65-byte uncompressed public key (0x04 prefix + X + Y)
-RAW_PUBKEY=$(openssl ec -in private.pem -pubout -outform DER | tail -c 65)
+RAW_PUBKEY=$(openssl ec -in appview-private.pem -pubout -outform DER | tail -c 65)
 
 # 3. Prepend the multicodec prefix for secp256k1-pub (0xe701)
 #    We use printf to create the raw bytes.
@@ -51,7 +51,7 @@ PUBLIC_KEY_MULTIBASE=$(echo -n "$PREFIXED_KEY" | bs58)
 # --- Private Key Formatting for JWK ---
 echo "⚙️  Formatting private key for application use (JWK)..."
 # 5. Extract all key components in hex format
-KEY_COMPONENTS_HEX=$(openssl ec -in private.pem -text -noout)
+KEY_COMPONENTS_HEX=$(openssl ec -in appview-private.pem -text -noout)
 
 # 6. Isolate and clean up each component
 PRIV_HEX=$(echo "$KEY_COMPONENTS_HEX" | grep priv -A 3 | tail -n +2 | tr -d ' \n:')
@@ -111,21 +111,22 @@ jq -n \
     y: $y
   }' > appview-signing-key.json
 
-# 10. Clean up the temporary private key file
-rm private.pem
+# 10. Keep the PEM file for JWT signing (don't remove it)
 
 echo ""
 echo "✅ Success! All files generated."
 echo ""
 echo "📁 Files created:"
 echo "  - appview-signing-key.json (PRIVATE KEY - KEEP SECRET!)"
+echo "  - appview-private.pem      (PRIVATE KEY PEM - KEEP SECRET!)"
 echo "  - public/did.json          (Public DID Document - commit this)"
 echo ""
 echo "🔒 Security & Deployment Checklist:"
 echo "-------------------------------------"
 echo "1. Add to .gitignore: echo 'appview-signing-key.json' >> .gitignore"
-echo "2. Set ENV Var: export APPVIEW_SIGNING_KEY_PATH=/path/to/appview-signing-key.json"
-echo "3. Secure permissions: chmod 600 appview-signing-key.json"
-echo "4. Deploy public/did.json to https://${DOMAIN}/.well-known/did.json"
-echo "5. Verify deployment: curl https://${DOMAIN}/.well-known/did.json"
+echo "2. Add to .gitignore: echo 'appview-private.pem' >> .gitignore"
+echo "3. Set ENV Var: export APPVIEW_SIGNING_KEY_PATH=/path/to/appview-signing-key.json"
+echo "4. Secure permissions: chmod 600 appview-signing-key.json appview-private.pem"
+echo "5. Deploy public/did.json to https://${DOMAIN}/.well-known/did.json"
+echo "6. Verify deployment: curl https://${DOMAIN}/.well-known/did.json"
 echo ""
