@@ -314,17 +314,6 @@ const putActorPreferencesSchema = z.object({
   }).passthrough()).default([]),
 });
 
-// Permission system like Bluesky's
-const FULL_ACCESS_ONLY_PREFS = new Set([
-  'app.bsky.actor.defs#personalDetailsPref',
-]);
-
-function prefAllowed(prefType: string, hasAccessFull: boolean = false): boolean {
-  if (hasAccessFull) {
-    return true;
-  }
-  return !FULL_ACCESS_ONLY_PREFS.has(prefType);
-}
 
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
@@ -436,6 +425,56 @@ export class XRPCApi {
   public invalidatePreferencesCache(userDid: string): void {
     this.preferencesCache.delete(userDid);
     console.log(`[PREFERENCES] Cache invalidated for ${userDid}`);
+  }
+
+  private async getUserPdsEndpoint(userDid: string): Promise<string | null> {
+    try {
+      // Resolve DID document to find PDS endpoint
+      const didDoc = await this.resolveDidDocument(userDid);
+      if (!didDoc) return null;
+
+      // Look for PDS endpoint in service endpoints
+      const services = didDoc.service || [];
+      const pdsService = services.find((service: any) => 
+        service.type === 'AtprotoPersonalDataServer' || 
+        service.id === '#atproto_pds'
+      );
+
+      if (pdsService && pdsService.serviceEndpoint) {
+        return pdsService.serviceEndpoint;
+      }
+
+      // Fallback: try to construct PDS URL from handle if available
+      const user = await storage.getUser(userDid);
+      if (user?.handle) {
+        // For now, assume bsky.social PDS for handles ending in .bsky.social
+        if (user.handle.endsWith('.bsky.social')) {
+          return 'https://bsky.social';
+        }
+        // For other handles, try to construct PDS URL
+        // This is a simplified approach - in production you'd need more sophisticated PDS discovery
+        return `https://${user.handle.split('.').slice(-2).join('.')}`;
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`[PREFERENCES] Error resolving PDS endpoint for ${userDid}:`, error);
+      return null;
+    }
+  }
+
+  private async resolveDidDocument(did: string): Promise<any | null> {
+    try {
+      // Simple DID resolution - in production you'd use a proper DID resolver
+      const response = await fetch(`https://plc.directory/${did}`);
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error(`[PREFERENCES] Error resolving DID document for ${did}:`, error);
+      return null;
+    }
   }
 
   /**
@@ -1092,27 +1131,6 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // Validate preferences like Bluesky does
-      const checkedPreferences: Array<{ $type: string; [key: string]: any }> = [];
-      for (const pref of body.preferences) {
-        if (typeof pref.$type === 'string' && pref.$type.length > 0) {
-          // Only allow app.bsky namespace preferences (like Bluesky)
-          if (pref.$type.startsWith('app.bsky.')) {
-            checkedPreferences.push(pref);
-          } else {
-            return res.status(400).json({ 
-              error: 'InvalidRequest', 
-              message: `Some preferences are not in the app.bsky namespace` 
-            });
-          }
-        } else {
-          return res.status(400).json({ 
-            error: 'InvalidRequest', 
-            message: 'Preference is missing a $type' 
-          });
-        }
-      }
-
       try {
         // Get user's PDS endpoint from DID document
         const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
@@ -1123,31 +1141,28 @@ export class XRPCApi {
           });
         }
 
-        // Forward request to user's PDS
+        // Forward request to user's PDS (let PDS handle validation)
         const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`, {
           method: 'POST',
           headers: {
             'Authorization': req.headers.authorization || '',
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ preferences: checkedPreferences })
+          body: JSON.stringify(body)
         });
 
         if (pdsResponse.ok) {
           // Invalidate cache after successful update
           this.invalidatePreferencesCache(userDid);
           
-          console.log(`[PREFERENCES] Updated ${checkedPreferences.length} preferences via PDS for ${userDid}`);
+          console.log(`[PREFERENCES] Updated preferences via PDS for ${userDid}`);
           
           // Return success response (no body, like Bluesky)
           return res.status(200).end();
         } else {
           const errorText = await pdsResponse.text();
           console.error(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status, errorText);
-          return res.status(pdsResponse.status).json({ 
-            error: 'InvalidRequest', 
-            message: 'Failed to update preferences on PDS' 
-          });
+          return res.status(pdsResponse.status).send(errorText);
         }
       } catch (pdsError) {
         console.error(`[PREFERENCES] Error updating preferences via PDS for ${userDid}:`, pdsError);
