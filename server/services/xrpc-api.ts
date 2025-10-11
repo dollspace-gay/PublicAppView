@@ -531,6 +531,17 @@ export class XRPCApi {
     return user.did;
   }
 
+  private cidFromBlobJson(json: any): string {
+    if (json instanceof Object && json.ref) {
+      return json.ref.toString();
+    }
+    // Handle the fact that parseRecordBytes() produces raw json rather than lexicon values
+    if (json && json['$type'] === 'blob') {
+      return (json['ref']?.['$link'] ?? '') as string;
+    }
+    return (json?.['cid'] ?? '') as string;
+  }
+
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
     if (!blobCid) return '';
     const cdnUrl = `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
@@ -653,7 +664,7 @@ export class XRPCApi {
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || author?.handle || post.authorDid,
-          ...(author?.avatarUrl && { avatar: author.avatarUrl }),
+          avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
         },
         record,
         replyCount: post.replyCount || 0,
@@ -938,7 +949,7 @@ export class XRPCApi {
               did: f.did,
               handle: f.handle,
               displayName: f.displayName,
-              ...(f.avatarUrl && { avatar: f.avatarUrl }),
+              avatar: f.avatarUrl ? this.transformBlobToCdnUrl(f.avatarUrl, f.did, 'avatar') : undefined,
             })),
           },
         };
@@ -965,7 +976,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
           ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
@@ -1095,7 +1106,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1152,7 +1163,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1179,7 +1190,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
         })),
       });
     } catch (error) {
@@ -1213,7 +1224,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1253,7 +1264,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer: {
                 muted: true,
               },
@@ -1434,7 +1445,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
         })),
       });
     } catch (error) {
@@ -1460,7 +1471,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
         })),
       });
     } catch (error) {
@@ -1589,7 +1600,7 @@ export class XRPCApi {
               did: post.authorDid,
               handle: author?.handle || 'unknown.user',
               displayName: author?.displayName,
-              ...(author?.avatarUrl && { avatar: author.avatarUrl }),
+              avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
             },
             record: {
               text: post.text,
@@ -1644,7 +1655,7 @@ export class XRPCApi {
         handle:
           creator?.handle ||
           `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
-        ...(creator?.avatarUrl && { avatar: this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') }),
+        avatar: creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : undefined,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
 
@@ -1656,7 +1667,7 @@ export class XRPCApi {
         displayName: generator.displayName,
         likeCount: generator.likeCount,
         indexedAt: generator.indexedAt.toISOString(),
-        ...(generator.avatarUrl && { avatar: this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') }),
+        avatar: generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : undefined,
       };
       if (generator.description) view.description = generator.description;
 
@@ -2387,7 +2398,7 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined })) });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -2419,7 +2430,7 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
+      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined })) });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -2547,7 +2558,7 @@ export class XRPCApi {
             did: u.did,
             handle: u.handle,
             displayName: u.displayName,
-            ...(u.avatarUrl && { avatar: u.avatarUrl }),
+            avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined,
           };
         })
         .filter(Boolean);
@@ -2643,14 +2654,14 @@ export class XRPCApi {
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
           reasonSubject: reasonSubject, // Always a string now
-          ...(record && { record }),
+          record: record || null,
           author: author
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
                 handle: author.handle,
                 displayName: author.displayName || author.handle, // Fallback to handle
-                ...(author.avatarUrl && { avatar: this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') }),
+                avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
@@ -2819,7 +2830,7 @@ export class XRPCApi {
                 did: user.did,
                 handle: user.handle,
                 displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-                ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+                avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -2874,7 +2885,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };
