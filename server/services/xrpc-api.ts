@@ -665,6 +665,13 @@ export class XRPCApi {
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || author?.handle || post.authorDid,
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         record,
         replyCount: post.replyCount || 0,
@@ -965,9 +972,9 @@ export class XRPCApi {
             };
           }
           viewer.blockedBy = viewerState.blockedBy;
-          viewer.blocking = viewerState.blocking;
-          viewer.following = viewerState.following;
-          viewer.followedBy = viewerState.followedBy;
+          viewer.blocking = viewerState.blocking || undefined;
+          viewer.following = viewerState.following || undefined;
+          viewer.followedBy = viewerState.followedBy || undefined;
         }
 
         const profileView: any = {
@@ -1082,8 +1089,19 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: { 
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || actorDid
+          handle: actor?.handle || actorDid,
+          displayName: actor?.displayName || actor?.handle || actorDid,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         follows: follows
           .map((f) => {
@@ -1096,9 +1114,9 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
@@ -1139,8 +1157,19 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: { 
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || actorDid
+          handle: actor?.handle || actorDid,
+          displayName: actor?.displayName || actor?.handle || actorDid,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         followers: followers
           .map((f) => {
@@ -1153,9 +1182,9 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
@@ -1437,15 +1466,35 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: {
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || params.actor
+          handle: actor?.handle || params.actor,
+          displayName: actor?.displayName || actor?.handle || params.actor,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         cursor,
         followers: followers.map((user) => ({
+          $type: 'app.bsky.actor.defs#profileView',
           did: user.did,
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
+          indexedAt: user.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         })),
       });
     } catch (error) {
@@ -2662,12 +2711,26 @@ export class XRPCApi {
                 handle: author.handle,
                 displayName: author.displayName || author.handle, // Fallback to handle
                 avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+                viewer: {
+                  muted: false,
+                  blockedBy: false,
+                  blocking: undefined,
+                  following: undefined,
+                  followedBy: undefined,
+                },
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
                 handle: n.authorDid,
-                displayName: n.authorDid // Use DID as fallback
+                displayName: n.authorDid, // Use DID as fallback
+                viewer: {
+                  muted: false,
+                  blockedBy: false,
+                  blocking: undefined,
+                  following: undefined,
+                  followedBy: undefined,
+                },
               },
         };
         return view;
@@ -2820,9 +2883,9 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
@@ -2876,9 +2939,9 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
