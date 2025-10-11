@@ -598,7 +598,7 @@ export class XRPCApi {
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || "",
-          avatar: author?.avatarUrl || "",
+          ...(author?.avatarUrl && { avatar: author.avatarUrl }),
         },
         record,
         embed: post.embed,
