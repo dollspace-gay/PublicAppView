@@ -955,13 +955,13 @@ export class XRPCApi {
         return res.status(401).json({ error: 'SessionNotFound', message: 'User session not found' });
       }
 
-      // Proxy request to PDS using AppView authentication
-      const pdsResponse = await pdsClient.proxyXRPCWithAppViewAuth(
+      // Proxy request to PDS using user's authentication token
+      const pdsResponse = await pdsClient.proxyXRPCWithUserAuth(
         session.pdsEndpoint,
         'GET',
         '/xrpc/app.bsky.actor.getPreferences',
         {},
-        userDid,
+        session.accessToken, // Use user's access token, not AppView token
         null,
         req.headers
       );
@@ -983,14 +983,6 @@ export class XRPCApi {
         console.log(`[PREFERENCES] Cached preferences for ${userDid}`);
       } else if (pdsResponse.status !== 200) {
         console.error(`[PREFERENCES] PDS error for ${userDid}:`, pdsResponse.body);
-        
-        // Provide more specific error handling for authentication issues
-        if (pdsResponse.body?.error === 'InvalidToken') {
-          console.error(`[PREFERENCES] Authentication failed - PDS could not verify AppView token. This may be due to:`);
-          console.error(`  - AppView DID not being resolvable by PDS`);
-          console.error(`  - Missing or invalid AppView private key`);
-          console.error(`  - PDS not recognizing the AppView's verification method`);
-        }
       }
 
       return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
@@ -1011,12 +1003,12 @@ export class XRPCApi {
       if (!session) return res.status(401).json({ error: 'SessionNotFound' });
       const pdsEndpoint = session.pdsEndpoint;
       const body = putActorPreferencesSchema.parse(req.body);
-      const proxied = await pdsClient.proxyXRPCWithAppViewAuth(
+      const proxied = await pdsClient.proxyXRPCWithUserAuth(
         pdsEndpoint,
         'POST',
         '/xrpc/app.bsky.actor.putPreferences',
         {},
-        session.userDid,
+        session.accessToken, // Use user's access token, not AppView token
         body,
         req.headers,
       );
