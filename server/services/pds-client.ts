@@ -506,6 +506,32 @@ export class PDSClient {
   }
 
   /**
+   * Forwards a raw XRPC request to a PDS using AppView's own authentication.
+   * This is used for server-to-server communication where the AppView acts on behalf of a user.
+   */
+  async proxyXRPCWithAppViewAuth(
+    pdsEndpoint: string,
+    method: string,
+    path: string,
+    query: Record<string, any>,
+    userDid: string,
+    body: any,
+    headers: any,
+  ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
+    // Import AppView JWT service
+    const { appViewJWTService } = await import('./appview-jwt');
+    
+    // For most AT Protocol implementations, the PDS DID is the same as the user's DID
+    // This is the standard pattern where each user's data is stored on their own PDS
+    const pdsDid = userDid;
+    
+    // Generate AppView-to-PDS token
+    const appViewToken = appViewJWTService.signPDSToken(pdsDid, userDid);
+    
+    return this.proxyXRPC(pdsEndpoint, method, path, query, appViewToken, body, headers);
+  }
+
+  /**
    * Forwards a raw XRPC request to a PDS.
    * This is used for proxying methods that are not implemented by the AppView.
    * It uses a strict allow-list for headers to prevent forwarding problematic ones.

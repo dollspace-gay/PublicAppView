@@ -89,6 +89,37 @@ export class AppViewJWTService {
   }
 
   /**
+   * Sign a JWT for PDS authentication (server-to-server)
+   * @param pdsDid - The DID of the PDS service
+   * @param userDid - The DID of the user we're acting on behalf of
+   * @returns Signed JWT token
+   */
+  signPDSToken(pdsDid: string, userDid: string): string {
+    const now = Math.floor(Date.now() / 1000);
+    
+    const payload = {
+      iss: this.appViewDid,
+      aud: pdsDid,
+      sub: userDid, // Acting on behalf of this user
+      exp: now + 300, // 5 minutes
+      iat: now,
+    };
+
+    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    if (this.privateKeyPem) {
+      return jwt.sign(payload, this.privateKeyPem, {
+        algorithm: "ES256",
+        expiresIn: JWT_EXPIRY,
+      });
+    }
+
+    return jwt.sign(payload, JWT_SECRET, {
+      algorithm: "HS256",
+      expiresIn: JWT_EXPIRY,
+    });
+  }
+
+  /**
    * Get the AppView DID
    */
   getAppViewDid(): string {
