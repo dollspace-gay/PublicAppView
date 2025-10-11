@@ -2604,13 +2604,14 @@ export class XRPCApi {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
                 handle: author.handle,
-                displayName: author.displayName,
-                ...(author.avatarUrl && { avatar: author.avatarUrl }),
+                displayName: author.displayName || "",
+                ...(author.avatarUrl && { avatar: this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') }),
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
-                handle: n.authorDid 
+                handle: n.authorDid,
+                displayName: ""
               },
         };
         return view;
