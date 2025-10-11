@@ -7,9 +7,9 @@
 
 import jwt from "jsonwebtoken";
 import fs from "fs";
-import { createSign } from "crypto";
 import { fromString, toString } from 'uint8arrays';
 import KeyEncoder from 'key-encoder';
+import elliptic from 'elliptic';
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required");
@@ -33,20 +33,26 @@ const signES256K = (privateKeyPem: string, data: string): string => {
     // Convert PEM to raw key format
     const rawKey = keyEncoder.encodePrivate(privateKeyPem, 'pem', 'raw');
     
-    // Create signer with secp256k1 curve
-    const signer = createSign('sha256');
-    signer.update(data);
+    // Create secp256k1 curve instance
+    const ec = new elliptic.ec('secp256k1');
     
-    // Sign with the raw key using IEEE P1363 encoding (required for secp256k1)
-    const signature = signer.sign({
-      key: rawKey,
-      format: 'der',
-      type: 'ec',
-      dsaEncoding: 'ieee-p1363'
+    // Create key pair from private key
+    const keyPair = ec.keyFromPrivate(rawKey);
+    
+    // Sign the data
+    const signature = keyPair.sign(data, {
+      canonical: true,
+      pers: undefined
     });
     
+    // Convert to IEEE P1363 format (r || s) and then to base64url
+    const r = signature.r.toString('hex').padStart(64, '0');
+    const s = signature.s.toString('hex').padStart(64, '0');
+    const signatureHex = r + s;
+    const signatureBytes = fromString(signatureHex, 'hex');
+    
     // Convert to base64url encoding for JWT
-    return toString(signature, 'base64url');
+    return toString(signatureBytes, 'base64url');
   } catch (error) {
     console.error('[AppViewJWT] ES256K signing failed:', error);
     throw new Error('ES256K signing failed');
