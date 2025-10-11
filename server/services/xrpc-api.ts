@@ -2542,9 +2542,21 @@ export class XRPCApi {
       const items = notificationsList.map((n) => {
         const author = authorMap.get(n.authorDid);
         const reasonSubject = n.reasonSubject;
+        // Create proper AT URI based on notification reason
+        let notificationUri = n.reasonSubject;
+        if (!notificationUri) {
+          // For follow notifications, create a follow record URI
+          if (n.reason === 'follow') {
+            notificationUri = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
+          } else {
+            // Fallback for other cases
+            notificationUri = `at://${n.authorDid}/app.bsky.feed.post/unknown`;
+          }
+        }
+
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
-          uri: `at://${n.authorDid}/app.bsky.notification/${n.indexedAt.getTime()}`,
+          uri: notificationUri,
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
