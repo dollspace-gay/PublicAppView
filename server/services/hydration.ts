@@ -1,7 +1,8 @@
 import { db } from '../db';
-import { posts, reposts, likes, bookmarks, users, blocks, mutes } from '../../shared/schema';
+import { posts, reposts, likes, bookmarks, users, blocks, mutes, postAggregations } from '../../shared/schema';
 import { eq, and, inArray } from 'drizzle-orm';
-import { HydrationState, ProfileViewerState, FeedItem } from '../types/feed';
+import { HydrationState, ProfileViewerState, FeedItem, HydrationMap, Actor, Post, Repost, PostAgg } from '../types';
+import { INVALID_HANDLE } from '@atproto/syntax';
 
 export class Hydrator {
   async hydrateFeedItems(
