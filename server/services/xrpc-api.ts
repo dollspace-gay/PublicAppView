@@ -652,7 +652,7 @@ export class XRPCApi {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
-          displayName: author?.displayName || "",
+          displayName: author?.displayName || author?.handle || post.authorDid,
           ...(author?.avatarUrl && { avatar: author.avatarUrl }),
         },
         record,
@@ -963,7 +963,7 @@ export class XRPCApi {
           $type: 'app.bsky.actor.defs#profileViewDetailed',
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
           ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
@@ -1094,7 +1094,7 @@ export class XRPCApi {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
@@ -1151,7 +1151,7 @@ export class XRPCApi {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
@@ -1177,7 +1177,7 @@ export class XRPCApi {
         actors: users.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
@@ -1212,7 +1212,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 blocking: b.uri,
@@ -1252,7 +1252,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 muted: true,
@@ -1433,7 +1433,7 @@ export class XRPCApi {
         followers: followers.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
@@ -1458,7 +1458,7 @@ export class XRPCApi {
         suggestions: suggestions.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
@@ -2588,10 +2588,40 @@ export class XRPCApi {
 
       const items = await Promise.all(notificationsList.map(async (n) => {
         const author = authorMap.get(n.authorDid);
-        const reasonSubject = n.reasonSubject;
+        
+        // Validate that the notification subject still exists
+        let reasonSubject = n.reasonSubject;
+        let record = null;
+        
+        if (reasonSubject) {
+          try {
+            // For post-related notifications, check if the post still exists
+            if (n.reason === 'like' || n.reason === 'repost' || n.reason === 'reply' || n.reason === 'quote') {
+              const post = await storage.getPost(reasonSubject);
+              if (!post) {
+                // Post was deleted, filter out this notification
+                return null;
+              }
+              record = {
+                $type: 'app.bsky.feed.post',
+                text: post.text,
+                createdAt: post.createdAt.toISOString(),
+              };
+              if (post.embed) record.embed = post.embed;
+              if (post.facets) record.facets = post.facets;
+            }
+          } catch (error) {
+            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${reasonSubject}:`, error);
+            // If we can't fetch the record, filter out this notification
+            return null;
+          }
+        } else {
+          // For notifications without a reasonSubject (like follows), create a fallback
+          reasonSubject = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
+        }
         
         // Create proper AT URI based on notification reason
-        let notificationUri = n.reasonSubject;
+        let notificationUri = reasonSubject;
         if (!notificationUri) {
           // For follow notifications, create a follow record URI
           if (n.reason === 'follow') {
@@ -2605,25 +2635,6 @@ export class XRPCApi {
         // Use the actual CID from the database if available, otherwise generate a placeholder
         const notificationCid = n.cid || `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
 
-        // Fetch the actual record that caused the notification
-        let record = null;
-        if (n.reasonSubject) {
-          try {
-            const post = await storage.getPost(n.reasonSubject);
-            if (post) {
-              record = {
-                $type: 'app.bsky.feed.post',
-                text: post.text,
-                createdAt: post.createdAt.toISOString(),
-              };
-              if (post.embed) record.embed = post.embed;
-              if (post.facets) record.facets = post.facets;
-            }
-          } catch (error) {
-            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${n.reasonSubject}:`, error);
-          }
-        }
-
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
           uri: notificationUri,
@@ -2631,31 +2642,34 @@ export class XRPCApi {
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
-          reasonSubject,
+          reasonSubject: reasonSubject, // Always a string now
           ...(record && { record }),
           author: author
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
                 handle: author.handle,
-                displayName: author.displayName || "",
+                displayName: author.displayName || author.handle, // Fallback to handle
                 ...(author.avatarUrl && { avatar: this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') }),
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
                 handle: n.authorDid,
-                displayName: ""
+                displayName: n.authorDid // Use DID as fallback
               },
         };
         return view;
       }));
 
+      // Filter out null items (deleted content)
+      const validItems = items.filter(item => item !== null);
+
       const cursor = notificationsList.length
         ? notificationsList[notificationsList.length - 1].indexedAt.toISOString()
         : undefined;
 
-      res.json({ notifications: items, cursor });
+      res.json({ notifications: validItems, cursor });
     } catch (error) {
       this._handleError(res, error, 'listNotifications');
     }
@@ -2804,7 +2818,7 @@ export class XRPCApi {
               actor: {
                 did: user.did,
                 handle: user.handle,
-                displayName: user.displayName,
+                displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
                 ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
                 viewer,
               },
@@ -2859,7 +2873,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
