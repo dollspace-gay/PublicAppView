@@ -946,11 +946,61 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - return empty preferences for now
-      // In a full implementation, preferences would be stored in the AppView's database
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, returning empty preferences`);
+      // Cache miss - try to fetch from PDS using user's session
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, attempting to fetch from PDS`);
       
-      // Return empty preferences array as default
+      try {
+        // Get user session for PDS communication
+        const session = await this.getUserSessionForDid(userDid);
+        if (session && session.accessToken) {
+          console.log(`[PREFERENCES] Found session for ${userDid}, trying PDS request`);
+          
+          // Try to get PDS endpoint from user's DID
+          const { didResolver } = await import('./did-resolver');
+          const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+          
+          if (pdsEndpoint) {
+            console.log(`[PREFERENCES] Resolved PDS endpoint for ${userDid}: ${pdsEndpoint}`);
+            
+            // Make direct request to PDS
+            const response = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${session.accessToken}`,
+                'Accept': 'application/json',
+                'User-Agent': 'AT-Protocol-AppView/1.0'
+              },
+              signal: AbortSignal.timeout(10000)
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data.preferences) {
+                console.log(`[PREFERENCES] Successfully fetched preferences from PDS for ${userDid}`);
+                
+                // Store in cache
+                this.preferencesCache.set(userDid, {
+                  preferences: data.preferences,
+                  timestamp: Date.now()
+                });
+                
+                return res.json({ preferences: data.preferences });
+              }
+            } else {
+              console.log(`[PREFERENCES] PDS request failed for ${userDid}: ${response.status} ${response.statusText}`);
+            }
+          } else {
+            console.log(`[PREFERENCES] Could not resolve PDS endpoint for ${userDid}`);
+          }
+        } else {
+          console.log(`[PREFERENCES] No session found for ${userDid}`);
+        }
+      } catch (error) {
+        console.log(`[PREFERENCES] Error fetching from PDS for ${userDid}:`, error);
+      }
+
+      // Fallback to empty preferences
+      console.log(`[PREFERENCES] Returning empty preferences for ${userDid}`);
       const emptyPreferences = [];
       
       // Store in cache for future requests
@@ -959,7 +1009,6 @@ export class XRPCApi {
         timestamp: Date.now()
       });
       
-      console.log(`[PREFERENCES] Cached empty preferences for ${userDid}`);
       return res.json({ preferences: emptyPreferences });
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
