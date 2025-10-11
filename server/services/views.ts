@@ -59,6 +59,9 @@ export class Views {
         repost: viewerState.repostUri || undefined,
         bookmarked: viewerState.bookmarked || false,
         threadMuted: viewerState.threadMuted || false,
+        replyDisabled: viewerState.replyDisabled || false,
+        embeddingDisabled: viewerState.embeddingDisabled || false,
+        pinned: viewerState.pinned || false,
       } : {},
       labels: state.labels?.get(uri) || [],
       threadContext: threadContext ? {

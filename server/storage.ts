@@ -3,6 +3,7 @@ import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
 import { sanitizeObject } from "./utils/sanitize";
+import { cacheService } from "./services/cache";
 
 export interface IStorage {
   // User operations
@@ -59,6 +60,7 @@ export interface IStorage {
   // Bookmark operations
   createBookmark(bookmark: { uri: string; userDid: string; postUri: string; createdAt: Date }): Promise<Bookmark>;
   deleteBookmark(uri: string): Promise<void>;
+  getBookmark(uri: string): Promise<Bookmark | undefined>;
   getBookmarks(userDid: string, limit?: number, cursor?: string): Promise<{ bookmarks: Bookmark[], cursor?: string }>;
   getBookmarkUri(userDid: string, postUri: string): Promise<string | undefined>;
 
@@ -927,6 +929,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBookmark(uri: string): Promise<void> {
     await this.db.delete(bookmarks).where(eq(bookmarks.uri, uri));
+  }
+
+  async getBookmark(uri: string): Promise<Bookmark | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(bookmarks)
+      .where(eq(bookmarks.uri, uri))
+      .limit(1);
+    return row as Bookmark | undefined;
   }
 
   async getBookmarks(userDid: string, limit = 50, cursor?: string): Promise<{ bookmarks: Bookmark[]; cursor?: string }> {
@@ -2652,14 +2663,13 @@ export class DatabaseStorage implements IStorage {
     if (postUris.length === 0) return new Map();
     
     // Try to get from cache first
-    const { cacheService } = await import("./services/cache");
-    const cached = await cacheService.getMany<PostAggregation>('post_aggregations', postUris);
+    const cached = await cacheService.getPostAggregations(postUris);
     
     // Find missing items
-    const missing = postUris.filter(uri => !cached.has(uri));
+    const missing = postUris.filter(uri => !cached?.has(uri));
     
     if (missing.length === 0) {
-      return cached;
+      return cached || new Map();
     }
     
     // Fetch missing items from database
@@ -2674,12 +2684,14 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Cache the results
-    await cacheService.setMany('post_aggregations', dbMap);
+    await cacheService.setPostAggregations(dbMap);
     
     // Merge cached and database results
     const finalMap = new Map<string, PostAggregation>();
-    for (const [uri, value] of cached) {
-      finalMap.set(uri, value);
+    if (cached) {
+      for (const [uri, value] of cached) {
+        finalMap.set(uri, value);
+      }
     }
     for (const [uri, value] of dbMap) {
       finalMap.set(uri, value);
@@ -2712,8 +2724,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(postAggregations.postUri, postUri));
     
     // Invalidate cache
-    const { cacheService } = await import("./services/cache");
-    await cacheService.delete('post_aggregations', postUri);
+    await cacheService.invalidatePostAggregation(postUri);
   }
 
   async updatePostAggregation(postUri: string, data: Partial<InsertPostAggregation>): Promise<void> {

@@ -79,12 +79,16 @@ export const postAggregations = pgTable("post_aggregations", {
   likeCount: integer("like_count").default(0).notNull(),
   repostCount: integer("repost_count").default(0).notNull(),
   replyCount: integer("reply_count").default(0).notNull(),
+  bookmarkCount: integer("bookmark_count").default(0).notNull(),
+  quoteCount: integer("quote_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   likeCountIdx: index("idx_post_aggregations_like_count").on(table.likeCount),
   repostCountIdx: index("idx_post_aggregations_repost_count").on(table.repostCount),
   replyCountIdx: index("idx_post_aggregations_reply_count").on(table.replyCount),
+  bookmarkCountIdx: index("idx_post_aggregations_bookmark_count").on(table.bookmarkCount),
+  quoteCountIdx: index("idx_post_aggregations_quote_count").on(table.quoteCount),
 }));
 
 // Post viewer states table - stores viewer-specific state for posts
@@ -95,6 +99,9 @@ export const postViewerStates = pgTable("post_viewer_states", {
   repostUri: varchar("repost_uri", { length: 512 }),
   bookmarked: boolean("bookmarked").default(false).notNull(),
   threadMuted: boolean("thread_muted").default(false).notNull(),
+  replyDisabled: boolean("reply_disabled").default(false).notNull(),
+  embeddingDisabled: boolean("embedding_disabled").default(false).notNull(),
+  pinned: boolean("pinned").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({

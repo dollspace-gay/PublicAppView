@@ -772,6 +772,9 @@ export class XRPCApi {
           repost: viewerState.repostUri || undefined,
           bookmarked: viewerState.bookmarked || false,
           threadMuted: viewerState.threadMuted || false,
+          replyDisabled: viewerState.replyDisabled || false,
+          embeddingDisabled: viewerState.embeddingDisabled || false,
+          pinned: viewerState.pinned || false,
         } : {},
       };
     });
