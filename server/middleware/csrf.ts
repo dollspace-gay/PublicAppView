@@ -42,7 +42,7 @@ export class CSRFProtection {
   /**
    * Verify CSRF token matches signature
    */
-  private verifyToken(token: string, signature: string): boolean {
+  verifyToken(token: string, signature: string): boolean {
     const expectedSignature = this.signToken(token);
     
     // Constant-time comparison to prevent timing attacks
@@ -67,13 +67,6 @@ export class CSRFProtection {
       const token = this.generateToken();
       const signature = this.signToken(token);
       
-      console.log(`[CSRF] Generating new token for ${req.method} ${req.path}`, {
-        tokenLength: token.length,
-        signatureLength: signature.length,
-        tokenValue: token,
-        signatureValue: signature
-      });
-      
       // Set double-submit cookies (token + signature)
       res.cookie('csrf_token', token, {
         httpOnly: false, // Must be accessible to JavaScript
@@ -89,13 +82,6 @@ export class CSRFProtection {
         sameSite: 'lax', // Match session cookie policy
         maxAge: 24 * 60 * 60 * 1000,
         path: '/' // Ensure cookie is available for all paths
-      });
-    } else {
-      console.log(`[CSRF] Using existing token for ${req.method} ${req.path}`, {
-        tokenLength: req.cookies.csrf_token?.length,
-        signatureLength: req.cookies.csrf_signature?.length,
-        tokenValue: req.cookies.csrf_token,
-        signatureValue: req.cookies.csrf_signature
       });
     }
     
@@ -171,15 +157,11 @@ export class CSRFProtection {
 
     // Verify HMAC signature
     if (!this.verifyToken(cookieToken, cookieSignature)) {
-      const expectedSignature = this.signToken(cookieToken);
       console.warn(`[CSRF] Invalid signature from ${req.method} ${req.path}`, {
         tokenLength: cookieToken?.length,
         signatureLength: cookieSignature?.length,
-        expectedSignature: expectedSignature.substring(0, 8) + '...',
-        actualSignature: cookieSignature?.substring(0, 8) + '...',
-        fullExpectedSignature: expectedSignature,
-        fullActualSignature: cookieSignature,
-        tokenValue: cookieToken
+        expectedSignature: this.signToken(cookieToken).substring(0, 8) + '...',
+        actualSignature: cookieSignature?.substring(0, 8) + '...'
       });
       return res.status(403).json({ 
         error: 'CSRF validation failed',
