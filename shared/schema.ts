@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, index, uniqueIndex, serial, boolean, integer, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, jsonb, index, uniqueIndex, serial, boolean, integer, customType, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -24,10 +24,24 @@ export const users = pgTable("users", {
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+  // Bluesky compatibility fields
+  profileCid: varchar("profile_cid", { length: 255 }),
+  profileTakedownRef: varchar("profile_takedown_ref", { length: 255 }),
+  sortedAt: timestamp("sorted_at"),
+  takedownRef: varchar("takedown_ref", { length: 255 }),
+  isLabeler: boolean("is_labeler").default(false).notNull(),
+  allowIncomingChatsFrom: varchar("allow_incoming_chats_from", { length: 50 }).default('none'),
+  upstreamStatus: varchar("upstream_status", { length: 50 }),
+  priorityNotifications: boolean("priority_notifications").default(false).notNull(),
+  trustedVerifier: boolean("trusted_verifier").default(false).notNull(),
+  allowActivitySubscriptionsFrom: varchar("allow_activity_subscriptions_from", { length: 50 }).default('none'),
 }, (table) => ({
   handleIdx: index("idx_users_handle").on(table.handle),
   createdAtIdx: index("idx_users_created_at").on(table.createdAt),
   searchVectorIdx: index("idx_users_search_vector").using("gin", table.searchVector),
+  sortedAtIdx: index("idx_users_sorted_at").on(table.sortedAt),
+  isLabelerIdx: index("idx_users_is_labeler").on(table.isLabeler),
+  trustedVerifierIdx: index("idx_users_trusted_verifier").on(table.trustedVerifier),
 }));
 
 // Posts table - stores feed posts
@@ -733,11 +747,158 @@ export type List = typeof lists.$inferSelect;
 export type InsertList = z.infer<typeof insertListSchema>;
 export type ListItem = typeof listItems.$inferSelect;
 export type InsertListItem = z.infer<typeof insertListItemSchema>;
+
+// Bluesky compatibility tables
+export const verifications = pgTable("verifications", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  issuerDid: varchar("issuer_did", { length: 255 }).notNull(),
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(),
+  handle: varchar("handle", { length: 255 }).notNull(),
+  displayName: varchar("display_name", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  subjectDidIdx: index("idx_verifications_subject_did").on(table.subjectDid),
+  issuerDidIdx: index("idx_verifications_issuer_did").on(table.issuerDid),
+  createdAtIdx: index("idx_verifications_created_at").on(table.createdAt),
+}));
+
+export const activitySubscriptions = pgTable("activity_subscriptions", {
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(),
+  subscriberDid: varchar("subscriber_did", { length: 255 }).notNull(),
+  post: boolean("post").default(false).notNull(),
+  reply: boolean("reply").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.subjectDid, table.subscriberDid] }),
+  subjectDidIdx: index("idx_activity_subscriptions_subject").on(table.subjectDid),
+  subscriberDidIdx: index("idx_activity_subscriptions_subscriber").on(table.subscriberDid),
+}));
+
+export const statuses = pgTable("statuses", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  authorDid: varchar("author_did", { length: 255 }).notNull(),
+  status: varchar("status", { length: 100 }).notNull(),
+  record: jsonb("record").notNull(),
+  embed: jsonb("embed"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  authorDidIdx: index("idx_statuses_author_did").on(table.authorDid),
+  createdAtIdx: index("idx_statuses_created_at").on(table.createdAt),
+  expiresAtIdx: index("idx_statuses_expires_at").on(table.expiresAt),
+}));
+
+export const chatDeclarations = pgTable("chat_declarations", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  authorDid: varchar("author_did", { length: 255 }).notNull(),
+  allowIncoming: varchar("allow_incoming", { length: 50 }).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  authorDidIdx: index("idx_chat_declarations_author_did").on(table.authorDid),
+  createdAtIdx: index("idx_chat_declarations_created_at").on(table.createdAt),
+}));
+
+export const notificationDeclarations = pgTable("notification_declarations", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  authorDid: varchar("author_did", { length: 255 }).notNull(),
+  allowSubscriptions: varchar("allow_subscriptions", { length: 50 }).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  authorDidIdx: index("idx_notification_declarations_author_did").on(table.authorDid),
+  createdAtIdx: index("idx_notification_declarations_created_at").on(table.createdAt),
+}));
+
+export const threadgates = pgTable("threadgates", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  postUri: varchar("post_uri", { length: 512 }).notNull(),
+  allow: jsonb("allow").default('[]'::jsonb).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  postUriIdx: index("idx_threadgates_post_uri").on(table.postUri),
+  createdAtIdx: index("idx_threadgates_created_at").on(table.createdAt),
+}));
+
+export const postgates = pgTable("postgates", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  postUri: varchar("post_uri", { length: 512 }).notNull(),
+  embeddingRules: jsonb("embedding_rules"),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  postUriIdx: index("idx_postgates_post_uri").on(table.postUri),
+  createdAtIdx: index("idx_postgates_created_at").on(table.createdAt),
+}));
+
+export const knownFollowers = pgTable("known_followers", {
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(),
+  followerDid: varchar("follower_did", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.subjectDid, table.followerDid] }),
+  subjectDidIdx: index("idx_known_followers_subject").on(table.subjectDid),
+  followerDidIdx: index("idx_known_followers_follower").on(table.followerDid),
+}));
+
+export const bidirectionalBlocks = pgTable("bidirectional_blocks", {
+  didA: varchar("did_a", { length: 255 }).notNull(),
+  didB: varchar("did_b", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.didA, table.didB] }),
+  didAIdx: index("idx_bidirectional_blocks_did_a").on(table.didA),
+  didBIdx: index("idx_bidirectional_blocks_did_b").on(table.didB),
+}));
+
+export const postBlocks = pgTable("post_blocks", {
+  postUri: varchar("post_uri", { length: 512 }).notNull(),
+  viewerDid: varchar("viewer_did", { length: 255 }).notNull(),
+  parent: boolean("parent").default(false).notNull(),
+  root: boolean("root").default(false).notNull(),
+  embed: boolean("embed").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.postUri, table.viewerDid] }),
+  postUriIdx: index("idx_post_blocks_post_uri").on(table.postUri),
+  viewerDidIdx: index("idx_post_blocks_viewer_did").on(table.viewerDid),
+}));
 export type FeedGenerator = typeof feedGenerators.$inferSelect;
 export type InsertFeedGenerator = z.infer<typeof insertFeedGeneratorSchema>;
 export type StarterPack = typeof starterPacks.$inferSelect;
 export type InsertStarterPack = z.infer<typeof insertStarterPackSchema>;
 export type LabelerService = typeof labelerServices.$inferSelect;
+
+// Bluesky compatibility table types
+export type Verification = typeof verifications.$inferSelect;
+export type InsertVerification = typeof verifications.$inferInsert;
+export type ActivitySubscription = typeof activitySubscriptions.$inferSelect;
+export type InsertActivitySubscription = typeof activitySubscriptions.$inferInsert;
+export type Status = typeof statuses.$inferSelect;
+export type InsertStatus = typeof statuses.$inferInsert;
+export type ChatDeclaration = typeof chatDeclarations.$inferSelect;
+export type InsertChatDeclaration = typeof chatDeclarations.$inferInsert;
+export type NotificationDeclaration = typeof notificationDeclarations.$inferSelect;
+export type InsertNotificationDeclaration = typeof notificationDeclarations.$inferInsert;
+export type Threadgate = typeof threadgates.$inferSelect;
+export type InsertThreadgate = typeof threadgates.$inferInsert;
+export type Postgate = typeof postgates.$inferSelect;
+export type InsertPostgate = typeof postgates.$inferInsert;
+export type KnownFollower = typeof knownFollowers.$inferSelect;
+export type InsertKnownFollower = typeof knownFollowers.$inferInsert;
+export type BidirectionalBlock = typeof bidirectionalBlocks.$inferSelect;
+export type InsertBidirectionalBlock = typeof bidirectionalBlocks.$inferInsert;
+export type PostBlock = typeof postBlocks.$inferSelect;
+export type InsertPostBlock = typeof postBlocks.$inferInsert;
 export type InsertLabelerService = z.infer<typeof insertLabelerServiceSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
