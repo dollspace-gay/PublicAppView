@@ -376,10 +376,17 @@ export class XRPCApi {
   // Preferences cache: DID -> { preferences: any[], timestamp: number }
   private preferencesCache = new Map<string, { preferences: any[]; timestamp: number }>();
   private readonly PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  
+  // Handle resolution cache: handle -> { did: string, timestamp: number }
+  private handleResolutionCache = new Map<string, { did: string; timestamp: number }>();
+  private readonly HANDLE_RESOLUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor() {
     // Clear expired cache entries every minute
-    setInterval(() => this.cleanExpiredPreferencesCache(), 60 * 1000);
+    setInterval(() => {
+      this.cleanExpiredPreferencesCache();
+      this.cleanExpiredHandleResolutionCache();
+    }, 60 * 1000);
   }
 
   /**
@@ -404,6 +411,31 @@ export class XRPCApi {
     
     expiredDids.forEach(did => {
       this.preferencesCache.delete(did);
+    });
+  }
+
+  /**
+   * Check if handle resolution cache entry is expired
+   */
+  private isHandleResolutionCacheExpired(cached: { did: string; timestamp: number }): boolean {
+    return Date.now() - cached.timestamp > this.HANDLE_RESOLUTION_CACHE_TTL;
+  }
+
+  /**
+   * Clean expired entries from handle resolution cache
+   */
+  private cleanExpiredHandleResolutionCache(): void {
+    const now = Date.now();
+    const expiredHandles: string[] = [];
+    
+    this.handleResolutionCache.forEach((cached, handle) => {
+      if (now - cached.timestamp > this.HANDLE_RESOLUTION_CACHE_TTL) {
+        expiredHandles.push(handle);
+      }
+    });
+    
+    expiredHandles.forEach(handle => {
+      this.handleResolutionCache.delete(handle);
     });
   }
 
@@ -577,14 +609,30 @@ export class XRPCApi {
       // But for now, subsequent queries will fail, which is acceptable.
       return actor;
     }
-    // TODO: Add caching for handle resolution
+    
+    const handle = actor.toLowerCase();
+    
+    // Check cache first
+    const cached = this.handleResolutionCache.get(handle);
+    if (cached && !this.isHandleResolutionCacheExpired(cached)) {
+      console.log(`[RESOLVE_ACTOR] Cache hit for handle: ${actor} -> ${cached.did}`);
+      return cached.did;
+    }
+    
     console.log(`[RESOLVE_ACTOR] Looking up handle: ${actor}`);
-    const user = await storage.getUserByHandle(actor.toLowerCase());
+    const user = await storage.getUserByHandle(handle);
     if (!user) {
       console.log(`[RESOLVE_ACTOR] User not found in database: ${actor}`);
       res.status(404).json({ error: 'NotFound', message: 'Actor not found' });
       return null;
     }
+    
+    // Cache the result
+    this.handleResolutionCache.set(handle, {
+      did: user.did,
+      timestamp: Date.now()
+    });
+    
     console.log(`[RESOLVE_ACTOR] Found user: ${actor} -> ${user.did}`);
     return user.did;
   }
@@ -607,7 +655,7 @@ export class XRPCApi {
     return cdnUrl;
   }
 
-  private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>): any {
+  private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>, listData?: Map<string, any>): any {
     const listMute = listMutes.get(authorDid);
     const listBlock = listBlocks.get(authorDid);
     
@@ -617,16 +665,16 @@ export class XRPCApi {
       mutedByList: listMute ? {
         $type: 'app.bsky.graph.defs#listViewBasic',
         uri: listMute.listUri,
-        name: listMute.listUri, // TODO: Get actual list name
-        purpose: 'app.bsky.graph.defs#modlist',
+        name: listData?.get(listMute.listUri)?.name || listMute.listUri,
+        purpose: listData?.get(listMute.listUri)?.purpose || 'app.bsky.graph.defs#modlist',
       } : undefined,
       blockedBy: false,
       blocking: undefined,
       blockingByList: listBlock ? {
         $type: 'app.bsky.graph.defs#listViewBasic',
         uri: listBlock.listUri,
-        name: listBlock.listUri, // TODO: Get actual list name
-        purpose: 'app.bsky.graph.defs#modlist',
+        name: listData?.get(listBlock.listUri)?.name || listBlock.listUri,
+        purpose: listData?.get(listBlock.listUri)?.purpose || 'app.bsky.graph.defs#modlist',
       } : undefined,
       following: undefined,
       followedBy: undefined,
@@ -643,17 +691,54 @@ export class XRPCApi {
     const authorDids = Array.from(new Set(posts.map((p) => p.authorDid)));
     const postUris = posts.map((p) => p.uri);
 
-    const [authors, likeUris, repostUris, aggregations, viewerStates, labels, listMutes, listBlocks, threadContexts] = await Promise.all([
+    const [authors, likeUris, repostUris, aggregations, viewerStates, labels, authorLabels, listMutes, listBlocks, threadContexts] = await Promise.all([
       storage.getUsers(authorDids),
       viewerDid ? storage.getLikeUris(viewerDid, postUris) : new Map(),
       viewerDid ? storage.getRepostUris(viewerDid, postUris) : new Map(),
       storage.getPostAggregations(postUris),
       viewerDid ? storage.getPostViewerStates(postUris, viewerDid) : new Map(),
       labelService.getActiveLabelsForSubjects(postUris),
+      labelService.getActiveLabelsForSubjects(authorDids),
       viewerDid ? storage.getListMutesForUsers(viewerDid, authorDids) : new Map(),
       viewerDid ? storage.getListBlocksForUsers(viewerDid, authorDids) : new Map(),
       storage.getThreadContexts(postUris),
     ]);
+
+    // Fetch counts for each author
+    const authorCounts = new Map<string, { lists: number; feedgens: number; starterPacks: number; isLabeler: boolean }>();
+    await Promise.all(authorDids.map(async (authorDid) => {
+      const [userLists, userFeedgens, userStarterPacks, labelerServices] = await Promise.all([
+        storage.getUserLists(authorDid),
+        storage.getActorFeeds(authorDid),
+        storage.getStarterPacksByCreator(authorDid),
+        storage.getLabelerServicesByCreator(authorDid)
+      ]);
+      
+      authorCounts.set(authorDid, {
+        lists: userLists.length,
+        feedgens: userFeedgens.generators.length,
+        starterPacks: userStarterPacks.starterPacks.length,
+        isLabeler: labelerServices.length > 0
+      });
+    }));
+
+    // Collect all unique list URIs from mutes and blocks
+    const listUris = new Set<string>();
+    listMutes.forEach((mute) => listUris.add(mute.listUri));
+    listBlocks.forEach((block) => listUris.add(block.listUri));
+    
+    // Fetch list data for all unique list URIs
+    const listData = new Map<string, any>();
+    if (listUris.size > 0) {
+      const lists = await Promise.all(
+        Array.from(listUris).map(uri => storage.getList(uri))
+      );
+      lists.forEach((list, index) => {
+        if (list) {
+          listData.set(Array.from(listUris)[index], list);
+        }
+      });
+    }
 
     const authorsByDid = new Map(authors.map((a) => [a.did, a]));
 
@@ -767,17 +852,17 @@ export class XRPCApi {
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
           associated: {
             $type: 'app.bsky.actor.defs#profileAssociated',
-            lists: 0, // TODO: Get actual list count
-            feedgens: 0, // TODO: Get actual feedgen count
-            starterPacks: 0, // TODO: Get actual starter pack count
-            labeler: false, // TODO: Check if user is a labeler
-            chat: undefined, // TODO: Implement chat settings
+            lists: authorCounts.get(post.authorDid)?.lists || 0,
+            feedgens: authorCounts.get(post.authorDid)?.feedgens || 0,
+            starterPacks: authorCounts.get(post.authorDid)?.starterPacks || 0,
+            labeler: authorCounts.get(post.authorDid)?.isLabeler || false,
+            chat: undefined, // TODO: Implement chat settings when chat functionality is added
             activitySubscription: undefined, // TODO: Implement activity subscription
           },
-          viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks),
-          labels: [], // TODO: Get actual labels
+          viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks, listData),
+          labels: authorLabels.get(post.authorDid) || [],
           createdAt: author?.createdAt?.toISOString(),
-          verification: undefined, // TODO: Implement verification state
+          verification: undefined, // TODO: Implement verification state when verification functionality is added
           status: undefined, // TODO: Implement status view
         },
         record,
@@ -1050,9 +1135,25 @@ export class XRPCApi {
         if (actor.startsWith('did:')) {
           return actor;
         }
-        // TODO: Add caching for handle resolution
-        const user = await storage.getUserByHandle(actor);
-        return user?.did;
+        
+        const handle = actor.toLowerCase();
+        
+        // Check cache first
+        const cached = this.handleResolutionCache.get(handle);
+        if (cached && !this.isHandleResolutionCacheExpired(cached)) {
+          return cached.did;
+        }
+        
+        const user = await storage.getUserByHandle(handle);
+        if (user) {
+          // Cache the result
+          this.handleResolutionCache.set(handle, {
+            did: user.did,
+            timestamp: Date.now()
+          });
+          return user.did;
+        }
+        return undefined;
       }),
     );
     const uniqueDids = Array.from(new Set(dids.filter(Boolean))) as string[];
@@ -1096,6 +1197,20 @@ export class XRPCApi {
             uniqueDids.map(() => ({ followers: [], count: 0 })),
           ),
     ]);
+
+    // Fetch starter pack counts and labeler statuses for each user
+    const starterPackCounts = new Map<string, number>();
+    const labelerStatuses = new Map<string, boolean>();
+    
+    await Promise.all(uniqueDids.map(async (did) => {
+      const [starterPacks, labelerServices] = await Promise.all([
+        storage.getStarterPacksByCreator(did),
+        storage.getLabelerServicesByCreator(did)
+      ]);
+      
+      starterPackCounts.set(did, starterPacks.starterPacks.length);
+      labelerStatuses.set(did, labelerServices.length > 0);
+    }));
 
     const userMap = new Map(users.map((u) => [u.did, u]));
     const labelsBySubject = new Map<string, any[]>();
@@ -1183,10 +1298,10 @@ export class XRPCApi {
             $type: 'app.bsky.actor.defs#profileAssociated',
             lists: listCounts.get(did) || 0,
             feedgens: feedgenCounts.get(did) || 0,
-            starterPacks: 0, // TODO: Get actual starter pack count
-            labeler: false, // TODO: Check if user is a labeler
-            chat: undefined, // TODO: Implement chat settings
-            activitySubscription: undefined, // TODO: Implement activity subscription
+            starterPacks: starterPackCounts.get(did) || 0,
+            labeler: labelerStatuses.get(did) || false,
+            chat: undefined, // TODO: Implement chat settings when chat functionality is added
+            activitySubscription: undefined, // TODO: Implement activity subscription when activity subscription functionality is added
           },
         };
         if (pinnedPostUri && pinnedPostCid) {
