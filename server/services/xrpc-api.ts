@@ -607,6 +607,31 @@ export class XRPCApi {
     return cdnUrl;
   }
 
+  private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>): any {
+    const listMute = listMutes.get(authorDid);
+    const listBlock = listBlocks.get(authorDid);
+    
+    return {
+      muted: !!listMute,
+      mutedByList: listMute ? {
+        $type: 'app.bsky.graph.defs#listViewBasic',
+        uri: listMute.listUri,
+        name: listMute.listUri, // TODO: Get actual list name
+        purpose: 'app.bsky.graph.defs#modlist',
+      } : undefined,
+      blockedBy: false,
+      blocking: undefined,
+      blockingByList: listBlock ? {
+        $type: 'app.bsky.graph.defs#listViewBasic',
+        uri: listBlock.listUri,
+        name: listBlock.listUri, // TODO: Get actual list name
+        purpose: 'app.bsky.graph.defs#modlist',
+      } : undefined,
+      following: undefined,
+      followedBy: undefined,
+    };
+  }
+
   private async serializePosts(posts: any[], viewerDid?: string) {
     if (posts.length === 0) {
       return [];
@@ -615,10 +640,16 @@ export class XRPCApi {
     const authorDids = Array.from(new Set(posts.map((p) => p.authorDid)));
     const postUris = posts.map((p) => p.uri);
 
-    const [authors, likeUris, repostUris] = await Promise.all([
+    const [authors, likeUris, repostUris, aggregations, viewerStates, labels, listMutes, listBlocks, threadContexts] = await Promise.all([
       storage.getUsers(authorDids),
       viewerDid ? storage.getLikeUris(viewerDid, postUris) : new Map(),
       viewerDid ? storage.getRepostUris(viewerDid, postUris) : new Map(),
+      storage.getPostAggregations(postUris),
+      viewerDid ? storage.getPostViewerStates(postUris, viewerDid) : new Map(),
+      labelService.getActiveLabelsForSubjects(postUris),
+      viewerDid ? storage.getListMutesForUsers(viewerDid, authorDids) : new Map(),
+      viewerDid ? storage.getListBlocksForUsers(viewerDid, authorDids) : new Map(),
+      storage.getThreadContexts(postUris),
     ]);
 
     const authorsByDid = new Map(authors.map((a) => [a.did, a]));
@@ -642,6 +673,8 @@ export class XRPCApi {
       const author = authorsByDid.get(post.authorDid);
       const likeUri = likeUris.get(post.uri);
       const repostUri = repostUris.get(post.uri);
+      const aggregation = aggregations.get(post.uri);
+      const viewerState = viewerStates.get(post.uri);
 
       let reply = undefined;
       if (post.parentUri) {
@@ -723,23 +756,22 @@ export class XRPCApi {
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || author?.handle || post.authorDid,
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
-          viewer: {
-            muted: false,
-            blockedBy: false,
-            blocking: undefined,
-            following: undefined,
-            followedBy: undefined,
-          },
+          viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks),
         },
         record,
-        replyCount: post.replyCount || 0,
-        repostCount: post.repostCount || 0,
-        likeCount: post.likeCount || 0,
+        replyCount: aggregation?.replyCount || 0,
+        repostCount: aggregation?.repostCount || 0,
+        likeCount: aggregation?.likeCount || 0,
+        bookmarkCount: aggregation?.bookmarkCount || 0,
+        quoteCount: aggregation?.quoteCount || 0,
         indexedAt: post.indexedAt.toISOString(),
-        viewer: viewerDid ? { 
+        labels: labels.get(post.uri) || [],
+        viewer: viewerState ? { 
           $type: 'app.bsky.feed.defs#viewerState',
-          like: likeUri, 
-          repost: repostUri 
+          like: viewerState.likeUri || undefined, 
+          repost: viewerState.repostUri || undefined,
+          bookmarked: viewerState.bookmarked || false,
+          threadMuted: viewerState.threadMuted || false,
         } : {},
       };
     });

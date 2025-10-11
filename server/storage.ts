@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type FeedItem, type InsertFeedItem } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, postAggregations, postViewerStates, threadContexts, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type FeedItem, type InsertFeedItem, type PostAggregation, type InsertPostAggregation, type PostViewerState, type InsertPostViewerState, type ThreadContext, type InsertThreadContext } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -42,6 +42,7 @@ export interface IStorage {
   // Like operations
   createLike(like: InsertLike): Promise<Like>;
   deleteLike(uri: string): Promise<void>;
+  getLike(uri: string): Promise<Like | undefined>;
   getPostLikes(postUri: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
   getActorLikes(userDid: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
   getLikeUri(userDid: string, postUri: string): Promise<string | undefined>;
@@ -50,6 +51,7 @@ export interface IStorage {
   // Repost operations
   createRepost(repost: InsertRepost): Promise<Repost>;
   deleteRepost(uri: string): Promise<void>;
+  getRepost(uri: string): Promise<Repost | undefined>;
   getPostReposts(postUri: string, limit?: number, cursor?: string): Promise<{ reposts: Repost[], cursor?: string }>;
   getRepostUri(userDid: string, postUri: string): Promise<string | undefined>;
   getRepostUris(userDid: string, postUris: string[]): Promise<Map<string, string>>;
@@ -87,11 +89,13 @@ export interface IStorage {
   createListMute(listMute: InsertListMute): Promise<ListMute>;
   deleteListMute(uri: string): Promise<void>;
   getListMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: ListMute[], cursor?: string }>;
+  getListMutesForUsers(muterDid: string, targetDids: string[]): Promise<Map<string, ListMute>>;
   
   // List block operations
   createListBlock(listBlock: InsertListBlock): Promise<ListBlock>;
   deleteListBlock(uri: string): Promise<void>;
   getListBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: ListBlock[], cursor?: string }>;
+  getListBlocksForUsers(blockerDid: string, targetDids: string[]): Promise<Map<string, ListBlock>>;
   
   // Thread mute operations
   createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute>;
@@ -250,6 +254,26 @@ export interface IStorage {
     totalFollows: number;
     totalBlocks: number;
   }>;
+
+  // Post aggregations operations
+  createPostAggregation(aggregation: InsertPostAggregation): Promise<PostAggregation>;
+  getPostAggregation(postUri: string): Promise<PostAggregation | undefined>;
+  getPostAggregations(postUris: string[]): Promise<Map<string, PostAggregation>>;
+  incrementPostAggregation(postUri: string, field: 'likeCount' | 'repostCount' | 'replyCount' | 'bookmarkCount' | 'quoteCount', delta: number): Promise<void>;
+  updatePostAggregation(postUri: string, data: Partial<InsertPostAggregation>): Promise<void>;
+
+  // Post viewer states operations
+  createPostViewerState(viewerState: InsertPostViewerState): Promise<PostViewerState>;
+  getPostViewerState(postUri: string, viewerDid: string): Promise<PostViewerState | undefined>;
+  getPostViewerStates(postUris: string[], viewerDid: string): Promise<Map<string, PostViewerState>>;
+  updatePostViewerState(postUri: string, viewerDid: string, data: Partial<InsertPostViewerState>): Promise<void>;
+  deletePostViewerState(postUri: string, viewerDid: string): Promise<void>;
+
+  // Thread context operations
+  createThreadContext(context: InsertThreadContext): Promise<ThreadContext>;
+  getThreadContext(postUri: string): Promise<ThreadContext | undefined>;
+  getThreadContexts(postUris: string[]): Promise<Map<string, ThreadContext>>;
+  updateThreadContext(postUri: string, data: Partial<InsertThreadContext>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -810,6 +834,11 @@ export class DatabaseStorage implements IStorage {
     return new Map(results.map((r) => [r.postUri, r.uri]));
   }
 
+  async getLike(uri: string): Promise<Like | undefined> {
+    const [result] = await this.db.select().from(likes).where(eq(likes.uri, uri));
+    return result;
+  }
+
   async createRepost(repost: InsertRepost): Promise<Repost> {
     const sanitized = sanitizeObject(repost);
     const [newRepost] = await this.db
@@ -874,6 +903,11 @@ export class DatabaseStorage implements IStorage {
         and(eq(reposts.userDid, userDid), inArray(reposts.postUri, postUris)),
       );
     return new Map(results.map((r) => [r.postUri, r.uri]));
+  }
+
+  async getRepost(uri: string): Promise<Repost | undefined> {
+    const [result] = await this.db.select().from(reposts).where(eq(reposts.uri, uri));
+    return result;
   }
 
   // Bookmark operations
@@ -1103,6 +1137,40 @@ export class DatabaseStorage implements IStorage {
     return { mutes, cursor: nextCursor };
   }
 
+  async getListMutesForUsers(muterDid: string, targetDids: string[]): Promise<Map<string, ListMute>> {
+    if (targetDids.length === 0) return new Map();
+    
+    // Get all lists that the muter has muted
+    const mutedLists = await this.db
+      .select({ listUri: listMutes.listUri })
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, muterDid));
+    
+    if (mutedLists.length === 0) return new Map();
+    
+    // Get list items for these lists to find which users are in them
+    const listUris = mutedLists.map(ml => ml.listUri);
+    const listItems = await this.db
+      .select({ listUri: listItems.listUri, subjectDid: listItems.subjectDid })
+      .from(listItems)
+      .where(inArray(listItems.listUri, listUris));
+    
+    // Create a map of user DID to list mute
+    const userToMute = new Map<string, ListMute>();
+    const listUriToMute = new Map(mutedLists.map(ml => [ml.listUri, ml]));
+    
+    for (const item of listItems) {
+      if (targetDids.includes(item.subjectDid)) {
+        const mute = listUriToMute.get(item.listUri);
+        if (mute) {
+          userToMute.set(item.subjectDid, mute);
+        }
+      }
+    }
+    
+    return userToMute;
+  }
+
   async createListBlock(listBlock: InsertListBlock): Promise<ListBlock> {
     const sanitized = sanitizeObject(listBlock);
     const [newListBlock] = await this.db
@@ -1138,6 +1206,40 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? blocks[blocks.length - 1].createdAt.toISOString() : undefined;
 
     return { blocks, cursor: nextCursor };
+  }
+
+  async getListBlocksForUsers(blockerDid: string, targetDids: string[]): Promise<Map<string, ListBlock>> {
+    if (targetDids.length === 0) return new Map();
+    
+    // Get all lists that the blocker has blocked
+    const blockedLists = await this.db
+      .select({ listUri: listBlocks.listUri })
+      .from(listBlocks)
+      .where(eq(listBlocks.blockerDid, blockerDid));
+    
+    if (blockedLists.length === 0) return new Map();
+    
+    // Get list items for these lists to find which users are in them
+    const listUris = blockedLists.map(bl => bl.listUri);
+    const listItems = await this.db
+      .select({ listUri: listItems.listUri, subjectDid: listItems.subjectDid })
+      .from(listItems)
+      .where(inArray(listItems.listUri, listUris));
+    
+    // Create a map of user DID to list block
+    const userToBlock = new Map<string, ListBlock>();
+    const listUriToBlock = new Map(blockedLists.map(bl => [bl.listUri, bl]));
+    
+    for (const item of listItems) {
+      if (targetDids.includes(item.subjectDid)) {
+        const block = listUriToBlock.get(item.listUri);
+        if (block) {
+          userToBlock.set(item.subjectDid, block);
+        }
+      }
+    }
+    
+    return userToBlock;
   }
 
   async createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute> {
@@ -2528,6 +2630,184 @@ export class DatabaseStorage implements IStorage {
         totalBlocks: 0,
       };
     }
+  }
+
+  // Post aggregations operations
+  async createPostAggregation(aggregation: InsertPostAggregation): Promise<PostAggregation> {
+    const [result] = await this.db.insert(postAggregations).values(aggregation).returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('post_aggregations');
+    
+    return result;
+  }
+
+  async getPostAggregation(postUri: string): Promise<PostAggregation | undefined> {
+    const [result] = await this.db.select().from(postAggregations).where(eq(postAggregations.postUri, postUri));
+    return result;
+  }
+
+  async getPostAggregations(postUris: string[]): Promise<Map<string, PostAggregation>> {
+    if (postUris.length === 0) return new Map();
+    
+    // Try to get from cache first
+    const { cacheService } = await import("./services/cache");
+    const cached = await cacheService.getMany<PostAggregation>('post_aggregations', postUris);
+    
+    // Find missing items
+    const missing = postUris.filter(uri => !cached.has(uri));
+    
+    if (missing.length === 0) {
+      return cached;
+    }
+    
+    // Fetch missing items from database
+    const results = await this.db
+      .select()
+      .from(postAggregations)
+      .where(inArray(postAggregations.postUri, missing));
+    
+    const dbMap = new Map<string, PostAggregation>();
+    for (const result of results) {
+      dbMap.set(result.postUri, result);
+    }
+    
+    // Cache the results
+    await cacheService.setMany('post_aggregations', dbMap);
+    
+    // Merge cached and database results
+    const finalMap = new Map<string, PostAggregation>();
+    for (const [uri, value] of cached) {
+      finalMap.set(uri, value);
+    }
+    for (const [uri, value] of dbMap) {
+      finalMap.set(uri, value);
+    }
+    
+    return finalMap;
+  }
+
+  async incrementPostAggregation(postUri: string, field: 'likeCount' | 'repostCount' | 'replyCount' | 'bookmarkCount' | 'quoteCount', delta: number): Promise<void> {
+    // First, ensure the aggregation record exists
+    const existing = await this.getPostAggregation(postUri);
+    if (!existing) {
+      await this.createPostAggregation({
+        postUri,
+        likeCount: 0,
+        repostCount: 0,
+        replyCount: 0,
+        bookmarkCount: 0,
+        quoteCount: 0,
+      });
+    }
+
+    // Update the specific field
+    const updateData: Partial<InsertPostAggregation> = {};
+    updateData[field] = (existing?.[field] || 0) + delta;
+    
+    await this.db
+      .update(postAggregations)
+      .set(updateData)
+      .where(eq(postAggregations.postUri, postUri));
+    
+    // Invalidate cache
+    const { cacheService } = await import("./services/cache");
+    await cacheService.delete('post_aggregations', postUri);
+  }
+
+  async updatePostAggregation(postUri: string, data: Partial<InsertPostAggregation>): Promise<void> {
+    await this.db
+      .update(postAggregations)
+      .set(data)
+      .where(eq(postAggregations.postUri, postUri));
+  }
+
+  // Post viewer states operations
+  async createPostViewerState(viewerState: InsertPostViewerState): Promise<PostViewerState> {
+    const [result] = await this.db.insert(postViewerStates).values(viewerState).returning();
+    return result;
+  }
+
+  async getPostViewerState(postUri: string, viewerDid: string): Promise<PostViewerState | undefined> {
+    const [result] = await this.db
+      .select()
+      .from(postViewerStates)
+      .where(and(
+        eq(postViewerStates.postUri, postUri),
+        eq(postViewerStates.viewerDid, viewerDid)
+      ));
+    return result;
+  }
+
+  async getPostViewerStates(postUris: string[], viewerDid: string): Promise<Map<string, PostViewerState>> {
+    if (postUris.length === 0) return new Map();
+    
+    const results = await this.db
+      .select()
+      .from(postViewerStates)
+      .where(and(
+        inArray(postViewerStates.postUri, postUris),
+        eq(postViewerStates.viewerDid, viewerDid)
+      ));
+    
+    const map = new Map<string, PostViewerState>();
+    for (const result of results) {
+      map.set(result.postUri, result);
+    }
+    return map;
+  }
+
+  async updatePostViewerState(postUri: string, viewerDid: string, data: Partial<InsertPostViewerState>): Promise<void> {
+    await this.db
+      .update(postViewerStates)
+      .set(data)
+      .where(and(
+        eq(postViewerStates.postUri, postUri),
+        eq(postViewerStates.viewerDid, viewerDid)
+      ));
+  }
+
+  async deletePostViewerState(postUri: string, viewerDid: string): Promise<void> {
+    await this.db
+      .delete(postViewerStates)
+      .where(and(
+        eq(postViewerStates.postUri, postUri),
+        eq(postViewerStates.viewerDid, viewerDid)
+      ));
+  }
+
+  // Thread context operations
+  async createThreadContext(context: InsertThreadContext): Promise<ThreadContext> {
+    const [result] = await this.db.insert(threadContexts).values(context).returning();
+    return result;
+  }
+
+  async getThreadContext(postUri: string): Promise<ThreadContext | undefined> {
+    const [result] = await this.db.select().from(threadContexts).where(eq(threadContexts.postUri, postUri));
+    return result;
+  }
+
+  async getThreadContexts(postUris: string[]): Promise<Map<string, ThreadContext>> {
+    if (postUris.length === 0) return new Map();
+    
+    const results = await this.db
+      .select()
+      .from(threadContexts)
+      .where(inArray(threadContexts.postUri, postUris));
+    
+    const map = new Map<string, ThreadContext>();
+    for (const result of results) {
+      map.set(result.postUri, result);
+    }
+    return map;
+  }
+
+  async updateThreadContext(postUri: string, data: Partial<InsertThreadContext>): Promise<void> {
+    await this.db
+      .update(threadContexts)
+      .set(data)
+      .where(eq(threadContexts.postUri, postUri));
   }
 }
 
