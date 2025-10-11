@@ -657,8 +657,20 @@ export class XRPCApi {
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
     if (!blobCid) return '';
-    // Use IMG_URI_ENDPOINT env var if set, otherwise use relative URL to our blob proxy
-    const endpoint = process.env.IMG_URI_ENDPOINT || '/img';
+    
+    // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
+    // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
+    // PUBLIC_URL is our publicUrl (base URL of the application)
+    const endpoint = process.env.IMG_URI_ENDPOINT || 
+                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
+                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+    
+    if (!endpoint) {
+      console.error('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
+      return '';
+    }
+    
     const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
     return cdnUrl;

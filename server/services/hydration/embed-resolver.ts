@@ -176,9 +176,19 @@ export class EmbedResolver {
     if (!blob || !blob.ref) return '';
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
-    // Construct image URL following Bluesky's pattern: /{preset}/plain/{did}/{cid}@{format}
-    // Use IMG_URI_ENDPOINT env var if set, otherwise use relative URL to our blob proxy
-    const endpoint = process.env.IMG_URI_ENDPOINT || '/img';
+    // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
+    // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
+    // PUBLIC_URL is our publicUrl (base URL of the application)
+    const endpoint = process.env.IMG_URI_ENDPOINT || 
+                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
+                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+    
+    if (!endpoint) {
+      console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
+      return '';
+    }
+    
     return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
   }
 
