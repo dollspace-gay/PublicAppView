@@ -902,7 +902,7 @@ export class XRPCApi {
               did: f.did,
               handle: f.handle,
               displayName: f.displayName,
-              avatar: f.avatarUrl,
+              ...(f.avatarUrl && { avatar: f.avatarUrl }),
             })),
           },
         };
@@ -929,7 +929,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           description: user.description,
-          avatar: user.avatarUrl,
+          ...(user.avatarUrl && { avatar: user.avatarUrl }),
           banner: user.bannerUrl,
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
@@ -1056,7 +1056,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              avatar: user.avatarUrl,
+              ...(user.avatarUrl && { avatar: user.avatarUrl }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1110,7 +1110,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              avatar: user.avatarUrl,
+              ...(user.avatarUrl && { avatar: user.avatarUrl }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1137,7 +1137,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           description: user.description,
-          avatar: user.avatarUrl,
+          ...(user.avatarUrl && { avatar: user.avatarUrl }),
         })),
       });
     } catch (error) {
@@ -1171,7 +1171,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              avatar: user.avatarUrl,
+              ...(user.avatarUrl && { avatar: user.avatarUrl }),
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1211,7 +1211,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              avatar: user.avatarUrl,
+              ...(user.avatarUrl && { avatar: user.avatarUrl }),
               viewer: {
                 muted: true,
               },
@@ -1387,7 +1387,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName,
-          avatar: user.avatarUrl,
+          ...(user.avatarUrl && { avatar: user.avatarUrl }),
         })),
       });
     } catch (error) {
@@ -1413,7 +1413,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           description: user.description,
-          avatar: user.avatarUrl,
+          ...(user.avatarUrl && { avatar: user.avatarUrl }),
         })),
       });
     } catch (error) {
@@ -1542,7 +1542,7 @@ export class XRPCApi {
               did: post.authorDid,
               handle: author?.handle || 'unknown.user',
               displayName: author?.displayName,
-              avatar: author?.avatarUrl,
+              ...(author?.avatarUrl && { avatar: author.avatarUrl }),
             },
             record: {
               text: post.text,
@@ -2340,7 +2340,7 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl })) });
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -2372,7 +2372,7 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl })) });
+      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -2500,7 +2500,7 @@ export class XRPCApi {
             did: u.did,
             handle: u.handle,
             displayName: u.displayName,
-            avatar: u.avatarUrl,
+            ...(u.avatarUrl && { avatar: u.avatarUrl }),
           };
         })
         .filter(Boolean);
@@ -2544,8 +2544,7 @@ export class XRPCApi {
         const reasonSubject = n.reasonSubject;
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
-          // For notifications, we'll omit the URI field as it's not strictly required
-          // and the current format isn't valid AT Protocol
+          uri: n.uri,
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
@@ -2723,7 +2722,7 @@ export class XRPCApi {
                 did: user.did,
                 handle: user.handle,
                 displayName: user.displayName,
-                avatar: user.avatarUrl,
+                ...(user.avatarUrl && { avatar: user.avatarUrl }),
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -2780,7 +2779,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              avatar: user.avatarUrl,
+              ...(user.avatarUrl && { avatar: user.avatarUrl }),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };

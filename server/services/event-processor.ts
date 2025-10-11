@@ -808,7 +808,7 @@ export class EventProcessor {
         const parentPost = await this.storage.getPost(record.reply.parent.uri);
         if (parentPost && parentPost.authorDid !== authorDid) {
           await this.storage.createNotification({
-            uri: `at://${uri.replace('at://', '')}/notification/reply`,
+            uri: `at://${uri.replace('at://', '')}#notification/reply`,
             recipientDid: parentPost.authorDid,
             authorDid,
             reason: 'reply',
@@ -838,7 +838,7 @@ export class EventProcessor {
         const mentionedUser = await this.storage.getUserByHandle(handle);
         if (mentionedUser && mentionedUser.did !== authorDid) {
           await this.storage.createNotification({
-            uri: `at://${uri.replace('at://', '')}/notification/mention/${mentionedUser.did}`,
+            uri: `at://${uri.replace('at://', '')}#notification/mention/${mentionedUser.did}`,
             recipientDid: mentionedUser.did,
             authorDid,
             reason: 'mention',
@@ -891,7 +891,7 @@ export class EventProcessor {
       if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
-            uri: `at://${uri.replace('at://', '')}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
             reason: 'like',
@@ -941,7 +941,7 @@ export class EventProcessor {
       if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
-            uri: `at://${uri.replace('at://', '')}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
             reason: 'repost',
@@ -1031,7 +1031,7 @@ export class EventProcessor {
       if (followingUser) {
         try {
           await this.storage.createNotification({
-            uri: `at://${uri.replace('at://', '')}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: followingDid,
             authorDid: followerDid,
             reason: 'follow',
