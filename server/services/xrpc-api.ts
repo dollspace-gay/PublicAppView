@@ -615,12 +615,13 @@ export class XRPCApi {
     const authorDids = Array.from(new Set(posts.map((p) => p.authorDid)));
     const postUris = posts.map((p) => p.uri);
 
-    const [authors, likeUris, repostUris, aggregations, viewerStates] = await Promise.all([
+    const [authors, likeUris, repostUris, aggregations, viewerStates, labels] = await Promise.all([
       storage.getUsers(authorDids),
       viewerDid ? storage.getLikeUris(viewerDid, postUris) : new Map(),
       viewerDid ? storage.getRepostUris(viewerDid, postUris) : new Map(),
       storage.getPostAggregations(postUris),
       viewerDid ? storage.getPostViewerStates(postUris, viewerDid) : new Map(),
+      labelService.getActiveLabelsForSubjects(postUris),
     ]);
 
     const authorsByDid = new Map(authors.map((a) => [a.did, a]));
