@@ -653,7 +653,7 @@ export class XRPCApi {
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || author?.handle || post.authorDid,
-          avatar: author?.avatarUrl || "",
+          ...(author?.avatarUrl && { avatar: author.avatarUrl }),
         },
         record,
         replyCount: post.replyCount || 0,
@@ -938,7 +938,7 @@ export class XRPCApi {
               did: f.did,
               handle: f.handle,
               displayName: f.displayName,
-              avatar: f.avatarUrl || "",
+              ...(f.avatarUrl && { avatar: f.avatarUrl }),
             })),
           },
         };
@@ -965,7 +965,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
           ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
@@ -1095,7 +1095,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1152,7 +1152,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1179,7 +1179,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1213,7 +1213,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1253,7 +1253,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 muted: true,
               },
@@ -1434,7 +1434,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1460,7 +1460,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1589,7 +1589,7 @@ export class XRPCApi {
               did: post.authorDid,
               handle: author?.handle || 'unknown.user',
               displayName: author?.displayName,
-              avatar: author?.avatarUrl || "",
+              ...(author?.avatarUrl && { avatar: author.avatarUrl }),
             },
             record: {
               text: post.text,
@@ -1644,7 +1644,7 @@ export class XRPCApi {
         handle:
           creator?.handle ||
           `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
-        avatar: creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "",
+        ...(creator?.avatarUrl && { avatar: this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') }),
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
 
@@ -1656,7 +1656,7 @@ export class XRPCApi {
         displayName: generator.displayName,
         likeCount: generator.likeCount,
         indexedAt: generator.indexedAt.toISOString(),
-        avatar: generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : "",
+        ...(generator.avatarUrl && { avatar: this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') }),
       };
       if (generator.description) view.description = generator.description;
 
@@ -1688,7 +1688,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1700,7 +1700,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          view.avatar = generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : "";
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1737,7 +1737,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1749,7 +1749,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          view.avatar = generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : "";
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1782,7 +1782,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1794,7 +1794,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          view.avatar = generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : "";
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1850,7 +1850,7 @@ export class XRPCApi {
           creator?.handle || `${pack.creatorDid.replace(/:/g, '-')}.invalid`,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
       const record: any = {
         name: pack.name,
@@ -1903,7 +1903,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const record: any = {
             name: pack.name,
@@ -1967,7 +1967,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          creatorView.avatar = creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : "";
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: service.uri,
@@ -2387,7 +2387,7 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl || "" })) });
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -2419,7 +2419,7 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl || "" })) });
+      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -2547,7 +2547,7 @@ export class XRPCApi {
             did: u.did,
             handle: u.handle,
             displayName: u.displayName,
-            avatar: u.avatarUrl || "",
+            ...(u.avatarUrl && { avatar: u.avatarUrl }),
           };
         })
         .filter(Boolean);
@@ -2650,7 +2650,7 @@ export class XRPCApi {
                 did: author.did,
                 handle: author.handle,
                 displayName: author.displayName || author.handle, // Fallback to handle
-                avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : "",
+                ...(author.avatarUrl && { avatar: this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') }),
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
@@ -2819,7 +2819,7 @@ export class XRPCApi {
                 did: user.did,
                 handle: user.handle,
                 displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-                avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+                ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -2874,7 +2874,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : "",
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };
