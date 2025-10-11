@@ -1094,7 +1094,7 @@ export class XRPCApi {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || "",
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
@@ -1151,7 +1151,7 @@ export class XRPCApi {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || "",
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
@@ -1177,7 +1177,7 @@ export class XRPCApi {
         actors: users.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || "",
           ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
@@ -1212,7 +1212,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || "",
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 blocking: b.uri,
@@ -1252,7 +1252,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || "",
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 muted: true,
@@ -1433,7 +1433,7 @@ export class XRPCApi {
         followers: followers.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || "",
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
@@ -1458,7 +1458,7 @@ export class XRPCApi {
         suggestions: suggestions.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || "",
           ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
@@ -2631,7 +2631,7 @@ export class XRPCApi {
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
-          reasonSubject,
+          reasonSubject: reasonSubject || "",
           ...(record && { record }),
           author: author
             ? {
@@ -2804,7 +2804,7 @@ export class XRPCApi {
               actor: {
                 did: user.did,
                 handle: user.handle,
-                displayName: user.displayName,
+                displayName: user.displayName || "",
                 ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
                 viewer,
               },
@@ -2859,7 +2859,7 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
+              displayName: user.displayName || "",
               ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
