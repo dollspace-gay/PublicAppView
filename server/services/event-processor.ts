@@ -5,7 +5,7 @@ import { didResolver } from "./did-resolver";
 import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
-import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService } from "@shared/schema";
+import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -796,6 +796,18 @@ export class EventProcessor {
 
     await this.storage.createPost(post);
     
+    // Create feed item for the post
+    const feedItem: InsertFeedItem = {
+      uri: uri,
+      postUri: uri,
+      originatorDid: authorDid,
+      type: 'post',
+      sortAt: this.safeDate(record.createdAt),
+      cid: cid,
+      createdAt: this.safeDate(record.createdAt),
+    };
+    await this.storage.createFeedItem(feedItem);
+    
     // Create notification for reply
     if (record.reply?.parent.uri) {
       try {
@@ -932,6 +944,18 @@ export class EventProcessor {
     // Insert repost directly - foreign key constraints removed for federated data
     try {
       await this.storage.createRepost(repost);
+      
+      // Create feed item for the repost
+      const feedItem: InsertFeedItem = {
+        uri: uri,
+        postUri: postUri,
+        originatorDid: userDid,
+        type: 'repost',
+        sortAt: this.safeDate(record.createdAt),
+        cid: cid || uri, // Use CID if available, otherwise use URI
+        createdAt: this.safeDate(record.createdAt),
+      };
+      await this.storage.createFeedItem(feedItem);
       
       // Try to create notification if post exists locally
       const post = await this.storage.getPost(postUri);
@@ -1293,12 +1317,14 @@ export class EventProcessor {
     switch (collection) {
       case "app.bsky.feed.post":
         await this.storage.deletePost(uri);
+        await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
         break;
       case "app.bsky.feed.like":
         await this.storage.deleteLike(uri);
         break;
       case "app.bsky.feed.repost":
         await this.storage.deleteRepost(uri);
+        await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
         break;
       case "app.bsky.graph.follow":
         await this.storage.deleteFollow(uri);

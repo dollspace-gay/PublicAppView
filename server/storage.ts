@@ -676,11 +676,20 @@ export class DatabaseStorage implements IStorage {
 
   async createFeedItem(feedItem: InsertFeedItem): Promise<FeedItem> {
     const [result] = await db.insert(feedItems).values(feedItem).returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('feed_items');
+    
     return result;
   }
 
   async deleteFeedItem(uri: string): Promise<void> {
     await db.delete(feedItems).where(eq(feedItems.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('feed_items', -1);
   }
 
   async getPostThread(uri: string): Promise<Post[]> {
