@@ -615,10 +615,12 @@ export class XRPCApi {
     const authorDids = Array.from(new Set(posts.map((p) => p.authorDid)));
     const postUris = posts.map((p) => p.uri);
 
-    const [authors, likeUris, repostUris] = await Promise.all([
+    const [authors, likeUris, repostUris, aggregations, viewerStates] = await Promise.all([
       storage.getUsers(authorDids),
       viewerDid ? storage.getLikeUris(viewerDid, postUris) : new Map(),
       viewerDid ? storage.getRepostUris(viewerDid, postUris) : new Map(),
+      storage.getPostAggregations(postUris),
+      viewerDid ? storage.getPostViewerStates(postUris, viewerDid) : new Map(),
     ]);
 
     const authorsByDid = new Map(authors.map((a) => [a.did, a]));
@@ -642,6 +644,8 @@ export class XRPCApi {
       const author = authorsByDid.get(post.authorDid);
       const likeUri = likeUris.get(post.uri);
       const repostUri = repostUris.get(post.uri);
+      const aggregation = aggregations.get(post.uri);
+      const viewerState = viewerStates.get(post.uri);
 
       let reply = undefined;
       if (post.parentUri) {
@@ -732,14 +736,18 @@ export class XRPCApi {
           },
         },
         record,
-        replyCount: post.replyCount || 0,
-        repostCount: post.repostCount || 0,
-        likeCount: post.likeCount || 0,
+        replyCount: aggregation?.replyCount || 0,
+        repostCount: aggregation?.repostCount || 0,
+        likeCount: aggregation?.likeCount || 0,
+        bookmarkCount: aggregation?.bookmarkCount || 0,
+        quoteCount: aggregation?.quoteCount || 0,
         indexedAt: post.indexedAt.toISOString(),
-        viewer: viewerDid ? { 
+        viewer: viewerState ? { 
           $type: 'app.bsky.feed.defs#viewerState',
-          like: likeUri, 
-          repost: repostUri 
+          like: viewerState.likeUri || undefined, 
+          repost: viewerState.repostUri || undefined,
+          bookmarked: viewerState.bookmarked || false,
+          threadMuted: viewerState.threadMuted || false,
         } : {},
       };
     });

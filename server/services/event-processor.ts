@@ -796,6 +796,21 @@ export class EventProcessor {
 
     await this.storage.createPost(post);
     
+    // Create post aggregation record
+    await this.storage.createPostAggregation({
+      postUri: uri,
+      likeCount: 0,
+      repostCount: 0,
+      replyCount: 0,
+      bookmarkCount: 0,
+      quoteCount: 0,
+    });
+    
+    // If this is a reply, increment the parent post's reply count
+    if (record.reply?.parent.uri) {
+      await this.storage.incrementPostAggregation(record.reply.parent.uri, 'replyCount', 1);
+    }
+    
     // Create feed item for the post
     const feedItem: InsertFeedItem = {
       uri: uri,
@@ -894,6 +909,18 @@ export class EventProcessor {
     try {
       await this.storage.createLike(like);
       
+      // Increment post aggregation like count
+      await this.storage.incrementPostAggregation(postUri, 'likeCount', 1);
+      
+      // Create viewer state for the like
+      await this.storage.createPostViewerState({
+        postUri,
+        viewerDid: userDid,
+        likeUri: uri,
+        bookmarked: false,
+        threadMuted: false,
+      });
+      
       // Try to create notification if post exists locally
       const post = await this.storage.getPost(postUri);
       if (post && post.authorDid !== userDid) {
@@ -944,6 +971,18 @@ export class EventProcessor {
     // Insert repost directly - foreign key constraints removed for federated data
     try {
       await this.storage.createRepost(repost);
+      
+      // Increment post aggregation repost count
+      await this.storage.incrementPostAggregation(postUri, 'repostCount', 1);
+      
+      // Create or update viewer state for the repost
+      await this.storage.createPostViewerState({
+        postUri,
+        viewerDid: userDid,
+        repostUri: uri,
+        bookmarked: false,
+        threadMuted: false,
+      });
       
       // Create feed item for the repost
       const feedItem: InsertFeedItem = {
@@ -1320,11 +1359,21 @@ export class EventProcessor {
         await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
         break;
       case "app.bsky.feed.like":
-        await this.storage.deleteLike(uri);
+        const like = await this.storage.getLike(uri);
+        if (like) {
+          await this.storage.deleteLike(uri);
+          await this.storage.incrementPostAggregation(like.postUri, 'likeCount', -1);
+          await this.storage.deletePostViewerState(like.postUri, like.userDid);
+        }
         break;
       case "app.bsky.feed.repost":
-        await this.storage.deleteRepost(uri);
-        await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
+        const repost = await this.storage.getRepost(uri);
+        if (repost) {
+          await this.storage.deleteRepost(uri);
+          await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
+          await this.storage.incrementPostAggregation(repost.postUri, 'repostCount', -1);
+          await this.storage.deletePostViewerState(repost.postUri, repost.userDid);
+        }
         break;
       case "app.bsky.graph.follow":
         await this.storage.deleteFollow(uri);

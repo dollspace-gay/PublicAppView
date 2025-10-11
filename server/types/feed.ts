@@ -42,6 +42,9 @@ export interface HydrationState {
   reposts?: Map<string, any>;
   profileViewers?: Map<string, any>;
   postBlocks?: Map<string, any>;
+  aggregations?: Map<string, any>;
+  viewerStates?: Map<string, any>;
+  labels?: Map<string, any[]>;
 }
 
 // Profile viewer state

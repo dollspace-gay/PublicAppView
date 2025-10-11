@@ -36,21 +36,28 @@ export class Views {
     const postInfo = state.posts?.get(uri);
     if (!postInfo) return undefined;
 
+    // Get aggregations and viewer state from the state
+    const aggregations = state.aggregations?.get(uri);
+    const viewerState = state.viewerStates?.get(uri);
+
     return {
       uri: postInfo.uri,
       cid: postInfo.cid,
       record: postInfo.record,
       author: postInfo.author,
-      replyCount: 0, // TODO: implement reply counting
-      repostCount: 0, // TODO: implement repost counting
-      likeCount: 0, // TODO: implement like counting
+      replyCount: aggregations?.replyCount || 0,
+      repostCount: aggregations?.repostCount || 0,
+      likeCount: aggregations?.likeCount || 0,
+      bookmarkCount: aggregations?.bookmarkCount || 0,
+      quoteCount: aggregations?.quoteCount || 0,
       indexedAt: postInfo.indexedAt,
-      viewer: {
-        like: undefined, // TODO: implement viewer state
-        repost: undefined,
-        bookmarked: undefined,
-      },
-      labels: [], // TODO: implement labels
+      viewer: viewerState ? {
+        like: viewerState.likeUri || undefined,
+        repost: viewerState.repostUri || undefined,
+        bookmarked: viewerState.bookmarked || false,
+        threadMuted: viewerState.threadMuted || false,
+      } : {},
+      labels: state.labels?.get(uri) || [],
     };
   }
 
