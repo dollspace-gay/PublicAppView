@@ -39,6 +39,11 @@ export const posts = pgTable("posts", {
   parentUri: varchar("parent_uri", { length: 512 }),
   rootUri: varchar("root_uri", { length: 512 }),
   embed: jsonb("embed"),
+  violatesThreadGate: boolean("violates_thread_gate").default(false).notNull(),
+  violatesEmbeddingRules: boolean("violates_embedding_rules").default(false).notNull(),
+  hasThreadGate: boolean("has_thread_gate").default(false).notNull(),
+  hasPostGate: boolean("has_post_gate").default(false).notNull(),
+  tags: jsonb("tags").default(sql`'[]'::jsonb`).notNull(),
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -66,6 +71,46 @@ export const feedItems = pgTable("feed_items", {
   sortAtIdx: index("idx_feed_items_sort_at").on(table.sortAt),
   typeIdx: index("idx_feed_items_type").on(table.type),
   originatorSortIdx: index("idx_feed_items_originator_sort").on(table.originatorDid, table.sortAt),
+}));
+
+// Post aggregations table - stores counts for posts
+export const postAggregations = pgTable("post_aggregations", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  likeCount: integer("like_count").default(0).notNull(),
+  repostCount: integer("repost_count").default(0).notNull(),
+  replyCount: integer("reply_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  likeCountIdx: index("idx_post_aggregations_like_count").on(table.likeCount),
+  repostCountIdx: index("idx_post_aggregations_repost_count").on(table.repostCount),
+  replyCountIdx: index("idx_post_aggregations_reply_count").on(table.replyCount),
+}));
+
+// Post viewer states table - stores viewer-specific state for posts
+export const postViewerStates = pgTable("post_viewer_states", {
+  postUri: varchar("post_uri", { length: 512 }).notNull(),
+  viewerDid: varchar("viewer_did", { length: 255 }).notNull(),
+  likeUri: varchar("like_uri", { length: 512 }),
+  repostUri: varchar("repost_uri", { length: 512 }),
+  bookmarked: boolean("bookmarked").default(false).notNull(),
+  threadMuted: boolean("thread_muted").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  postViewerIdx: uniqueIndex("idx_post_viewer_states_post_viewer").on(table.postUri, table.viewerDid),
+  postIdx: index("idx_post_viewer_states_post").on(table.postUri),
+  viewerIdx: index("idx_post_viewer_states_viewer").on(table.viewerDid),
+}));
+
+// Thread contexts table - stores thread-specific context
+export const threadContexts = pgTable("thread_contexts", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  rootAuthorLikeUri: varchar("root_author_like_uri", { length: 512 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  rootAuthorLikeIdx: index("idx_thread_contexts_root_author_like").on(table.rootAuthorLikeUri),
 }));
 
 // Likes table
