@@ -813,6 +813,7 @@ export class EventProcessor {
             authorDid,
             reason: 'reply',
             reasonSubject: uri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -843,6 +844,7 @@ export class EventProcessor {
             authorDid,
             reason: 'mention',
             reasonSubject: uri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -913,7 +915,7 @@ export class EventProcessor {
     }
   }
 
-  private async processRepost(uri: string, userDid: string, record: any) {
+  private async processRepost(uri: string, userDid: string, record: any, cid?: string) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
       smartConsole.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
@@ -947,6 +949,7 @@ export class EventProcessor {
             authorDid: userDid,
             reason: 'repost',
             reasonSubject: postUri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
