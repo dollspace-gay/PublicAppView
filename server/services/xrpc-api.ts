@@ -306,10 +306,14 @@ const unregisterPushSchema = z.object({
   token: z.string(),
 });
 
-// Actor preferences schemas (minimal, accept-through with type routing)
+// Actor preferences schemas - proper validation like Bluesky
 const putActorPreferencesSchema = z.object({
-  preferences: z.array(z.any()).default([]),
+  preferences: z.array(z.object({
+    $type: z.string().min(1, "Preference must have a $type"),
+    // Allow any additional properties for flexibility
+  }).passthrough()).default([]),
 });
+
 
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
@@ -423,6 +427,56 @@ export class XRPCApi {
     console.log(`[PREFERENCES] Cache invalidated for ${userDid}`);
   }
 
+  private async getUserPdsEndpoint(userDid: string): Promise<string | null> {
+    try {
+      // Resolve DID document to find PDS endpoint
+      const didDoc = await this.resolveDidDocument(userDid);
+      if (!didDoc) return null;
+
+      // Look for PDS endpoint in service endpoints
+      const services = didDoc.service || [];
+      const pdsService = services.find((service: any) => 
+        service.type === 'AtprotoPersonalDataServer' || 
+        service.id === '#atproto_pds'
+      );
+
+      if (pdsService && pdsService.serviceEndpoint) {
+        return pdsService.serviceEndpoint;
+      }
+
+      // Fallback: try to construct PDS URL from handle if available
+      const user = await storage.getUser(userDid);
+      if (user?.handle) {
+        // For now, assume bsky.social PDS for handles ending in .bsky.social
+        if (user.handle.endsWith('.bsky.social')) {
+          return 'https://bsky.social';
+        }
+        // For other handles, try to construct PDS URL
+        // This is a simplified approach - in production you'd need more sophisticated PDS discovery
+        return `https://${user.handle.split('.').slice(-2).join('.')}`;
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`[PREFERENCES] Error resolving PDS endpoint for ${userDid}:`, error);
+      return null;
+    }
+  }
+
+  private async resolveDidDocument(did: string): Promise<any | null> {
+    try {
+      // Simple DID resolution - in production you'd use a proper DID resolver
+      const response = await fetch(`https://plc.directory/${did}`);
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error(`[PREFERENCES] Error resolving DID document for ${did}:`, error);
+      return null;
+    }
+  }
+
   /**
    * Extract authenticated user DID from request
    * Returns null if no valid authentication token is present
@@ -529,6 +583,17 @@ export class XRPCApi {
     }
     console.log(`[RESOLVE_ACTOR] Found user: ${actor} -> ${user.did}`);
     return user.did;
+  }
+
+  private cidFromBlobJson(json: any): string {
+    if (json instanceof Object && json.ref) {
+      return json.ref.toString();
+    }
+    // Handle the fact that parseRecordBytes() produces raw json rather than lexicon values
+    if (json && json['$type'] === 'blob') {
+      return (json['ref']?.['$link'] ?? '') as string;
+    }
+    return (json?.['cid'] ?? '') as string;
   }
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
@@ -652,8 +717,15 @@ export class XRPCApi {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
-          displayName: author?.displayName || "",
-          ...(author?.avatarUrl && { avatar: author.avatarUrl }),
+          displayName: author?.displayName || author?.handle || post.authorDid,
+          avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         record,
         replyCount: post.replyCount || 0,
@@ -938,7 +1010,7 @@ export class XRPCApi {
               did: f.did,
               handle: f.handle,
               displayName: f.displayName,
-              ...(f.avatarUrl && { avatar: f.avatarUrl }),
+              avatar: f.avatarUrl ? this.transformBlobToCdnUrl(f.avatarUrl, f.did, 'avatar') : undefined,
             })),
           },
         };
@@ -954,18 +1026,18 @@ export class XRPCApi {
             };
           }
           viewer.blockedBy = viewerState.blockedBy;
-          viewer.blocking = viewerState.blocking;
-          viewer.following = viewerState.following;
-          viewer.followedBy = viewerState.followedBy;
+          viewer.blocking = viewerState.blocking || undefined;
+          viewer.following = viewerState.following || undefined;
+          viewer.followedBy = viewerState.followedBy || undefined;
         }
 
         const profileView: any = {
           $type: 'app.bsky.actor.defs#profileViewDetailed',
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
           ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
@@ -1007,21 +1079,44 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - return empty preferences for now
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, returning empty preferences`);
+      // Cache miss - fetch from user's PDS
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
       
-      // For now, return empty preferences array
-      // In a full implementation, this would be stored in the AppView's database
-      const emptyPreferences = [];
-      
-      // Store in cache for future requests
-      this.preferencesCache.set(userDid, {
-        preferences: emptyPreferences,
-        timestamp: Date.now()
-      });
-      
-      console.log(`[PREFERENCES] Cached empty preferences for ${userDid}`);
-      return res.json({ preferences: emptyPreferences });
+      try {
+        // Get user's PDS endpoint from DID document
+        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
+        if (!pdsEndpoint) {
+          console.log(`[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`);
+          return res.json({ preferences: [] });
+        }
+
+        // Forward request to user's PDS
+        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`, {
+          headers: {
+            'Authorization': req.headers.authorization || '',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (pdsResponse.ok) {
+          const pdsData = await pdsResponse.json();
+          
+          // Cache the response
+          this.preferencesCache.set(userDid, {
+            preferences: pdsData.preferences || [],
+            timestamp: Date.now()
+          });
+          
+          console.log(`[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`);
+          return res.json({ preferences: pdsData.preferences || [] });
+        } else {
+          console.warn(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status);
+          return res.json({ preferences: [] });
+        }
+      } catch (pdsError) {
+        console.error(`[PREFERENCES] Error fetching from PDS for ${userDid}:`, pdsError);
+        return res.json({ preferences: [] });
+      }
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
@@ -1036,15 +1131,46 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // For now, just invalidate the cache and return success
-      // In a full implementation, this would store preferences in the AppView's database
-      console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
-      
-      // Invalidate cache after update
-      this.invalidatePreferencesCache(userDid);
-      
-      // Return success response
-      return res.json({ success: true });
+      try {
+        // Get user's PDS endpoint from DID document
+        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
+        if (!pdsEndpoint) {
+          return res.status(400).json({ 
+            error: 'InvalidRequest', 
+            message: 'No PDS endpoint found for user' 
+          });
+        }
+
+        // Forward request to user's PDS (let PDS handle validation)
+        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`, {
+          method: 'POST',
+          headers: {
+            'Authorization': req.headers.authorization || '',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (pdsResponse.ok) {
+          // Invalidate cache after successful update
+          this.invalidatePreferencesCache(userDid);
+          
+          console.log(`[PREFERENCES] Updated preferences via PDS for ${userDid}`);
+          
+          // Return success response (no body, like Bluesky)
+          return res.status(200).end();
+        } else {
+          const errorText = await pdsResponse.text();
+          console.error(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status, errorText);
+          return res.status(pdsResponse.status).send(errorText);
+        }
+      } catch (pdsError) {
+        console.error(`[PREFERENCES] Error updating preferences via PDS for ${userDid}:`, pdsError);
+        return res.status(500).json({ 
+          error: 'InternalServerError', 
+          message: 'Failed to update preferences' 
+        });
+      }
     } catch (error) {
       this._handleError(res, error, 'putPreferences');
     }
@@ -1071,8 +1197,19 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: { 
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || actorDid
+          handle: actor?.handle || actorDid,
+          displayName: actor?.displayName || actor?.handle || actorDid,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         follows: follows
           .map((f) => {
@@ -1085,17 +1222,17 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1128,8 +1265,19 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: { 
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || actorDid
+          handle: actor?.handle || actorDid,
+          displayName: actor?.displayName || actor?.handle || actorDid,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         followers: followers
           .map((f) => {
@@ -1142,17 +1290,17 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1177,9 +1325,9 @@ export class XRPCApi {
         actors: users.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
         })),
       });
     } catch (error) {
@@ -1212,8 +1360,8 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1252,8 +1400,8 @@ export class XRPCApi {
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer: {
                 muted: true,
               },
@@ -1426,15 +1574,35 @@ export class XRPCApi {
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: {
+          $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
-          handle: actor?.handle || params.actor
+          handle: actor?.handle || params.actor,
+          displayName: actor?.displayName || actor?.handle || params.actor,
+          avatar: actor?.avatarUrl ? this.transformBlobToCdnUrl(actor.avatarUrl, actor.did, 'avatar') : undefined,
+          indexedAt: actor?.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         },
         cursor,
         followers: followers.map((user) => ({
+          $type: 'app.bsky.actor.defs#profileView',
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
+          indexedAt: user.indexedAt?.toISOString(),
+          viewer: {
+            muted: false,
+            blockedBy: false,
+            blocking: undefined,
+            following: undefined,
+            followedBy: undefined,
+          },
         })),
       });
     } catch (error) {
@@ -1458,9 +1626,9 @@ export class XRPCApi {
         suggestions: suggestions.map((user) => ({
           did: user.did,
           handle: user.handle,
-          displayName: user.displayName,
+          displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
         })),
       });
     } catch (error) {
@@ -1589,7 +1757,7 @@ export class XRPCApi {
               did: post.authorDid,
               handle: author?.handle || 'unknown.user',
               displayName: author?.displayName,
-              ...(author?.avatarUrl && { avatar: author.avatarUrl }),
+              avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
             },
             record: {
               text: post.text,
@@ -1644,9 +1812,9 @@ export class XRPCApi {
         handle:
           creator?.handle ||
           `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+        avatar: creator?.avatarUrl ? this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar') : undefined,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
       const view: any = {
         uri: generator.uri,
@@ -1656,9 +1824,9 @@ export class XRPCApi {
         displayName: generator.displayName,
         likeCount: generator.likeCount,
         indexedAt: generator.indexedAt.toISOString(),
+        avatar: generator.avatarUrl ? this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar') : undefined,
       };
       if (generator.description) view.description = generator.description;
-      if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
       res.json({
         view,
@@ -2387,7 +2555,7 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined })) });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -2419,7 +2587,7 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...(u.avatarUrl && { avatar: u.avatarUrl }) })) });
+      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined })) });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -2547,7 +2715,7 @@ export class XRPCApi {
             did: u.did,
             handle: u.handle,
             displayName: u.displayName,
-            ...(u.avatarUrl && { avatar: u.avatarUrl }),
+            avatar: u.avatarUrl ? this.transformBlobToCdnUrl(u.avatarUrl, u.did, 'avatar') : undefined,
           };
         })
         .filter(Boolean);
@@ -2588,10 +2756,40 @@ export class XRPCApi {
 
       const items = await Promise.all(notificationsList.map(async (n) => {
         const author = authorMap.get(n.authorDid);
-        const reasonSubject = n.reasonSubject;
+        
+        // Validate that the notification subject still exists
+        let reasonSubject = n.reasonSubject;
+        let record = { $type: 'app.bsky.notification.defs#recordDeleted' };
+        
+        if (reasonSubject) {
+          try {
+            // For post-related notifications, check if the post still exists
+            if (n.reason === 'like' || n.reason === 'repost' || n.reason === 'reply' || n.reason === 'quote') {
+              const post = await storage.getPost(reasonSubject);
+              if (!post) {
+                // Post was deleted, filter out this notification
+                return null;
+              }
+              record = {
+                $type: 'app.bsky.feed.post',
+                text: post.text,
+                createdAt: post.createdAt.toISOString(),
+              };
+              if (post.embed) record.embed = post.embed;
+              if (post.facets) record.facets = post.facets;
+            }
+          } catch (error) {
+            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${reasonSubject}:`, error);
+            // If we can't fetch the record, filter out this notification
+            return null;
+          }
+        } else {
+          // For notifications without a reasonSubject (like follows), create a fallback
+          reasonSubject = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
+        }
         
         // Create proper AT URI based on notification reason
-        let notificationUri = n.reasonSubject;
+        let notificationUri = reasonSubject;
         if (!notificationUri) {
           // For follow notifications, create a follow record URI
           if (n.reason === 'follow') {
@@ -2605,25 +2803,6 @@ export class XRPCApi {
         // Use the actual CID from the database if available, otherwise generate a placeholder
         const notificationCid = n.cid || `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
 
-        // Fetch the actual record that caused the notification
-        let record = null;
-        if (n.reasonSubject) {
-          try {
-            const post = await storage.getPost(n.reasonSubject);
-            if (post) {
-              record = {
-                $type: 'app.bsky.feed.post',
-                text: post.text,
-                createdAt: post.createdAt.toISOString(),
-              };
-              if (post.embed) record.embed = post.embed;
-              if (post.facets) record.facets = post.facets;
-            }
-          } catch (error) {
-            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${n.reasonSubject}:`, error);
-          }
-        }
-
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
           uri: notificationUri,
@@ -2631,31 +2810,48 @@ export class XRPCApi {
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
-          reasonSubject,
-          ...(record && { record }),
+          reasonSubject: reasonSubject, // Always a string now
+          record: record || { $type: 'app.bsky.notification.defs#recordDeleted' },
           author: author
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
                 handle: author.handle,
-                displayName: author.displayName || "",
-                ...(author.avatarUrl && { avatar: this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') }),
+                displayName: author.displayName || author.handle, // Fallback to handle
+                avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+                viewer: {
+                  muted: false,
+                  blockedBy: false,
+                  blocking: undefined,
+                  following: undefined,
+                  followedBy: undefined,
+                },
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
                 handle: n.authorDid,
-                displayName: ""
+                displayName: n.authorDid, // Use DID as fallback
+                viewer: {
+                  muted: false,
+                  blockedBy: false,
+                  blocking: undefined,
+                  following: undefined,
+                  followedBy: undefined,
+                },
               },
         };
         return view;
       }));
 
+      // Filter out null items (deleted content)
+      const validItems = items.filter(item => item !== null);
+
       const cursor = notificationsList.length
         ? notificationsList[notificationsList.length - 1].indexedAt.toISOString()
         : undefined;
 
-      res.json({ notifications: items, cursor });
+      res.json({ notifications: validItems, cursor });
     } catch (error) {
       this._handleError(res, error, 'listNotifications');
     }
@@ -2795,17 +2991,17 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
               actor: {
                 did: user.did,
                 handle: user.handle,
-                displayName: user.displayName,
-                ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+                displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+                avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -2851,16 +3047,16 @@ export class XRPCApi {
             const viewer = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || false,
-              following: viewerState?.following || false,
-              followedBy: viewerState?.followedBy || false,
+              blocking: viewerState?.blocking || undefined,
+              following: viewerState?.following || undefined,
+              followedBy: viewerState?.followedBy || undefined,
             };
 
             return {
               did: user.did,
               handle: user.handle,
-              displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+              displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
+              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };

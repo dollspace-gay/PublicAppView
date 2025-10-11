@@ -180,6 +180,7 @@ export const userPreferences = pgTable("user_preferences", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+
 // Sessions table - for OAuth 2.0 authentication
 export const sessions = pgTable("sessions", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -513,6 +514,7 @@ export const listBlocksRelations = relations(listBlocks, ({ one }) => ({
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
   user: one(users, { fields: [userPreferences.userDid], references: [users.did] }),
 }));
+
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userDid], references: [users.did] }),

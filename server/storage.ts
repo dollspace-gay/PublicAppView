@@ -94,7 +94,6 @@ export interface IStorage {
   isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean>;
   
   // User preferences operations
-  getUserPreferences(userDid: string): Promise<UserPreferences | undefined>;
   createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
   updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined>;
   
@@ -1094,10 +1093,6 @@ export class DatabaseStorage implements IStorage {
     return !!result;
   }
 
-  async getUserPreferences(userDid: string): Promise<UserPreferences | undefined> {
-    const [prefs] = await this.db.select().from(userPreferences).where(eq(userPreferences.userDid, userDid));
-    return prefs || undefined;
-  }
 
   async createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences> {
     const sanitized = sanitizeObject(prefs);
@@ -1120,6 +1115,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated || undefined;
   }
+
 
   async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
     following: string | undefined;
