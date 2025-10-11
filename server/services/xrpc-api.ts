@@ -963,6 +963,14 @@ export class XRPCApi {
         req.headers
       );
 
+      // Log PDS response for debugging
+      console.log(`[PREFERENCES] PDS response for ${userDid}:`, {
+        status: pdsResponse.status,
+        hasPreferences: !!pdsResponse.body?.preferences,
+        error: pdsResponse.body?.error,
+        message: pdsResponse.body?.message
+      });
+
       if (pdsResponse.status === 200 && pdsResponse.body?.preferences) {
         // Store in cache for future requests
         this.preferencesCache.set(userDid, {
@@ -970,6 +978,16 @@ export class XRPCApi {
           timestamp: Date.now()
         });
         console.log(`[PREFERENCES] Cached preferences for ${userDid}`);
+      } else if (pdsResponse.status !== 200) {
+        console.error(`[PREFERENCES] PDS error for ${userDid}:`, pdsResponse.body);
+        
+        // Provide more specific error handling for authentication issues
+        if (pdsResponse.body?.error === 'InvalidToken') {
+          console.error(`[PREFERENCES] Authentication failed - PDS could not verify AppView token. This may be due to:`);
+          console.error(`  - AppView DID not being resolvable by PDS`);
+          console.error(`  - Missing or invalid AppView private key`);
+          console.error(`  - PDS not recognizing the AppView's verification method`);
+        }
       }
 
       return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);

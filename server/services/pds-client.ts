@@ -542,6 +542,22 @@ export class PDSClient {
     
     // Generate AppView-to-PDS token
     const appViewToken = appViewJWTService.signPDSToken(pdsDid, userDid);
+    const appViewDid = appViewJWTService.getAppViewDid();
+    
+    // Log token details for debugging
+    console.log(`[PDS_CLIENT] Generated AppView token for PDS ${pdsDid} on behalf of ${userDid}:`, {
+      tokenLength: appViewToken.length,
+      tokenPrefix: appViewToken.substring(0, 50) + '...',
+      appViewDid,
+      pdsEndpoint,
+      method,
+      path
+    });
+    
+    // Warn if using default DID that may not be resolvable
+    if (appViewDid === 'did:web:appview.local') {
+      console.warn(`[PDS_CLIENT] Using default AppView DID '${appViewDid}' which may not be resolvable by PDS. Consider setting APPVIEW_DID environment variable.`);
+    }
     
     return this.proxyXRPC(pdsEndpoint, method, path, query, appViewToken, body, headers);
   }
@@ -600,6 +616,17 @@ export class PDSClient {
       (fetchOptions.headers as Record<string, string>)['content-type'] = 'application/json';
     }
 
+    // Log the request details for debugging
+    console.log(`[PDS_CLIENT] Making request to PDS:`, {
+      url,
+      method,
+      headers: {
+        ...forwardedHeaders,
+        authorization: forwardedHeaders.authorization ? 'Bearer [REDACTED]' : 'None'
+      },
+      hasBody: !!fetchOptions.body
+    });
+
     const response = await fetch(url, fetchOptions);
 
     const responseBody = await response.json().catch(() => response.text());
@@ -609,6 +636,15 @@ export class PDSClient {
       if (key.toLowerCase() !== 'set-cookie') {
         responseHeaders[key] = value;
       }
+    });
+
+    // Log response details for debugging
+    console.log(`[PDS_CLIENT] PDS response:`, {
+      status: response.status,
+      statusText: response.statusText,
+      hasBody: !!responseBody,
+      error: responseBody?.error,
+      message: responseBody?.message
     });
 
     return {
