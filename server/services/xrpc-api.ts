@@ -753,8 +753,8 @@ export class XRPCApi {
         author: {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
-          handle: author?.handle || post.authorDid,
-          displayName: author?.displayName || author?.handle || post.authorDid,
+          handle: author?.handle || 'handle.invalid',
+          displayName: author?.displayName || author?.handle || 'Unknown User',
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
           viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks),
         },
@@ -1861,8 +1861,8 @@ export class XRPCApi {
             cid: post.cid,
             author: {
               did: post.authorDid,
-              handle: author?.handle || 'unknown.user',
-              displayName: author?.displayName,
+              handle: author?.handle || 'handle.invalid',
+              displayName: author?.displayName || 'Unknown User',
               avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
             },
             record: {
@@ -2936,8 +2936,8 @@ export class XRPCApi {
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
-                handle: n.authorDid,
-                displayName: n.authorDid, // Use DID as fallback
+                handle: 'handle.invalid',
+                displayName: 'Unknown User', // Use proper fallback
                 viewer: {
                   muted: false,
                   blockedBy: false,

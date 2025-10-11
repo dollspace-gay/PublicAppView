@@ -97,15 +97,15 @@ export class Views {
       by: authorProfile ? {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: authorProfile.handle || authorDid,
-        displayName: authorProfile.displayName || authorProfile.handle || authorDid,
+        handle: authorProfile.handle || 'handle.invalid',
+        displayName: authorProfile.displayName || authorProfile.handle || 'Unknown User',
         avatar: authorProfile.avatarUrl,
         viewer: authorProfile.viewer || {},
       } : {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: authorDid,
-        displayName: authorDid,
+        handle: 'handle.invalid',
+        displayName: 'Unknown User',
       },
       indexedAt: new Date().toISOString(),
     };
