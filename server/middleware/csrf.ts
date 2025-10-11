@@ -71,15 +71,17 @@ export class CSRFProtection {
       res.cookie('csrf_token', token, {
         httpOnly: false, // Must be accessible to JavaScript
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        sameSite: 'lax', // Match session cookie policy
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        path: '/' // Ensure cookie is available for all paths
       });
       
       res.cookie('csrf_signature', signature, {
         httpOnly: true, // Signature is HTTP-only for security
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 24 * 60 * 60 * 1000
+        sameSite: 'lax', // Match session cookie policy
+        maxAge: 24 * 60 * 60 * 1000,
+        path: '/' // Ensure cookie is available for all paths
       });
     }
     
@@ -104,9 +106,24 @@ export class CSRFProtection {
     const cookieToken = req.cookies?.csrf_token;
     const cookieSignature = req.cookies?.csrf_signature;
 
+    // Debug logging
+    console.log(`[CSRF] Validating ${req.method} ${req.path}`, {
+      hasHeaderToken: !!tokenFromHeader,
+      hasBodyToken: !!tokenFromBody,
+      hasCookieToken: !!cookieToken,
+      hasCookieSignature: !!cookieSignature,
+      userAgent: req.headers['user-agent']?.substring(0, 50),
+      origin: req.headers['origin'],
+      referer: req.headers['referer']
+    });
+
     // Validation checks
     if (!submittedToken) {
-      console.warn(`[CSRF] Missing token from ${req.method} ${req.path}`);
+      console.warn(`[CSRF] Missing token from ${req.method} ${req.path}`, {
+        headers: Object.keys(req.headers).filter(h => h.toLowerCase().includes('csrf')),
+        bodyKeys: Object.keys(req.body || {}),
+        cookies: Object.keys(req.cookies || {})
+      });
       return res.status(403).json({ 
         error: 'CSRF token missing',
         message: 'CSRF token required in X-CSRF-Token header or request body'
@@ -114,7 +131,11 @@ export class CSRFProtection {
     }
 
     if (!cookieToken || !cookieSignature) {
-      console.warn(`[CSRF] Missing cookies from ${req.method} ${req.path}`);
+      console.warn(`[CSRF] Missing cookies from ${req.method} ${req.path}`, {
+        availableCookies: Object.keys(req.cookies || {}),
+        cookieToken: !!cookieToken,
+        cookieSignature: !!cookieSignature
+      });
       return res.status(403).json({ 
         error: 'CSRF validation failed',
         message: 'CSRF cookies missing'
@@ -123,7 +144,11 @@ export class CSRFProtection {
 
     // Verify token matches cookie
     if (submittedToken !== cookieToken) {
-      console.warn(`[CSRF] Token mismatch from ${req.method} ${req.path}`);
+      console.warn(`[CSRF] Token mismatch from ${req.method} ${req.path}`, {
+        submittedLength: submittedToken?.length,
+        cookieLength: cookieToken?.length,
+        tokensMatch: submittedToken === cookieToken
+      });
       return res.status(403).json({ 
         error: 'CSRF validation failed',
         message: 'CSRF token mismatch'
@@ -132,7 +157,12 @@ export class CSRFProtection {
 
     // Verify HMAC signature
     if (!this.verifyToken(cookieToken, cookieSignature)) {
-      console.warn(`[CSRF] Invalid signature from ${req.method} ${req.path}`);
+      console.warn(`[CSRF] Invalid signature from ${req.method} ${req.path}`, {
+        tokenLength: cookieToken?.length,
+        signatureLength: cookieSignature?.length,
+        expectedSignature: this.signToken(cookieToken).substring(0, 8) + '...',
+        actualSignature: cookieSignature?.substring(0, 8) + '...'
+      });
       return res.status(403).json({ 
         error: 'CSRF validation failed',
         message: 'CSRF token signature invalid'

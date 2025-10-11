@@ -295,8 +295,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/csrf-token", (req, res) => {
     const token = csrfProtection.getTokenValue(req);
     if (!token) {
+      console.warn('[CSRF] No token available for /api/csrf-token request', {
+        cookies: Object.keys(req.cookies || {}),
+        hasSession: !!req.session
+      });
       return res.status(500).json({ error: "Failed to generate CSRF token" });
     }
+    
+    console.log('[CSRF] Token endpoint accessed', {
+      tokenLength: token.length,
+      cookies: Object.keys(req.cookies || {})
+    });
+    
     res.json({ csrfToken: token });
   });
 
