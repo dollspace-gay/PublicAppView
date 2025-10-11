@@ -2544,7 +2544,7 @@ export class XRPCApi {
         const reasonSubject = n.reasonSubject;
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
-          // Omitting URI field as current format doesn't validate as proper at-uri
+          uri: `at://${n.authorDid}/app.bsky.notification/${n.indexedAt.getTime()}`,
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
