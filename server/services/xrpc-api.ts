@@ -445,7 +445,10 @@ export class XRPCApi {
       // Skip for app password tokens (they're pre-validated by PDS)
       try {
         const anyPayload: any = payload;
-        const appviewDid = process.env.APPVIEW_DID || 'did:web:appview.local';
+        const appviewDid = process.env.APPVIEW_DID;
+        if (!appviewDid) {
+          return res.status(500).json({ error: "APPVIEW_DID not configured" });
+        }
         const nsid = req.path.startsWith('/xrpc/') ? req.path.slice('/xrpc/'.length) : undefined;
         
         // Skip aud check for app password tokens (scope=com.atproto.appPassPrivileged)
@@ -1778,11 +1781,16 @@ export class XRPCApi {
     try {
       describeFeedGeneratorSchema.parse(req.query);
 
+      const appviewDid = process.env.APPVIEW_DID;
+      if (!appviewDid) {
+        return res.status(500).json({ error: "APPVIEW_DID not configured" });
+      }
+      
       res.json({
-        did: 'did:web:appview.local',
+        did: appviewDid,
         feeds: [
           {
-            uri: 'at://did:web:appview.local/app.bsky.feed.generator/reverse-chron',
+            uri: `at://${appviewDid}/app.bsky.feed.generator/reverse-chron`,
           },
         ],
       });

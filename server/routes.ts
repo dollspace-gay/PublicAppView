@@ -249,7 +249,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.send(didDoc);
     } catch (error) {
       // If DID document doesn't exist, return a basic one based on APPVIEW_DID
-      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+      const appviewDid = process.env.APPVIEW_DID;
+      if (!appviewDid) {
+        return res.status(500).json({ error: "APPVIEW_DID not configured" });
+      }
       const domain = appviewDid.replace('did:web:', '');
       const verificationKey = process.env.APPVIEW_ATPROTO_PUBKEY_MULTIBASE;
       const basicDidDoc: any = {
@@ -1802,7 +1805,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const data = schema.parse(req.body);
-      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+      const appviewDid = process.env.APPVIEW_DID;
+      if (!appviewDid) {
+        return res.status(500).json({ error: "APPVIEW_DID not configured" });
+      }
 
       // Apply the label using the label service
       const createdLabel = await labelService.applyLabel({
@@ -2171,7 +2177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Return standard AT Protocol response - no custom fields allowed
       res.json({
-        did: appviewDid || "did:web:appview.local", // Fallback only for development
+        did: appviewDid,
         availableUserDomains: [],
         inviteCodeRequired: false,
         phoneVerificationRequired: false,

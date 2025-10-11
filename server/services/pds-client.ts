@@ -554,10 +554,8 @@ export class PDSClient {
       path
     });
     
-    // Warn if using default DID that may not be resolvable
-    if (appViewDid === 'did:web:appview.local') {
-      console.warn(`[PDS_CLIENT] Using default AppView DID '${appViewDid}' which may not be resolvable by PDS. Consider setting APPVIEW_DID environment variable.`);
-    }
+    // Log the AppView DID being used for debugging
+    console.log(`[PDS_CLIENT] Using AppView DID: ${appViewDid}`);
     
     return this.proxyXRPC(pdsEndpoint, method, path, query, appViewToken, body, headers);
   }
