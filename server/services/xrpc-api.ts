@@ -657,7 +657,9 @@ export class XRPCApi {
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
     if (!blobCid) return '';
-    const cdnUrl = `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    // Use IMG_URI_ENDPOINT env var if set, otherwise use relative URL to our blob proxy
+    const endpoint = process.env.IMG_URI_ENDPOINT || '/img';
+    const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
     return cdnUrl;
   }

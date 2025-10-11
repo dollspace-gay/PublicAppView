@@ -83,17 +83,17 @@ export class EmbedResolver {
         resolved = {
           $type: 'app.bsky.embed.recordWithMedia#view',
           record: recordUri ? { uri: recordUri } : undefined,
-          media: this.resolveMediaEmbed(embed.media)
+          media: this.resolveMediaEmbed(embed.media, post.authorDid)
         };
       } else if (embed.$type === 'app.bsky.embed.images') {
         // Images
-        resolved = this.resolveImagesEmbed(embed);
+        resolved = this.resolveImagesEmbed(embed, post.authorDid);
       } else if (embed.$type === 'app.bsky.embed.external') {
         // External link
-        resolved = this.resolveExternalEmbed(embed);
+        resolved = this.resolveExternalEmbed(embed, post.authorDid);
       } else if (embed.$type === 'app.bsky.embed.video') {
         // Video
-        resolved = this.resolveVideoEmbed(embed);
+        resolved = this.resolveVideoEmbed(embed, post.authorDid);
       }
 
       result.set(post.uri, resolved);
@@ -123,60 +123,63 @@ export class EmbedResolver {
     return result;
   }
 
-  private resolveImagesEmbed(embed: any): ResolvedEmbed {
+  private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.images#view',
       images: (embed.images || []).map((img: any) => ({
-        thumb: this.blobToCdnUrl(img.image),
-        fullsize: this.blobToCdnUrl(img.image),
+        thumb: this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail'),
+        fullsize: this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize'),
         alt: img.alt || '',
         aspectRatio: img.aspectRatio
       }))
     };
   }
 
-  private resolveExternalEmbed(embed: any): ResolvedEmbed {
+  private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.external#view',
       external: {
         uri: embed.external?.uri || '',
         title: embed.external?.title || '',
         description: embed.external?.description || '',
-        thumb: embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb) : undefined
+        thumb: embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : undefined
       }
     };
   }
 
-  private resolveVideoEmbed(embed: any): ResolvedEmbed {
+  private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.video#view',
       cid: embed.video?.ref?.$link || '',
       playlist: '', // TODO: generate video playlist URL
-      thumbnail: embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail) : undefined,
+      thumbnail: embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : undefined,
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };
   }
 
-  private resolveMediaEmbed(media: any): any {
+  private resolveMediaEmbed(media: any, authorDid: string): any {
     if (!media) return undefined;
 
     if (media.$type === 'app.bsky.embed.images') {
-      return this.resolveImagesEmbed(media);
+      return this.resolveImagesEmbed(media, authorDid);
     } else if (media.$type === 'app.bsky.embed.external') {
-      return this.resolveExternalEmbed(media);
+      return this.resolveExternalEmbed(media, authorDid);
     } else if (media.$type === 'app.bsky.embed.video') {
-      return this.resolveVideoEmbed(media);
+      return this.resolveVideoEmbed(media, authorDid);
     }
 
     return undefined;
   }
 
-  private blobToCdnUrl(blob: any): string {
+  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
     if (!blob || !blob.ref) return '';
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
-    // TODO: Use actual CDN URL from environment
-    return `https://cdn.bsky.app/img/feed_thumbnail/plain/${cid}@jpeg`;
+    
+    // Construct image URL following Bluesky's pattern: /{preset}/plain/{did}/{cid}@{format}
+    // Use IMG_URI_ENDPOINT env var if set, otherwise use relative URL to our blob proxy
+    const endpoint = process.env.IMG_URI_ENDPOINT || '/img';
+    return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
   }
 
   /**
