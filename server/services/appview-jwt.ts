@@ -13,7 +13,6 @@ if (!process.env.SESSION_SECRET) {
 }
 
 const JWT_SECRET = process.env.SESSION_SECRET;
-const JWT_EXPIRY = "5m"; // Short-lived tokens for feed generator requests
 const PRIVATE_KEY_PATH = process.env.APPVIEW_PRIVATE_KEY_PATH || "/app/appview-private.pem";
 
 export interface AppViewJWTPayload {
@@ -78,13 +77,11 @@ export class AppViewJWTService {
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256",
-        expiresIn: JWT_EXPIRY,
       });
     }
 
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      expiresIn: JWT_EXPIRY,
     });
   }
 
@@ -109,13 +106,11 @@ export class AppViewJWTService {
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256",
-        expiresIn: JWT_EXPIRY,
       });
     }
 
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      expiresIn: JWT_EXPIRY,
     });
   }
 
