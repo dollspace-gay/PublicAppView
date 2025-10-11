@@ -2602,7 +2602,7 @@ export class XRPCApi {
         
         // Validate that the notification subject still exists
         let reasonSubject = n.reasonSubject;
-        let record = null;
+        let record = { $type: 'app.bsky.notification.defs#recordDeleted' };
         
         if (reasonSubject) {
           try {
@@ -2654,7 +2654,7 @@ export class XRPCApi {
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
           reasonSubject: reasonSubject, // Always a string now
-          record: record || null,
+          record: record || { $type: 'app.bsky.notification.defs#recordDeleted' },
           author: author
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
