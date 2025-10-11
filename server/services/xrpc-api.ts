@@ -450,9 +450,15 @@ export class XRPCApi {
         
         // Skip aud check for app password tokens (scope=com.atproto.appPassPrivileged)
         const isAppPassword = anyPayload.scope === 'com.atproto.appPassPrivileged';
-        if (!isAppPassword && anyPayload.aud && anyPayload.aud !== appviewDid) {
-          console.warn(`[AUTH] aud mismatch. expected=${appviewDid} got=${anyPayload.aud}`);
-          return null;
+        if (!isAppPassword && anyPayload.aud) {
+          // Accept both base AppView DID and service-specific DID (with #bsky_appview fragment)
+          const isBaseAppViewDid = anyPayload.aud === appviewDid;
+          const isServiceAppViewDid = anyPayload.aud === `${appviewDid}#bsky_appview`;
+          
+          if (!isBaseAppViewDid && !isServiceAppViewDid) {
+            console.warn(`[AUTH] aud mismatch. expected=${appviewDid} or ${appviewDid}#bsky_appview got=${anyPayload.aud}`);
+            return null;
+          }
         }
         if (anyPayload.lxm && nsid && anyPayload.lxm !== nsid) {
           console.warn(`[AUTH] lxm mismatch. expected=${nsid} got=${anyPayload.lxm}`);
@@ -946,13 +952,13 @@ export class XRPCApi {
         return res.status(401).json({ error: 'SessionNotFound', message: 'User session not found' });
       }
 
-      // Proxy request to PDS
-      const pdsResponse = await pdsClient.proxyXRPC(
+      // Proxy request to PDS using AppView authentication
+      const pdsResponse = await pdsClient.proxyXRPCWithAppViewAuth(
         session.pdsEndpoint,
         'GET',
         '/xrpc/app.bsky.actor.getPreferences',
         {},
-        session.accessToken,
+        userDid,
         null,
         req.headers
       );
@@ -984,12 +990,12 @@ export class XRPCApi {
       if (!session) return res.status(401).json({ error: 'SessionNotFound' });
       const pdsEndpoint = session.pdsEndpoint;
       const body = putActorPreferencesSchema.parse(req.body);
-      const proxied = await pdsClient.proxyXRPC(
+      const proxied = await pdsClient.proxyXRPCWithAppViewAuth(
         pdsEndpoint,
         'POST',
         '/xrpc/app.bsky.actor.putPreferences',
         {},
-        session.accessToken,
+        session.userDid,
         body,
         req.headers,
       );
