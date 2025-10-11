@@ -2960,8 +2960,8 @@ export class XRPCApi {
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
-                handle: author.handle,
-                displayName: author.displayName || author.handle, // Fallback to handle
+                handle: author.handle || 'handle.invalid',
+                displayName: author.displayName || author.handle || 'Unknown User',
                 pronouns: author.pronouns,
                 avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
                 associated: {
