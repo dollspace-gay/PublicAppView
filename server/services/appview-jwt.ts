@@ -25,7 +25,7 @@ export interface AppViewJWTPayload {
 export class AppViewJWTService {
   private appViewDid: string;
   private privateKeyPem: string | null;
-  private signingAlg: "ES256" | "HS256";
+  private signingAlg: "ES256K" | "HS256";
 
   constructor() {
     this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.local";
@@ -40,14 +40,14 @@ export class AppViewJWTService {
       );
     }
 
-    // Prefer ES256 with a mounted private key PEM when available.
+    // Prefer ES256K with a mounted private key PEM when available.
     try {
       if (fs.existsSync(PRIVATE_KEY_PATH)) {
         const pem = fs.readFileSync(PRIVATE_KEY_PATH, "utf-8").trim();
         if (pem.includes("BEGIN EC PRIVATE KEY") || pem.includes("BEGIN PRIVATE KEY")) {
           this.privateKeyPem = pem;
-          this.signingAlg = "ES256";
-          console.log(`[AppViewJWT] Loaded ES256 private key from ${PRIVATE_KEY_PATH}`);
+          this.signingAlg = "ES256K";
+          console.log(`[AppViewJWT] Loaded ES256K private key from ${PRIVATE_KEY_PATH}`);
         } else {
           console.warn(`[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`);
         }
@@ -55,7 +55,7 @@ export class AppViewJWTService {
         console.warn(`[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`);
       }
     } catch (err) {
-      console.warn(`[AppViewJWT] Failed to initialize ES256 key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
+      console.warn(`[AppViewJWT] Failed to initialize ES256K key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
     }
   }
 
@@ -74,10 +74,10 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Prefer ES256K if we have a private key; otherwise, HS256 with SESSION_SECRET.
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
+        algorithm: "ES256K",
         keyid: "atproto", // Add key ID for consistency
       });
     }
@@ -105,10 +105,10 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Prefer ES256K if we have a private key; otherwise, HS256 with SESSION_SECRET.
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
+        algorithm: "ES256K",
         keyid: "atproto", // Add key ID for PDS compatibility
       });
     }
