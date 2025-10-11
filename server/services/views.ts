@@ -9,7 +9,7 @@ export class Views {
     let reason: any = undefined;
     
     if (item.authorPinned) {
-      reason = this.reasonPin();
+      reason = this.reasonPin(postInfo?.author?.did || '', state);
     } else if (item.repost) {
       const repost = state.reposts?.get(item.repost.uri);
       if (!repost) return;
@@ -40,6 +40,9 @@ export class Views {
     const aggregations = state.aggregations?.get(uri);
     const viewerState = state.viewerStates?.get(uri);
 
+    // Get thread context if available
+    const threadContext = state.threadContexts?.get(uri);
+    
     return {
       uri: postInfo.uri,
       cid: postInfo.cid,
@@ -58,6 +61,9 @@ export class Views {
         threadMuted: viewerState.threadMuted || false,
       } : {},
       labels: state.labels?.get(uri) || [],
+      threadContext: threadContext ? {
+        rootAuthorLike: threadContext.rootAuthorLikeUri || undefined,
+      } : undefined,
     };
   }
 
@@ -79,19 +85,46 @@ export class Views {
     return this.post(uri, state);
   }
 
-  private reasonPin(): any {
+  private reasonPin(authorDid: string, state: HydrationState): any {
+    // Get the author's profile information for pinned posts
+    const authorProfile = state.profileViewers?.get(authorDid);
+    
     return {
       $type: 'app.bsky.feed.defs#reasonPin',
-      by: undefined, // TODO: implement author info
+      by: authorProfile ? {
+        $type: 'app.bsky.actor.defs#profileViewBasic',
+        did: authorDid,
+        handle: authorProfile.handle || authorDid,
+        displayName: authorProfile.displayName || authorProfile.handle || authorDid,
+        avatar: authorProfile.avatarUrl,
+        viewer: authorProfile.viewer || {},
+      } : {
+        $type: 'app.bsky.actor.defs#profileViewBasic',
+        did: authorDid,
+        handle: authorDid,
+        displayName: authorDid,
+      },
       indexedAt: new Date().toISOString(),
     };
   }
 
   private reasonRepost(uri: string, repost: any, state: HydrationState): any | undefined {
-    // TODO: implement repost reason with author info
+    // Get the reposter's profile information
+    const reposterProfile = state.profileViewers?.get(repost.userDid);
+    if (!reposterProfile) return undefined;
+    
     return {
       $type: 'app.bsky.feed.defs#reasonRepost',
-      by: undefined, // TODO: implement reposter info
+      by: {
+        $type: 'app.bsky.actor.defs#profileViewBasic',
+        did: repost.userDid,
+        handle: reposterProfile.handle || repost.userDid,
+        displayName: reposterProfile.displayName || reposterProfile.handle || repost.userDid,
+        avatar: reposterProfile.avatarUrl,
+        viewer: reposterProfile.viewer || {},
+      },
+      uri: uri,
+      cid: repost.cid,
       indexedAt: repost.indexedAt,
     };
   }

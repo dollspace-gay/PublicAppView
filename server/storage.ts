@@ -89,11 +89,13 @@ export interface IStorage {
   createListMute(listMute: InsertListMute): Promise<ListMute>;
   deleteListMute(uri: string): Promise<void>;
   getListMutes(muterDid: string, limit?: number, cursor?: string): Promise<{ mutes: ListMute[], cursor?: string }>;
+  getListMutesForUsers(muterDid: string, targetDids: string[]): Promise<Map<string, ListMute>>;
   
   // List block operations
   createListBlock(listBlock: InsertListBlock): Promise<ListBlock>;
   deleteListBlock(uri: string): Promise<void>;
   getListBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: ListBlock[], cursor?: string }>;
+  getListBlocksForUsers(blockerDid: string, targetDids: string[]): Promise<Map<string, ListBlock>>;
   
   // Thread mute operations
   createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute>;
@@ -1135,6 +1137,40 @@ export class DatabaseStorage implements IStorage {
     return { mutes, cursor: nextCursor };
   }
 
+  async getListMutesForUsers(muterDid: string, targetDids: string[]): Promise<Map<string, ListMute>> {
+    if (targetDids.length === 0) return new Map();
+    
+    // Get all lists that the muter has muted
+    const mutedLists = await this.db
+      .select({ listUri: listMutes.listUri })
+      .from(listMutes)
+      .where(eq(listMutes.muterDid, muterDid));
+    
+    if (mutedLists.length === 0) return new Map();
+    
+    // Get list items for these lists to find which users are in them
+    const listUris = mutedLists.map(ml => ml.listUri);
+    const listItems = await this.db
+      .select({ listUri: listItems.listUri, subjectDid: listItems.subjectDid })
+      .from(listItems)
+      .where(inArray(listItems.listUri, listUris));
+    
+    // Create a map of user DID to list mute
+    const userToMute = new Map<string, ListMute>();
+    const listUriToMute = new Map(mutedLists.map(ml => [ml.listUri, ml]));
+    
+    for (const item of listItems) {
+      if (targetDids.includes(item.subjectDid)) {
+        const mute = listUriToMute.get(item.listUri);
+        if (mute) {
+          userToMute.set(item.subjectDid, mute);
+        }
+      }
+    }
+    
+    return userToMute;
+  }
+
   async createListBlock(listBlock: InsertListBlock): Promise<ListBlock> {
     const sanitized = sanitizeObject(listBlock);
     const [newListBlock] = await this.db
@@ -1170,6 +1206,40 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? blocks[blocks.length - 1].createdAt.toISOString() : undefined;
 
     return { blocks, cursor: nextCursor };
+  }
+
+  async getListBlocksForUsers(blockerDid: string, targetDids: string[]): Promise<Map<string, ListBlock>> {
+    if (targetDids.length === 0) return new Map();
+    
+    // Get all lists that the blocker has blocked
+    const blockedLists = await this.db
+      .select({ listUri: listBlocks.listUri })
+      .from(listBlocks)
+      .where(eq(listBlocks.blockerDid, blockerDid));
+    
+    if (blockedLists.length === 0) return new Map();
+    
+    // Get list items for these lists to find which users are in them
+    const listUris = blockedLists.map(bl => bl.listUri);
+    const listItems = await this.db
+      .select({ listUri: listItems.listUri, subjectDid: listItems.subjectDid })
+      .from(listItems)
+      .where(inArray(listItems.listUri, listUris));
+    
+    // Create a map of user DID to list block
+    const userToBlock = new Map<string, ListBlock>();
+    const listUriToBlock = new Map(blockedLists.map(bl => [bl.listUri, bl]));
+    
+    for (const item of listItems) {
+      if (targetDids.includes(item.subjectDid)) {
+        const block = listUriToBlock.get(item.listUri);
+        if (block) {
+          userToBlock.set(item.subjectDid, block);
+        }
+      }
+    }
+    
+    return userToBlock;
   }
 
   async createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute> {
@@ -2581,16 +2651,41 @@ export class DatabaseStorage implements IStorage {
   async getPostAggregations(postUris: string[]): Promise<Map<string, PostAggregation>> {
     if (postUris.length === 0) return new Map();
     
+    // Try to get from cache first
+    const { cacheService } = await import("./services/cache");
+    const cached = await cacheService.getMany<PostAggregation>('post_aggregations', postUris);
+    
+    // Find missing items
+    const missing = postUris.filter(uri => !cached.has(uri));
+    
+    if (missing.length === 0) {
+      return cached;
+    }
+    
+    // Fetch missing items from database
     const results = await this.db
       .select()
       .from(postAggregations)
-      .where(inArray(postAggregations.postUri, postUris));
+      .where(inArray(postAggregations.postUri, missing));
     
-    const map = new Map<string, PostAggregation>();
+    const dbMap = new Map<string, PostAggregation>();
     for (const result of results) {
-      map.set(result.postUri, result);
+      dbMap.set(result.postUri, result);
     }
-    return map;
+    
+    // Cache the results
+    await cacheService.setMany('post_aggregations', dbMap);
+    
+    // Merge cached and database results
+    const finalMap = new Map<string, PostAggregation>();
+    for (const [uri, value] of cached) {
+      finalMap.set(uri, value);
+    }
+    for (const [uri, value] of dbMap) {
+      finalMap.set(uri, value);
+    }
+    
+    return finalMap;
   }
 
   async incrementPostAggregation(postUri: string, field: 'likeCount' | 'repostCount' | 'replyCount' | 'bookmarkCount' | 'quoteCount', delta: number): Promise<void> {
@@ -2615,6 +2710,10 @@ export class DatabaseStorage implements IStorage {
       .update(postAggregations)
       .set(updateData)
       .where(eq(postAggregations.postUri, postUri));
+    
+    // Invalidate cache
+    const { cacheService } = await import("./services/cache");
+    await cacheService.delete('post_aggregations', postUri);
   }
 
   async updatePostAggregation(postUri: string, data: Partial<InsertPostAggregation>): Promise<void> {

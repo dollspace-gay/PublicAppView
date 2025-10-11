@@ -806,9 +806,22 @@ export class EventProcessor {
       quoteCount: 0,
     });
     
-    // If this is a reply, increment the parent post's reply count
+    // If this is a reply, increment the parent post's reply count and create thread context
     if (record.reply?.parent.uri) {
       await this.storage.incrementPostAggregation(record.reply.parent.uri, 'replyCount', 1);
+      
+      // Create thread context for the reply
+      const rootUri = record.reply.root?.uri || record.reply.parent.uri;
+      const rootPost = await this.storage.getPost(rootUri);
+      if (rootPost) {
+        // Check if the root author has liked this post (for thread context)
+        const rootAuthorLikeUri = await this.storage.getLikeUri(rootPost.authorDid, uri);
+        
+        await this.storage.createThreadContext({
+          postUri: uri,
+          rootAuthorLikeUri: rootAuthorLikeUri || undefined,
+        });
+      }
     }
     
     // Create feed item for the post
