@@ -180,6 +180,19 @@ export const userPreferences = pgTable("user_preferences", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Account preferences table - Bluesky-style preferences storage
+export const accountPref = pgTable("account_pref", {
+  id: serial("id").primaryKey(),
+  userDid: varchar("user_did", { length: 255 }).notNull().references(() => users.did, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(), // preference type (e.g., "app.bsky.actor.defs#adultContentPref")
+  valueJson: jsonb("value_json").notNull(), // preference data as JSON
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userDidIdx: index("idx_account_pref_user_did").on(table.userDid),
+  nameIdx: index("idx_account_pref_name").on(table.name),
+  userDidNameIdx: index("idx_account_pref_user_did_name").on(table.userDid, table.name),
+}));
+
 // Sessions table - for OAuth 2.0 authentication
 export const sessions = pgTable("sessions", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -514,6 +527,10 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
   user: one(users, { fields: [userPreferences.userDid], references: [users.did] }),
 }));
 
+export const accountPrefRelations = relations(accountPref, ({ one }) => ({
+  user: one(users, { fields: [accountPref.userDid], references: [users.did] }),
+}));
+
 export const sessionsRelations = relations(sessions, ({ one }) => ({
   user: one(users, { fields: [sessions.userDid], references: [users.did] }),
 }));
@@ -627,6 +644,8 @@ export type ThreadMute = typeof threadMutes.$inferSelect;
 export type InsertThreadMute = z.infer<typeof insertThreadMuteSchema>;
 export type UserPreferences = typeof userPreferences.$inferSelect;
 export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+export type AccountPref = typeof accountPref.$inferSelect;
+export type InsertAccountPref = typeof accountPref.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type AuthorizedAdmin = typeof authorizedAdmins.$inferSelect;

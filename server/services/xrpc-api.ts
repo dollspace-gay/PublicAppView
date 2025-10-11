@@ -314,6 +314,18 @@ const putActorPreferencesSchema = z.object({
   }).passthrough()).default([]),
 });
 
+// Permission system like Bluesky's
+const FULL_ACCESS_ONLY_PREFS = new Set([
+  'app.bsky.actor.defs#personalDetailsPref',
+]);
+
+function prefAllowed(prefType: string, hasAccessFull: boolean = false): boolean {
+  if (hasAccessFull) {
+    return true;
+  }
+  return !FULL_ACCESS_ONLY_PREFS.has(prefType);
+}
+
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
@@ -1031,10 +1043,15 @@ export class XRPCApi {
       // Cache miss - fetch from database (following Bluesky's pattern)
       console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from database`);
       
+      // Check if user has full access (simplified - in real implementation, check OAuth scope)
+      const hasAccessFull = true; // For now, assume full access
+      
       // Get preferences from database, filtering to app.bsky namespace only
       const preferences = await storage.getUserPreferences(userDid);
       const filteredPreferences = preferences ? preferences.filter(pref => 
-        pref.$type && pref.$type.startsWith('app.bsky.')
+        pref.$type && 
+        pref.$type.startsWith('app.bsky.') &&
+        prefAllowed(pref.$type, hasAccessFull)
       ) : [];
       
       // Store in cache for future requests
@@ -1059,13 +1076,24 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
+      // Check if user has full access (simplified - in real implementation, check OAuth scope)
+      const hasAccessFull = true; // For now, assume full access
+      
       // Validate preferences like Bluesky does
       const checkedPreferences: Array<{ $type: string; [key: string]: any }> = [];
       for (const pref of body.preferences) {
         if (typeof pref.$type === 'string' && pref.$type.length > 0) {
           // Only allow app.bsky namespace preferences (like Bluesky)
           if (pref.$type.startsWith('app.bsky.')) {
-            checkedPreferences.push(pref);
+            // Check if user has permission to set this preference type
+            if (prefAllowed(pref.$type, hasAccessFull)) {
+              checkedPreferences.push(pref);
+            } else {
+              return res.status(400).json({ 
+                error: 'InvalidRequest', 
+                message: `Do not have authorization to set preferences: ${pref.$type}` 
+              });
+            }
           } else {
             return res.status(400).json({ 
               error: 'InvalidRequest', 

@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, accountPref, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type AccountPref, type InsertAccountPref, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -1120,17 +1120,39 @@ export class DatabaseStorage implements IStorage {
 
   // New Bluesky-style preferences methods
   async getUserPreferences(userDid: string): Promise<Array<{ $type: string; [key: string]: any }> | undefined> {
-    // For now, return empty array since we don't have the account_pref table yet
-    // In a full implementation, this would query the account_pref table
-    return [];
+    const prefs = await this.db
+      .select()
+      .from(accountPref)
+      .where(eq(accountPref.userDid, userDid))
+      .orderBy(accountPref.id);
+    
+    return prefs.map(pref => pref.valueJson as { $type: string; [key: string]: any });
   }
 
   async putUserPreferences(userDid: string, preferences: Array<{ $type: string; [key: string]: any }>): Promise<void> {
-    // For now, just log the preferences since we don't have the account_pref table yet
-    // In a full implementation, this would:
-    // 1. Delete all existing preferences for the user in app.bsky namespace
-    // 2. Insert the new preferences
-    console.log(`[STORAGE] Storing ${preferences.length} preferences for ${userDid}:`, preferences);
+    // Use transaction for atomic replacement (like Bluesky)
+    await this.db.transaction(async (tx) => {
+      // Delete all existing preferences for the user in app.bsky namespace
+      await tx
+        .delete(accountPref)
+        .where(and(
+          eq(accountPref.userDid, userDid),
+          sql`${accountPref.name} LIKE 'app.bsky.%'`
+        ));
+
+      // Insert new preferences
+      if (preferences.length > 0) {
+        const prefRows: InsertAccountPref[] = preferences.map(pref => ({
+          userDid,
+          name: pref.$type,
+          valueJson: pref,
+        }));
+
+        await tx.insert(accountPref).values(prefRows);
+      }
+    });
+
+    console.log(`[STORAGE] Stored ${preferences.length} preferences for ${userDid}`);
   }
 
   async getRelationships(viewerDid: string, targetDids: string[]): Promise<Map<string, {
