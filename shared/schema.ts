@@ -319,6 +319,7 @@ export const notifications = pgTable("notifications", {
   authorDid: varchar("author_did", { length: 255 }).notNull(), // No FK - can reference external users
   reason: varchar("reason", { length: 64 }).notNull(), // like, repost, follow, reply, mention, quote
   reasonSubject: varchar("reason_subject", { length: 512 }), // URI of the post/subject
+  cid: varchar("cid", { length: 255 }), // CID of the record that caused the notification
   isRead: boolean("is_read").default(false).notNull(),
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),

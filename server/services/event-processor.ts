@@ -659,12 +659,6 @@ export class EventProcessor {
         case "app.bsky.graph.listitem":
           await this.processListItem(uri, cid, authorDid, record);
           break;
-        case "app.bsky.graph.list":
-          await this.processList(uri, cid, authorDid, record);
-          break;
-        case "app.bsky.graph.listitem":
-          await this.processListItem(uri, cid, authorDid, record);
-          break;
         case "app.bsky.feed.generator":
           await this.processFeedGenerator(uri, cid, authorDid, record);
           break;
@@ -709,7 +703,7 @@ export class EventProcessor {
               await this.processLike(repo, op);
               break;
             case "app.bsky.feed.repost":
-              await this.processRepost(uri, repo, record);
+              await this.processRepost(uri, repo, record, cid);
               break;
             case "app.bsky.actor.profile":
               await this.processProfile(repo, record);
@@ -808,11 +802,12 @@ export class EventProcessor {
         const parentPost = await this.storage.getPost(record.reply.parent.uri);
         if (parentPost && parentPost.authorDid !== authorDid) {
           await this.storage.createNotification({
-            uri: `${uri}/notification/reply`,
+            uri: `at://${uri.replace('at://', '')}#notification/reply`,
             recipientDid: parentPost.authorDid,
             authorDid,
             reason: 'reply',
             reasonSubject: uri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -838,11 +833,12 @@ export class EventProcessor {
         const mentionedUser = await this.storage.getUserByHandle(handle);
         if (mentionedUser && mentionedUser.did !== authorDid) {
           await this.storage.createNotification({
-            uri: `${uri}/notification/mention/${mentionedUser.did}`,
+            uri: `at://${uri.replace('at://', '')}#notification/mention/${mentionedUser.did}`,
             recipientDid: mentionedUser.did,
             authorDid,
             reason: 'mention',
             reasonSubject: uri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -858,7 +854,7 @@ export class EventProcessor {
   }
 
   private async processLike(repo: string, op: any) {
-    const { path, record } = op;
+    const { path, record, cid } = op;
     const uri = `at://${repo}/${path}`;
     const userDid = repo;
 
@@ -891,11 +887,12 @@ export class EventProcessor {
       if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
-            uri: `${uri}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
             reason: 'like',
             reasonSubject: postUri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -912,7 +909,7 @@ export class EventProcessor {
     }
   }
 
-  private async processRepost(uri: string, userDid: string, record: any) {
+  private async processRepost(uri: string, userDid: string, record: any, cid?: string) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
       smartConsole.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
@@ -941,11 +938,12 @@ export class EventProcessor {
       if (post && post.authorDid !== userDid) {
         try {
           await this.storage.createNotification({
-            uri: `${uri}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: post.authorDid,
             authorDid: userDid,
             reason: 'repost',
             reasonSubject: postUri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -997,7 +995,7 @@ export class EventProcessor {
   }
 
   private async processFollow(repo: string, op: any) {
-    const { path, record } = op;
+    const { path, record, cid } = op;
     const uri = `at://${repo}/${path}`;
     const followerDid = repo;
 
@@ -1031,11 +1029,12 @@ export class EventProcessor {
       if (followingUser) {
         try {
           await this.storage.createNotification({
-            uri: `${uri}/notification`,
+            uri: `at://${uri.replace('at://', '')}#notification`,
             recipientDid: followingDid,
             authorDid: followerDid,
             reason: 'follow',
             reasonSubject: undefined,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });

@@ -506,58 +506,28 @@ export class PDSClient {
   }
 
   /**
-   * Forwards a raw XRPC request to a PDS using AppView's own authentication.
-   * This is used for server-to-server communication where the AppView acts on behalf of a user.
+   * Forwards a raw XRPC request to a PDS using the user's authentication token.
+   * This method should be used when the AppView needs to make requests to a PDS
+   * on behalf of a user, using the user's own authentication token.
    */
-  async proxyXRPCWithAppViewAuth(
+  async proxyXRPCWithUserAuth(
     pdsEndpoint: string,
     method: string,
     path: string,
     query: Record<string, any>,
-    userDid: string,
+    userToken: string,
     body: any,
     headers: any,
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
-    // Import AppView JWT service
-    const { appViewJWTService } = await import('./appview-jwt');
-    const { didResolver } = await import('./did-resolver');
-    
-    // Resolve the PDS DID from the user's DID document
-    // In most AT Protocol implementations, the PDS DID is the same as the user's DID
-    // But we should resolve it properly from the DID document to be correct
-    let pdsDid = userDid; // Default fallback
-    
-    try {
-      const didDoc = await didResolver.resolveDID(userDid);
-      if (didDoc && didDoc.id) {
-        // The PDS DID is typically the same as the user's DID in AT Protocol
-        // This is the standard pattern where each user's data is stored on their own PDS
-        pdsDid = didDoc.id;
-      }
-    } catch (error) {
-      console.warn(`[PDS_CLIENT] Could not resolve DID document for ${userDid}, using DID as PDS DID:`, error);
-      // Fallback to using user DID as PDS DID
-      pdsDid = userDid;
-    }
-    
-    // Generate AppView-to-PDS token
-    const appViewToken = appViewJWTService.signPDSToken(pdsDid, userDid);
-    const appViewDid = appViewJWTService.getAppViewDid();
-    
-    // Log token details for debugging
-    console.log(`[PDS_CLIENT] Generated AppView token for PDS ${pdsDid} on behalf of ${userDid}:`, {
-      tokenLength: appViewToken.length,
-      tokenPrefix: appViewToken.substring(0, 50) + '...',
-      appViewDid,
+    // Log request details for debugging
+    console.log(`[PDS_CLIENT] Proxying request to PDS with user authentication:`, {
       pdsEndpoint,
       method,
-      path
+      path,
+      tokenPrefix: userToken.substring(0, 20) + '...'
     });
     
-    // Log the AppView DID being used for debugging
-    console.log(`[PDS_CLIENT] Using AppView DID: ${appViewDid}`);
-    
-    return this.proxyXRPC(pdsEndpoint, method, path, query, appViewToken, body, headers);
+    return this.proxyXRPC(pdsEndpoint, method, path, query, userToken, body, headers);
   }
 
   /**
