@@ -1307,12 +1307,12 @@ export class DatabaseStorage implements IStorage {
     const conditions = [
       sql`(
         -- Original posts from followed users
-        ${posts.authorDid} = ANY(${followingDids})
+        ${inArray(posts.authorDid, followingDids)}
         OR
         -- Reposts by followed users
         EXISTS (
           SELECT 1 FROM ${reposts} 
-          WHERE ${reposts.userDid} = ANY(${followingDids}) 
+          WHERE ${inArray(reposts.userDid, followingDids)} 
           AND ${reposts.postUri} = ${posts.uri}
         )
       )`
