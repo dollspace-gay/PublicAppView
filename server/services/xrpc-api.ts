@@ -575,8 +575,17 @@ export class XRPCApi {
 
         if (parentPost && rootPost) {
           reply = {
-            root: { uri: rootUri, cid: rootPost.cid },
-            parent: { uri: post.parentUri, cid: parentPost.cid },
+            $type: 'app.bsky.feed.defs#replyRef',
+            root: { 
+              $type: 'com.atproto.repo.strongRef',
+              uri: rootUri, 
+              cid: rootPost.cid 
+            },
+            parent: { 
+              $type: 'com.atproto.repo.strongRef',
+              uri: post.parentUri, 
+              cid: parentPost.cid 
+            },
           };
         }
       }
@@ -592,9 +601,11 @@ export class XRPCApi {
       if (reply) record.reply = reply;
 
       return {
+        $type: 'app.bsky.feed.defs#postView',
         uri: post.uri,
         cid: post.cid,
         author: {
+          $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
           handle: author?.handle || post.authorDid,
           displayName: author?.displayName || "",
@@ -606,7 +617,11 @@ export class XRPCApi {
         repostCount: post.repostCount || 0,
         likeCount: post.likeCount || 0,
         indexedAt: post.indexedAt.toISOString(),
-        viewer: viewerDid ? { like: likeUri, repost: repostUri } : {},
+        viewer: viewerDid ? { 
+          $type: 'app.bsky.feed.defs#viewerState',
+          like: likeUri, 
+          repost: repostUri 
+        } : {},
       };
     });
   }
