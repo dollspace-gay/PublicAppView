@@ -7,6 +7,9 @@
 
 import jwt from "jsonwebtoken";
 import fs from "fs";
+import { createSign } from "crypto";
+import { fromString, toString } from 'uint8arrays';
+import KeyEncoder from 'key-encoder';
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required");
@@ -14,6 +17,72 @@ if (!process.env.SESSION_SECRET) {
 
 const JWT_SECRET = process.env.SESSION_SECRET;
 const PRIVATE_KEY_PATH = process.env.APPVIEW_PRIVATE_KEY_PATH || "/app/appview-private.pem";
+
+/**
+ * Sign data using ES256K (secp256k1) algorithm
+ * This is required because jsonwebtoken library doesn't support ES256K
+ */
+const signES256K = (privateKeyPem: string, data: string): string => {
+  try {
+    // The `key-encoder` library is a CJS module that, when bundled,
+    // might be wrapped in a default object. This handles that case
+    // by checking for a `default` property and using it if it exists.
+    const KeyEncoderClass = (KeyEncoder as any).default || KeyEncoder;
+    const keyEncoder = new KeyEncoderClass('secp256k1');
+    
+    // Convert PEM to raw key format
+    const rawKey = keyEncoder.encodePrivate(privateKeyPem, 'pem', 'raw');
+    
+    // Create signer with secp256k1 curve
+    const signer = createSign('sha256');
+    signer.update(data);
+    
+    // Sign with the raw key using IEEE P1363 encoding (required for secp256k1)
+    const signature = signer.sign({
+      key: rawKey,
+      format: 'der',
+      type: 'ec',
+      dsaEncoding: 'ieee-p1363'
+    });
+    
+    // Convert to base64url encoding for JWT
+    return toString(signature, 'base64url');
+  } catch (error) {
+    console.error('[AppViewJWT] ES256K signing failed:', error);
+    throw new Error('ES256K signing failed');
+  }
+};
+
+/**
+ * Create a JWT token with custom ES256K signing
+ * This bypasses the jsonwebtoken library's algorithm validation
+ */
+const createJWTWithES256K = (payload: any, privateKeyPem: string, keyid: string): string => {
+  try {
+    // Create JWT header
+    const header = {
+      alg: 'ES256K',
+      typ: 'JWT',
+      kid: keyid
+    };
+    
+    // Encode header and payload
+    const headerB64 = toString(fromString(JSON.stringify(header)), 'base64url');
+    const payloadB64 = toString(fromString(JSON.stringify(payload)), 'base64url');
+    
+    // Create signing input
+    const signingInput = `${headerB64}.${payloadB64}`;
+    
+    // Sign with ES256K
+    const signature = signES256K(privateKeyPem, signingInput);
+    
+    // Return complete JWT
+    return `${signingInput}.${signature}`;
+  } catch (error) {
+    console.error('[AppViewJWT] Custom JWT creation failed:', error);
+    throw new Error('JWT creation failed');
+  }
+};
 
 export interface AppViewJWTPayload {
   iss: string; // Issuer: AppView DID
@@ -25,12 +94,12 @@ export interface AppViewJWTPayload {
 export class AppViewJWTService {
   private appViewDid: string;
   private privateKeyPem: string | null;
-  private signingAlg: "ES256" | "HS256";
+  private signingAlg: "ES256K" | "HS256";
 
   constructor() {
     this.appViewDid = process.env.APPVIEW_DID || "";
     this.privateKeyPem = null;
-    this.signingAlg = "ES256";
+    this.signingAlg = "ES256K";
     
     if (!this.appViewDid) {
       throw new Error(
@@ -39,14 +108,14 @@ export class AppViewJWTService {
       );
     }
 
-    // Prefer ES256 with a mounted private key PEM when available.
+    // Prefer ES256K with a mounted private key PEM when available.
     try {
       if (fs.existsSync(PRIVATE_KEY_PATH)) {
         const pem = fs.readFileSync(PRIVATE_KEY_PATH, "utf-8").trim();
         if (pem.includes("BEGIN EC PRIVATE KEY") || pem.includes("BEGIN PRIVATE KEY")) {
           this.privateKeyPem = pem;
-          this.signingAlg = "ES256";
-          console.log(`[AppViewJWT] Loaded ES256 private key from ${PRIVATE_KEY_PATH}`);
+          this.signingAlg = "ES256K";
+          console.log(`[AppViewJWT] Loaded ES256K private key from ${PRIVATE_KEY_PATH}`);
         } else {
           console.warn(`[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`);
         }
@@ -54,7 +123,7 @@ export class AppViewJWTService {
         console.warn(`[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`);
       }
     } catch (err) {
-      console.warn(`[AppViewJWT] Failed to initialize ES256 key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
+      console.warn(`[AppViewJWT] Failed to initialize ES256K key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
     }
   }
 
@@ -73,12 +142,9 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Use ES256 with proper key ID for AT Protocol compatibility
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
-      return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
-        keyid: "atproto", // Must match the verification method ID fragment
-      });
+      return createJWTWithES256K(payload, this.privateKeyPem, "atproto");
     }
 
     // Fallback to HS256 only if no private key available
@@ -106,12 +172,9 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Use ES256 with proper key ID for AT Protocol compatibility
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
-      return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
-        keyid: "atproto", // Must match the verification method ID fragment
-      });
+      return createJWTWithES256K(payload, this.privateKeyPem, "atproto");
     }
 
     // Fallback to HS256 only if no private key available
