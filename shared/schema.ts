@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   bannerUrl: text("banner_url"),
   description: text("description"),
   profileRecord: jsonb("profile_record"),
+  pinnedPost: jsonb("pinned_post"), // {uri: string, cid: string} for pinned post
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -47,6 +48,24 @@ export const posts = pgTable("posts", {
   parentIdx: index("idx_posts_parent_uri").on(table.parentUri),
   rootIdx: index("idx_posts_root_uri").on(table.rootUri),
   searchVectorIdx: index("idx_posts_search_vector").using("gin", table.searchVector),
+}));
+
+// Feed items table - tracks different types of content in feeds (posts, reposts, replies)
+export const feedItems = pgTable("feed_items", {
+  uri: varchar("uri", { length: 512 }).primaryKey(), // URI of the feed item (post or repost)
+  postUri: varchar("post_uri", { length: 512 }).notNull(), // URI of the original post
+  originatorDid: varchar("originator_did", { length: 255 }).notNull(), // DID of the user who created this feed item
+  type: varchar("type", { length: 32 }).notNull(), // 'post', 'repost', 'reply'
+  sortAt: timestamp("sort_at").notNull(), // Timestamp for sorting (createdAt for posts, createdAt for reposts)
+  cid: varchar("cid", { length: 255 }).notNull(), // CID of the record
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  originatorIdx: index("idx_feed_items_originator").on(table.originatorDid),
+  postIdx: index("idx_feed_items_post").on(table.postUri),
+  sortAtIdx: index("idx_feed_items_sort_at").on(table.sortAt),
+  typeIdx: index("idx_feed_items_type").on(table.type),
+  originatorSortIdx: index("idx_feed_items_originator_sort").on(table.originatorDid, table.sortAt),
 }));
 
 // Likes table
@@ -474,6 +493,12 @@ export const postsRelations = relations(posts, ({ one, many }) => ({
   author: one(users, { fields: [posts.authorDid], references: [users.did] }),
   likes: many(likes),
   reposts: many(reposts),
+  feedItems: many(feedItems),
+}));
+
+export const feedItemsRelations = relations(feedItems, ({ one }) => ({
+  post: one(posts, { fields: [feedItems.postUri], references: [posts.uri] }),
+  originator: one(users, { fields: [feedItems.originatorDid], references: [users.did] }),
 }));
 
 export const likesRelations = relations(likes, ({ one }) => ({
@@ -576,6 +601,7 @@ export const labelerServicesRelations = relations(labelerServices, ({ one }) => 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true, indexedAt: true });
 export const insertPostSchema = createInsertSchema(posts).omit({ indexedAt: true });
+export const insertFeedItemSchema = createInsertSchema(feedItems).omit({ indexedAt: true });
 export const insertLikeSchema = createInsertSchema(likes).omit({ indexedAt: true });
 export const insertRepostSchema = createInsertSchema(reposts).omit({ indexedAt: true });
 export const insertFollowSchema = createInsertSchema(follows).omit({ indexedAt: true });
@@ -611,6 +637,8 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Post = typeof posts.$inferSelect;
 export type InsertPost = z.infer<typeof insertPostSchema>;
+export type FeedItem = typeof feedItems.$inferSelect;
+export type InsertFeedItem = z.infer<typeof insertFeedItemSchema>;
 export type Like = typeof likes.$inferSelect;
 export type InsertLike = z.infer<typeof insertLikeSchema>;
 export type Repost = typeof reposts.$inferSelect;

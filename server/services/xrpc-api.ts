@@ -10,6 +10,8 @@ import { moderationService } from "./moderation";
 import { searchService } from "./search";
 import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
+import { Hydrator } from "./hydration";
+import { Views } from "./views";
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -22,6 +24,8 @@ const getAuthorFeedSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
+  filter: z.enum(['posts_with_replies', 'posts_no_replies', 'posts_with_media', 'posts_and_author_threads', 'posts_with_video']).default('posts_with_replies'),
+  includePins: z.coerce.boolean().default(false),
 });
 
 const getPostThreadSchema = z.object({
@@ -796,31 +800,98 @@ export class XRPCApi {
       const authorDid = await this._resolveActor(res, params.actor);
       if (!authorDid) return;
 
-      let posts = await storage.getAuthorPosts(
-        authorDid,
-        params.limit,
-        params.cursor,
-      );
-
       const viewerDid = await this.getAuthenticatedDid(req);
+
+      // Get the author's profile to check for pinned posts
+      const author = await storage.getUser(authorDid);
+      if (!author) {
+        return res.status(404).json({ error: 'Profile not found' });
+      }
+
+      // Check for blocking relationships
       if (viewerDid) {
-        const settings = await storage.getUserSettings(viewerDid);
-        if (settings) {
-          posts = contentFilter.filterPosts(posts, settings);
+        const blocks = await storage.getBlocksBetweenUsers(viewerDid, [authorDid]);
+        if (blocks.length > 0) {
+          return res.status(400).json({ 
+            error: `Requester has blocked actor: ${authorDid}`,
+            name: 'BlockedActor'
+          });
+        }
+
+        const blockedBy = await storage.getBlocksBetweenUsers(authorDid, [viewerDid]);
+        if (blockedBy.length > 0) {
+          return res.status(400).json({ 
+            error: `Requester is blocked by actor: ${authorDid}`,
+            name: 'BlockedByActor'
+          });
         }
       }
 
-      const serializedPosts = await this.serializePosts(
-        posts,
-        viewerDid || undefined,
+      // Get feed items using the new feed system
+      const feedResult = await storage.getAuthorFeed(
+        authorDid,
+        params.limit,
+        params.cursor,
+        params.filter
       );
 
+      let items = feedResult.items;
+
+      // Handle pinned posts
+      if (params.includePins && author.pinnedPost && !params.cursor) {
+        const pinnedPost = author.pinnedPost as { uri: string; cid: string };
+        const pinnedItem = {
+          post: {
+            uri: pinnedPost.uri,
+            cid: pinnedPost.cid,
+          },
+          authorPinned: true,
+        };
+
+        // Remove any existing pinned post from the feed and add it to the top
+        items = items.filter((item) => item.post.uri !== pinnedItem.post.uri);
+        items.unshift(pinnedItem);
+      }
+
+      // Hydrate the feed items
+      const hydrator = new Hydrator();
+      const views = new Views();
+      
+      const hydrationState = await hydrator.hydrateFeedItems(items, viewerDid);
+
+      // Filter out blocked/muted content
+      const filteredItems = items.filter((item) => {
+        const bam = views.feedItemBlocksAndMutes(item, hydrationState);
+        return (
+          !bam.authorBlocked &&
+          !bam.originatorBlocked &&
+          (!bam.authorMuted || bam.originatorMuted) // repost of muted content
+        );
+      });
+
+      // Handle posts_and_author_threads filter
+      if (params.filter === 'posts_and_author_threads') {
+        const { SelfThreadTracker } = await import('../types/feed');
+        const selfThread = new SelfThreadTracker(filteredItems, hydrationState);
+        items = filteredItems.filter((item) => {
+          return (
+            item.repost || 
+            item.authorPinned || 
+            selfThread.ok(item.post.uri)
+          );
+        });
+      } else {
+        items = filteredItems;
+      }
+
+      // Convert to feed view posts
+      const feed = items
+        .map((item) => views.feedViewPost(item, hydrationState))
+        .filter(Boolean);
+
       res.json({
-        cursor:
-          posts.length > 0
-            ? posts[posts.length - 1].indexedAt.toISOString()
-            : undefined,
-        feed: serializedPosts.map((post) => ({ post })),
+        cursor: feedResult.cursor,
+        feed,
       });
     } catch (error) {
       this._handleError(res, error, 'getAuthorFeed');
