@@ -928,9 +928,9 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName,
-          description: user.description,
+          ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: user.avatarUrl }),
-          banner: user.bannerUrl,
+          ...(user.bannerUrl && { banner: user.bannerUrl }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
           postsCount: postsCounts.get(did) || 0,
@@ -1136,7 +1136,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName,
-          description: user.description,
+          ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: user.avatarUrl }),
         })),
       });
@@ -1412,7 +1412,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName,
-          description: user.description,
+          ...(user.description && { description: user.description }),
           ...(user.avatarUrl && { avatar: user.avatarUrl }),
         })),
       });
@@ -2544,7 +2544,7 @@ export class XRPCApi {
         const reasonSubject = n.reasonSubject;
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
-          uri: n.uri,
+          // Omitting URI field as current format doesn't validate as proper at-uri
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
