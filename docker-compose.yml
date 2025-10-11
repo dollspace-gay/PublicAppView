@@ -43,6 +43,7 @@ services:
       # Mount the secret keys (read-only)
       - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
       - ./public/did.json:/app/public/did.json:ro,Z
+      - ./oauth-keyset.json:/app/oauth-keyset.json:ro,Z
     build: .
     ports:
       - "5000:5000"
