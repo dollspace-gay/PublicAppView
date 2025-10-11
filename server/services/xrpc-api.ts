@@ -2543,19 +2543,25 @@ export class XRPCApi {
         const author = authorMap.get(n.authorDid);
         const reasonSubject = n.reasonSubject;
         const view: any = {
-          uri: n.uri,
+          $type: 'app.bsky.notification.listNotifications#notification',
+          uri: n.uri.startsWith('at://') ? n.uri : `at://${n.uri}`,
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
           reasonSubject,
           author: author
             ? {
+                $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
                 handle: author.handle,
                 displayName: author.displayName,
-                avatar: author.avatarUrl,
+                ...(author.avatarUrl && { avatar: author.avatarUrl }),
               }
-            : { did: n.authorDid, handle: n.authorDid },
+            : { 
+                $type: 'app.bsky.actor.defs#profileViewBasic',
+                did: n.authorDid, 
+                handle: n.authorDid 
+              },
         };
         return view;
       });
