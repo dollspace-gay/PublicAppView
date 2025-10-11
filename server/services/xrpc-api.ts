@@ -679,6 +679,11 @@ export class XRPCApi {
       const aggregation = aggregations.get(post.uri);
       const viewerState = viewerStates.get(post.uri);
 
+      // Ensure author handle is always present and valid
+      const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
+        ? author.handle 
+        : 'handle.invalid';
+
       let reply = undefined;
       if (post.parentUri) {
         const parentPost = replyPostsByUri.get(post.parentUri);
@@ -756,8 +761,8 @@ export class XRPCApi {
         author: {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
-          handle: author?.handle || 'handle.invalid',
-          displayName: author?.displayName || author?.handle || 'Unknown User',
+          handle: authorHandle,
+          displayName: author?.displayName ?? authorHandle,
           pronouns: author?.pronouns,
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
           associated: {
@@ -1884,8 +1889,8 @@ export class XRPCApi {
             author: {
               $type: 'app.bsky.actor.defs#profileViewBasic',
               did: post.authorDid,
-              handle: author?.handle || 'handle.invalid',
-              displayName: author?.displayName || 'Unknown User',
+              handle: author?.handle ?? 'handle.invalid',
+              displayName: author?.displayName ?? 'Unknown User',
               pronouns: author?.pronouns,
               avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
               associated: {
@@ -2960,8 +2965,8 @@ export class XRPCApi {
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
-                handle: author.handle,
-                displayName: author.displayName || author.handle, // Fallback to handle
+                handle: author.handle ?? 'handle.invalid',
+                displayName: author.displayName ?? author.handle ?? 'Unknown User',
                 pronouns: author.pronouns,
                 avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
                 associated: {
