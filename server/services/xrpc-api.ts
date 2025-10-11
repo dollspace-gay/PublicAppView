@@ -520,11 +520,14 @@ export class XRPCApi {
       return actor;
     }
     // TODO: Add caching for handle resolution
+    console.log(`[RESOLVE_ACTOR] Looking up handle: ${actor}`);
     const user = await storage.getUserByHandle(actor.toLowerCase());
     if (!user) {
+      console.log(`[RESOLVE_ACTOR] User not found in database: ${actor}`);
       res.status(404).json({ error: 'NotFound', message: 'Actor not found' });
       return null;
     }
+    console.log(`[RESOLVE_ACTOR] Found user: ${actor} -> ${user.did}`);
     return user.did;
   }
 
