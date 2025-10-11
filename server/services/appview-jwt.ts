@@ -25,29 +25,28 @@ export interface AppViewJWTPayload {
 export class AppViewJWTService {
   private appViewDid: string;
   private privateKeyPem: string | null;
-  private signingAlg: "ES256" | "HS256";
+  private signingAlg: "ES256K" | "HS256";
 
   constructor() {
-    this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+    this.appViewDid = process.env.APPVIEW_DID || "";
     this.privateKeyPem = null;
-    this.signingAlg = "HS256";
+    this.signingAlg = "ES256K";
     
-    if (!process.env.APPVIEW_DID) {
-      console.warn(
-        "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.local'. " +
-        "Set APPVIEW_DID environment variable for production use. " +
-        "Note: The default DID may not be resolvable by PDS instances, which could cause authentication failures."
+    if (!this.appViewDid) {
+      throw new Error(
+        "[AppViewJWT] APPVIEW_DID environment variable is required. " +
+        "Set APPVIEW_DID to your AppView's DID (e.g., did:web:appview.yourdomain.com)."
       );
     }
 
-    // Prefer ES256 with a mounted private key PEM when available.
+    // Prefer ES256K with a mounted private key PEM when available.
     try {
       if (fs.existsSync(PRIVATE_KEY_PATH)) {
         const pem = fs.readFileSync(PRIVATE_KEY_PATH, "utf-8").trim();
         if (pem.includes("BEGIN EC PRIVATE KEY") || pem.includes("BEGIN PRIVATE KEY")) {
           this.privateKeyPem = pem;
-          this.signingAlg = "ES256";
-          console.log(`[AppViewJWT] Loaded ES256 private key from ${PRIVATE_KEY_PATH}`);
+          this.signingAlg = "ES256K";
+          console.log(`[AppViewJWT] Loaded ES256K private key from ${PRIVATE_KEY_PATH}`);
         } else {
           console.warn(`[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`);
         }
@@ -55,7 +54,7 @@ export class AppViewJWTService {
         console.warn(`[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`);
       }
     } catch (err) {
-      console.warn(`[AppViewJWT] Failed to initialize ES256 key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
+      console.warn(`[AppViewJWT] Failed to initialize ES256K key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
     }
   }
 
@@ -74,17 +73,19 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
-        keyid: "atproto", // Add key ID for consistency
+        algorithm: "ES256K",
+        keyid: "atproto", // Must match the verification method ID fragment
       });
     }
 
+    // Fallback to HS256 only if no private key available
+    console.warn("[AppViewJWT] No private key available, using HS256 fallback. This may cause PDS authentication failures.");
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      keyid: "atproto", // Add key ID for consistency
+      keyid: "atproto",
     });
   }
 
@@ -105,17 +106,19 @@ export class AppViewJWTService {
       iat: now,
     };
 
-    // Prefer ES256 if we have a private key; otherwise, HS256 with SESSION_SECRET.
+    // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
-        algorithm: "ES256",
-        keyid: "atproto", // Add key ID for PDS compatibility
+        algorithm: "ES256K",
+        keyid: "atproto", // Must match the verification method ID fragment
       });
     }
 
+    // Fallback to HS256 only if no private key available
+    console.warn("[AppViewJWT] No private key available, using HS256 fallback. This may cause PDS authentication failures.");
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
-      keyid: "atproto", // Add key ID for PDS compatibility
+      keyid: "atproto",
     });
   }
 

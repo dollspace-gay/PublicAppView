@@ -171,7 +171,10 @@ class InstanceModerationService {
    */
   async getStatistics() {
     try {
-      const appviewDid = process.env.APPVIEW_DID || "did:web:appview.local";
+      const appviewDid = process.env.APPVIEW_DID;
+      if (!appviewDid) {
+        throw new Error("APPVIEW_DID not configured");
+      }
       const labels = await labelService.queryLabels({ sources: [appviewDid], limit: 10000 });
       
       // Count labels by type

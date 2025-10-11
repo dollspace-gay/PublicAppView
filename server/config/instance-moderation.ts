@@ -142,7 +142,7 @@ export const QUALITY_LABELS: InstanceLabel[] = [
  */
 export const INSTANCE_CONFIG = {
   // Your App View's DID (used as label source)
-  labelerDid: process.env.APPVIEW_DID || 'did:web:appview.local',
+  labelerDid: process.env.APPVIEW_DID || '',
   
   // Legal jurisdiction (affects which laws apply)
   jurisdiction: process.env.INSTANCE_JURISDICTION || 'US',
