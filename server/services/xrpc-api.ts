@@ -2583,10 +2583,8 @@ export class XRPCApi {
           }
         }
 
-        // Use a placeholder CID since we don't store the actual record CID
-        // Generate a deterministic multibase-encoded CID
-        const hash = require('crypto').createHash('sha256').update(`${n.uri}-${n.indexedAt.getTime()}`).digest();
-        const notificationCid = `bafkrei${hash.toString('base64url').slice(0, 44)}`;
+        // Use the actual CID from the database if available, otherwise generate a placeholder
+        const notificationCid = n.cid || `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
 
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',

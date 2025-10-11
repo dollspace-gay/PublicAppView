@@ -709,7 +709,7 @@ export class EventProcessor {
               await this.processLike(repo, op);
               break;
             case "app.bsky.feed.repost":
-              await this.processRepost(uri, repo, record);
+              await this.processRepost(uri, repo, record, cid);
               break;
             case "app.bsky.actor.profile":
               await this.processProfile(repo, record);
@@ -858,7 +858,7 @@ export class EventProcessor {
   }
 
   private async processLike(repo: string, op: any) {
-    const { path, record } = op;
+    const { path, record, cid } = op;
     const uri = `at://${repo}/${path}`;
     const userDid = repo;
 
@@ -896,6 +896,7 @@ export class EventProcessor {
             authorDid: userDid,
             reason: 'like',
             reasonSubject: postUri,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
@@ -997,7 +998,7 @@ export class EventProcessor {
   }
 
   private async processFollow(repo: string, op: any) {
-    const { path, record } = op;
+    const { path, record, cid } = op;
     const uri = `at://${repo}/${path}`;
     const followerDid = repo;
 
@@ -1036,6 +1037,7 @@ export class EventProcessor {
             authorDid: followerDid,
             reason: 'follow',
             reasonSubject: undefined,
+            cid: cid,
             isRead: false,
             createdAt: new Date(record.createdAt),
           });
