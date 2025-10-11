@@ -77,11 +77,13 @@ export class AppViewJWTService {
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256",
+        keyid: "atproto", // Add key ID for consistency
       });
     }
 
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
+      keyid: "atproto", // Add key ID for consistency
     });
   }
 
@@ -106,11 +108,13 @@ export class AppViewJWTService {
     if (this.privateKeyPem) {
       return jwt.sign(payload, this.privateKeyPem, {
         algorithm: "ES256",
+        keyid: "atproto", // Add key ID for PDS compatibility
       });
     }
 
     return jwt.sign(payload, JWT_SECRET, {
       algorithm: "HS256",
+      keyid: "atproto", // Add key ID for PDS compatibility
     });
   }
 

@@ -963,6 +963,14 @@ export class XRPCApi {
         req.headers
       );
 
+      // Log PDS response for debugging
+      console.log(`[PREFERENCES] PDS response for ${userDid}:`, {
+        status: pdsResponse.status,
+        hasPreferences: !!pdsResponse.body?.preferences,
+        error: pdsResponse.body?.error,
+        message: pdsResponse.body?.message
+      });
+
       if (pdsResponse.status === 200 && pdsResponse.body?.preferences) {
         // Store in cache for future requests
         this.preferencesCache.set(userDid, {
@@ -970,6 +978,8 @@ export class XRPCApi {
           timestamp: Date.now()
         });
         console.log(`[PREFERENCES] Cached preferences for ${userDid}`);
+      } else if (pdsResponse.status !== 200) {
+        console.error(`[PREFERENCES] PDS error for ${userDid}:`, pdsResponse.body);
       }
 
       return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
