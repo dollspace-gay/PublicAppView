@@ -531,6 +531,11 @@ export class XRPCApi {
     return user.did;
   }
 
+  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
+    if (!blobCid) return '';
+    return `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+  }
+
   private async serializePosts(posts: any[], viewerDid?: string) {
     if (posts.length === 0) {
       return [];
@@ -610,7 +615,7 @@ export class XRPCApi {
                 ...img.image,
                 ref: {
                   ...img.image.ref,
-                  link: `https://cdn.bsky.app/img/feed_fullsize/plain/${post.authorDid}/${img.image.ref.$link}@jpeg`
+                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize')
                 }
               }
             }));
@@ -622,7 +627,7 @@ export class XRPCApi {
                 ...post.embed.external.thumb,
                 ref: {
                   ...post.embed.external.thumb.ref,
-                  link: `https://cdn.bsky.app/img/feed_thumbnail/plain/${post.authorDid}/${post.embed.external.thumb.ref.$link}@jpeg`
+                  link: this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail')
                 }
               }
             };
@@ -958,8 +963,8 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: user.avatarUrl }),
-          ...(user.bannerUrl && { banner: user.bannerUrl }),
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
+          ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
           postsCount: postsCounts.get(did) || 0,
@@ -1085,7 +1090,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: user.avatarUrl }),
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1139,7 +1144,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: user.avatarUrl }),
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1166,7 +1171,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: user.avatarUrl }),
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1200,7 +1205,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: user.avatarUrl }),
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1240,7 +1245,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: user.avatarUrl }),
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer: {
                 muted: true,
               },
@@ -1416,7 +1421,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName,
-          ...(user.avatarUrl && { avatar: user.avatarUrl }),
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1442,7 +1447,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName,
           ...(user.description && { description: user.description }),
-          ...(user.avatarUrl && { avatar: user.avatarUrl }),
+          ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
         })),
       });
     } catch (error) {
@@ -1628,7 +1633,7 @@ export class XRPCApi {
           `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
       const view: any = {
         uri: generator.uri,
@@ -1640,7 +1645,7 @@ export class XRPCApi {
         indexedAt: generator.indexedAt.toISOString(),
       };
       if (generator.description) view.description = generator.description;
-      if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+      if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
       res.json({
         view,
@@ -1670,7 +1675,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1682,7 +1687,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1719,7 +1724,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1731,7 +1736,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1764,7 +1769,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: generator.uri,
@@ -1776,7 +1781,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = generator.avatarUrl;
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
 
           return view;
         }),
@@ -1832,7 +1837,7 @@ export class XRPCApi {
           creator?.handle || `${pack.creatorDid.replace(/:/g, '-')}.invalid`,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
       const record: any = {
         name: pack.name,
@@ -1885,7 +1890,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const record: any = {
             name: pack.name,
@@ -1949,7 +1954,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = creator.avatarUrl;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
 
           const view: any = {
             uri: service.uri,
@@ -2767,7 +2772,7 @@ export class XRPCApi {
                 did: user.did,
                 handle: user.handle,
                 displayName: user.displayName,
-                ...(user.avatarUrl && { avatar: user.avatarUrl }),
+                ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -2824,7 +2829,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName,
-              ...(user.avatarUrl && { avatar: user.avatarUrl }),
+              ...(user.avatarUrl && { avatar: this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') }),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };
