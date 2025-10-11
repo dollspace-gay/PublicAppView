@@ -42,6 +42,7 @@ services:
     volumes:
       # Mount the secret keys (read-only)
       - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
+      - ./appview-private.pem:/app/appview-private.pem:ro,Z
       - ./public/did.json:/app/public/did.json:ro,Z
       - ./oauth-keyset.json:/app/oauth-keyset.json:ro,Z
     build: .
