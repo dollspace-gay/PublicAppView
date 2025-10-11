@@ -2554,9 +2554,13 @@ export class XRPCApi {
           }
         }
 
+        // Generate a deterministic CID for the notification
+        const notificationCid = `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64').slice(0, 44)}`;
+
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
           uri: notificationUri,
+          cid: notificationCid,
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
