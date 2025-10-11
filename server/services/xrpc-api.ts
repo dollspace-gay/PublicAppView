@@ -1422,9 +1422,7 @@ export class XRPCApi {
         params.cursor,
       );
 
-      // Resolve actor to get handle
-      const actorDid = await this._resolveActor(res, params.actor);
-      if (!actorDid) return;
+      // Get the actor's handle for the subject
       const actor = await storage.getUser(actorDid);
       res.json({
         subject: {

@@ -659,12 +659,6 @@ export class EventProcessor {
         case "app.bsky.graph.listitem":
           await this.processListItem(uri, cid, authorDid, record);
           break;
-        case "app.bsky.graph.list":
-          await this.processList(uri, cid, authorDid, record);
-          break;
-        case "app.bsky.graph.listitem":
-          await this.processListItem(uri, cid, authorDid, record);
-          break;
         case "app.bsky.feed.generator":
           await this.processFeedGenerator(uri, cid, authorDid, record);
           break;
