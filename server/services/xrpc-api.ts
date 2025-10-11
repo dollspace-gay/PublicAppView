@@ -365,6 +365,64 @@ const suggestedUsersUnspeccedSchema = z.object({
 const unspeccedNoParamsSchema = z.object({});
 
 export class XRPCApi {
+  // Preferences cache: DID -> { preferences: any[], timestamp: number }
+  private preferencesCache = new Map<string, { preferences: any[]; timestamp: number }>();
+  private readonly PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+  constructor() {
+    // Clear expired cache entries every minute
+    setInterval(() => this.cleanExpiredPreferencesCache(), 60 * 1000);
+  }
+
+  /**
+   * Check if preferences cache entry is expired
+   */
+  private isPreferencesCacheExpired(cached: { preferences: any[]; timestamp: number }): boolean {
+    return Date.now() - cached.timestamp > this.PREFERENCES_CACHE_TTL;
+  }
+
+  /**
+   * Clean expired entries from preferences cache
+   */
+  private cleanExpiredPreferencesCache(): void {
+    const now = Date.now();
+    const expiredDids: string[] = [];
+    
+    this.preferencesCache.forEach((cached, did) => {
+      if (now - cached.timestamp > this.PREFERENCES_CACHE_TTL) {
+        expiredDids.push(did);
+      }
+    });
+    
+    expiredDids.forEach(did => {
+      this.preferencesCache.delete(did);
+    });
+  }
+
+  /**
+   * Get user session for PDS communication by DID
+   */
+  private async getUserSessionForDid(userDid: string): Promise<any> {
+    // Get all sessions for the user
+    const sessions = await storage.getUserSessions(userDid);
+    for (const session of sessions) {
+      // Validate and refresh session if needed
+      const validatedSession = await validateAndRefreshSession(session.id);
+      if (validatedSession) {
+        return validatedSession;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Invalidate preferences cache for a specific user
+   */
+  public invalidatePreferencesCache(userDid: string): void {
+    this.preferencesCache.delete(userDid);
+    console.log(`[PREFERENCES] Cache invalidated for ${userDid}`);
+  }
+
   /**
    * Extract authenticated user DID from request
    * Returns null if no valid authentication token is present
@@ -868,11 +926,47 @@ export class XRPCApi {
 
   async getPreferences(req: Request, res: Response) {
     try {
-      // AppViews are read-only and don't store user-specific preferences.
-      // Return a default empty list to satisfy client expectations.
-      res.json({
-        preferences: [],
-      });
+      // Get authenticated user DID
+      const userDid = await this.requireAuthDid(req, res);
+      if (!userDid) return;
+
+      // Check cache first
+      const cached = this.preferencesCache.get(userDid);
+      if (cached && !this.isPreferencesCacheExpired(cached)) {
+        console.log(`[PREFERENCES] Cache hit for ${userDid}`);
+        return res.json({ preferences: cached.preferences });
+      }
+
+      // Cache miss - fetch from PDS
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
+      
+      // Get user session for PDS communication
+      const session = await this.getUserSessionForDid(userDid);
+      if (!session) {
+        return res.status(401).json({ error: 'SessionNotFound', message: 'User session not found' });
+      }
+
+      // Proxy request to PDS
+      const pdsResponse = await pdsClient.proxyXRPC(
+        session.pdsEndpoint,
+        'GET',
+        '/xrpc/app.bsky.actor.getPreferences',
+        {},
+        session.accessToken,
+        null,
+        req.headers
+      );
+
+      if (pdsResponse.status === 200 && pdsResponse.body?.preferences) {
+        // Store in cache for future requests
+        this.preferencesCache.set(userDid, {
+          preferences: pdsResponse.body.preferences,
+          timestamp: Date.now()
+        });
+        console.log(`[PREFERENCES] Cached preferences for ${userDid}`);
+      }
+
+      return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
@@ -899,6 +993,12 @@ export class XRPCApi {
         body,
         req.headers,
       );
+      
+      // Invalidate cache after successful update
+      if (proxied.status === 200) {
+        this.invalidatePreferencesCache(session.userDid);
+      }
+      
       return res.status(proxied.status).set(proxied.headers).send(proxied.body);
     } catch (error) {
       this._handleError(res, error, 'putPreferences');
