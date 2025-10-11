@@ -28,14 +28,14 @@ export class AppViewJWTService {
   private signingAlg: "ES256K" | "HS256";
 
   constructor() {
-    this.appViewDid = process.env.APPVIEW_DID || "did:web:appview.dollspace.gay";
+    this.appViewDid = process.env.APPVIEW_DID || "";
     this.privateKeyPem = null;
     this.signingAlg = "ES256K";
     
-    if (!process.env.APPVIEW_DID) {
-      console.warn(
-        "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.dollspace.gay'. " +
-        "Set APPVIEW_DID environment variable for production use."
+    if (!this.appViewDid) {
+      throw new Error(
+        "[AppViewJWT] APPVIEW_DID environment variable is required. " +
+        "Set APPVIEW_DID to your AppView's DID (e.g., did:web:appview.yourdomain.com)."
       );
     }
 
