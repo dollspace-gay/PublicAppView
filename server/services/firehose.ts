@@ -48,7 +48,7 @@ export class FirehoseClient {
   private activeProcessing = 0;
   private readonly MAX_CONCURRENT_PROCESSING = parseInt(process.env.MAX_CONCURRENT_OPS || '80');
 
-  constructor(url: string = process.env.RELAY_URL || "wss://bsky.network") {
+  constructor(url: string = process.env.RELAY_URL || "wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos") {
     this.url = url;
   }
   

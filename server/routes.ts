@@ -2410,7 +2410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const firehoseStatus = redisStatus || {
       connected: false,
       isConnected: false,
-      url: process.env.RELAY_URL || "wss://bsky.network",
+      url: process.env.RELAY_URL || "wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos",
       currentCursor: null,
       queueDepth: 0,
       activeProcessing: 0,
@@ -2900,6 +2900,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Invalid request" });
+    }
+  });
+
+  // Temporary debugging endpoints
+  app.get("/api/debug/user/:did", async (req, res) => {
+    try {
+      const userDid = req.params.did;
+      
+      // Get user settings
+      const settings = await storage.getUserSettings(userDid);
+      
+      // Get follows
+      const follows = await storage.getFollows(userDid);
+      
+      // Get user info
+      const user = await storage.getUser(userDid);
+      
+      res.json({
+        userDid,
+        user: user ? {
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName,
+          createdAt: user.createdAt
+        } : null,
+        settings: settings ? {
+          dataCollectionForbidden: settings.dataCollectionForbidden,
+          blockedKeywords: settings.blockedKeywords?.length || 0,
+          mutedUsers: settings.mutedUsers?.length || 0,
+          lastBackfillAt: settings.lastBackfillAt
+        } : null,
+        follows: {
+          count: follows.length,
+          list: follows.map(f => ({
+            uri: f.uri,
+            followingDid: f.followingDid,
+            createdAt: f.createdAt
+          }))
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/debug/timeline/:did", async (req, res) => {
+    try {
+      const userDid = req.params.did;
+      
+      // Get follows
+      const followList = await storage.getFollows(userDid);
+      const followingDids = followList.map(f => f.followingDid);
+      
+      // Get timeline posts
+      const posts = await storage.getTimeline(userDid, 10);
+      
+      res.json({
+        userDid,
+        follows: {
+          count: followingDids.length,
+          followingDids: followingDids.slice(0, 5) // First 5 for debugging
+        },
+        timeline: {
+          count: posts.length,
+          posts: posts.slice(0, 3).map(p => ({
+            uri: p.uri,
+            authorDid: p.authorDid,
+            text: p.text?.substring(0, 100) + '...',
+            indexedAt: p.indexedAt
+          }))
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
   });
 
