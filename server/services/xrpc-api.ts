@@ -946,21 +946,46 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - return empty preferences for now
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, returning empty preferences`);
+      // Cache miss - fetch from PDS
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
       
-      // For now, return empty preferences array
-      // In a full implementation, this would be stored in the AppView's database
-      const emptyPreferences = [];
-      
-      // Store in cache for future requests
-      this.preferencesCache.set(userDid, {
-        preferences: emptyPreferences,
-        timestamp: Date.now()
+      // Get user session for PDS communication
+      const session = await this.getUserSessionForDid(userDid);
+      if (!session) {
+        return res.status(401).json({ error: 'SessionNotFound', message: 'User session not found' });
+      }
+
+      // Proxy request to PDS using user's authentication token
+      const pdsResponse = await pdsClient.proxyXRPCWithUserAuth(
+        session.pdsEndpoint,
+        'GET',
+        '/xrpc/app.bsky.actor.getPreferences',
+        {},
+        session.accessToken, // Use user's access token
+        null,
+        req.headers
+      );
+
+      // Log PDS response for debugging
+      console.log(`[PREFERENCES] PDS response for ${userDid}:`, {
+        status: pdsResponse.status,
+        hasPreferences: !!pdsResponse.body?.preferences,
+        error: pdsResponse.body?.error,
+        message: pdsResponse.body?.message
       });
-      
-      console.log(`[PREFERENCES] Cached empty preferences for ${userDid}`);
-      return res.json({ preferences: emptyPreferences });
+
+      if (pdsResponse.status === 200 && pdsResponse.body?.preferences) {
+        // Store in cache for future requests
+        this.preferencesCache.set(userDid, {
+          preferences: pdsResponse.body.preferences,
+          timestamp: Date.now()
+        });
+        console.log(`[PREFERENCES] Cached preferences for ${userDid}`);
+      } else if (pdsResponse.status !== 200) {
+        console.error(`[PREFERENCES] PDS error for ${userDid}:`, pdsResponse.body);
+      }
+
+      return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
@@ -975,15 +1000,39 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // For now, just invalidate the cache and return success
-      // In a full implementation, this would store preferences in the AppView's database
-      console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
+      // Get user session for PDS communication
+      const session = await this.getUserSessionForDid(userDid);
+      if (!session) {
+        return res.status(401).json({ error: 'SessionNotFound', message: 'User session not found' });
+      }
+
+      // Proxy request to PDS using user's authentication token
+      const pdsResponse = await pdsClient.proxyXRPCWithUserAuth(
+        session.pdsEndpoint,
+        'POST',
+        '/xrpc/app.bsky.actor.putPreferences',
+        {},
+        session.accessToken, // Use user's access token
+        body,
+        req.headers
+      );
+
+      // Log PDS response for debugging
+      console.log(`[PREFERENCES] PDS response for ${userDid}:`, {
+        status: pdsResponse.status,
+        error: pdsResponse.body?.error,
+        message: pdsResponse.body?.message
+      });
+
+      // Invalidate cache after successful update
+      if (pdsResponse.status === 200) {
+        this.invalidatePreferencesCache(userDid);
+        console.log(`[PREFERENCES] Successfully updated preferences for ${userDid}`);
+      } else {
+        console.error(`[PREFERENCES] PDS error for ${userDid}:`, pdsResponse.body);
+      }
       
-      // Invalidate cache after update
-      this.invalidatePreferencesCache(userDid);
-      
-      // Return success response
-      return res.json({ success: true });
+      return res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
     } catch (error) {
       this._handleError(res, error, 'putPreferences');
     }
