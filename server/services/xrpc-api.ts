@@ -533,7 +533,9 @@ export class XRPCApi {
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
     if (!blobCid) return '';
-    return `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    const cdnUrl = `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
+    return cdnUrl;
   }
 
   private async serializePosts(posts: any[], viewerDid?: string) {
@@ -2573,9 +2575,10 @@ export class XRPCApi {
       const authors = await storage.getUsers(authorDids);
       const authorMap = new Map(authors.map((a) => [a.did, a]));
 
-      const items = notificationsList.map((n) => {
+      const items = await Promise.all(notificationsList.map(async (n) => {
         const author = authorMap.get(n.authorDid);
         const reasonSubject = n.reasonSubject;
+        
         // Create proper AT URI based on notification reason
         let notificationUri = n.reasonSubject;
         if (!notificationUri) {
@@ -2591,6 +2594,25 @@ export class XRPCApi {
         // Use the actual CID from the database if available, otherwise generate a placeholder
         const notificationCid = n.cid || `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
 
+        // Fetch the actual record that caused the notification
+        let record = null;
+        if (n.reasonSubject) {
+          try {
+            const post = await storage.getPost(n.reasonSubject);
+            if (post) {
+              record = {
+                $type: 'app.bsky.feed.post',
+                text: post.text,
+                createdAt: post.createdAt.toISOString(),
+              };
+              if (post.embed) record.embed = post.embed;
+              if (post.facets) record.facets = post.facets;
+            }
+          } catch (error) {
+            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${n.reasonSubject}:`, error);
+          }
+        }
+
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
           uri: notificationUri,
@@ -2599,6 +2621,7 @@ export class XRPCApi {
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
           reasonSubject,
+          ...(record && { record }),
           author: author
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
@@ -2615,7 +2638,7 @@ export class XRPCApi {
               },
         };
         return view;
-      });
+      }));
 
       const cursor = notificationsList.length
         ? notificationsList[notificationsList.length - 1].indexedAt.toISOString()
