@@ -35,7 +35,8 @@ export class AppViewJWTService {
     if (!process.env.APPVIEW_DID) {
       console.warn(
         "[AppViewJWT] APPVIEW_DID not set, using default 'did:web:appview.local'. " +
-        "Set APPVIEW_DID environment variable for production use."
+        "Set APPVIEW_DID environment variable for production use. " +
+        "Note: The default DID may not be resolvable by PDS instances, which could cause authentication failures."
       );
     }
 

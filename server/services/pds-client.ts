@@ -542,15 +542,22 @@ export class PDSClient {
     
     // Generate AppView-to-PDS token
     const appViewToken = appViewJWTService.signPDSToken(pdsDid, userDid);
+    const appViewDid = appViewJWTService.getAppViewDid();
     
     // Log token details for debugging
     console.log(`[PDS_CLIENT] Generated AppView token for PDS ${pdsDid} on behalf of ${userDid}:`, {
       tokenLength: appViewToken.length,
       tokenPrefix: appViewToken.substring(0, 50) + '...',
+      appViewDid,
       pdsEndpoint,
       method,
       path
     });
+    
+    // Warn if using default DID that may not be resolvable
+    if (appViewDid === 'did:web:appview.local') {
+      console.warn(`[PDS_CLIENT] Using default AppView DID '${appViewDid}' which may not be resolvable by PDS. Consider setting APPVIEW_DID environment variable.`);
+    }
     
     return this.proxyXRPC(pdsEndpoint, method, path, query, appViewToken, body, headers);
   }
