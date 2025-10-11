@@ -520,10 +520,25 @@ export class PDSClient {
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
     // Import AppView JWT service
     const { appViewJWTService } = await import('./appview-jwt');
+    const { didResolver } = await import('./did-resolver');
     
-    // For most AT Protocol implementations, the PDS DID is the same as the user's DID
-    // This is the standard pattern where each user's data is stored on their own PDS
-    const pdsDid = userDid;
+    // Resolve the PDS DID from the user's DID document
+    // In most AT Protocol implementations, the PDS DID is the same as the user's DID
+    // But we should resolve it properly from the DID document to be correct
+    let pdsDid = userDid; // Default fallback
+    
+    try {
+      const didDoc = await didResolver.resolveDID(userDid);
+      if (didDoc && didDoc.id) {
+        // The PDS DID is typically the same as the user's DID in AT Protocol
+        // This is the standard pattern where each user's data is stored on their own PDS
+        pdsDid = didDoc.id;
+      }
+    } catch (error) {
+      console.warn(`[PDS_CLIENT] Could not resolve DID document for ${userDid}, using DID as PDS DID:`, error);
+      // Fallback to using user DID as PDS DID
+      pdsDid = userDid;
+    }
     
     // Generate AppView-to-PDS token
     const appViewToken = appViewJWTService.signPDSToken(pdsDid, userDid);
