@@ -151,7 +151,7 @@ export class OAuthService {
       if (!keysetPath) {
         throw new Error(
           'OAUTH_KEYSET_PATH environment variable is required. ' +
-          'Generate keys using scripts/setup-oauth-keys.sh and mount oauth-keyset.json'
+          'Generate keys using oauth-keyset-json.sh and mount oauth-keyset.json'
         );
       }
       
