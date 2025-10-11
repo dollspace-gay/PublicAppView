@@ -2544,7 +2544,8 @@ export class XRPCApi {
         const reasonSubject = n.reasonSubject;
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
-          uri: n.uri.startsWith('at://') ? n.uri : `at://${n.uri}`,
+          // For notifications, we'll omit the URI field as it's not strictly required
+          // and the current format isn't valid AT Protocol
           isRead: n.isRead,
           indexedAt: n.indexedAt.toISOString(),
           reason: n.reason,
