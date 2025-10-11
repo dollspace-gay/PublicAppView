@@ -1040,28 +1040,44 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - fetch from database (following Bluesky's pattern)
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from database`);
+      // Cache miss - fetch from user's PDS
+      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
       
-      // Check if user has full access (simplified - in real implementation, check OAuth scope)
-      const hasAccessFull = true; // For now, assume full access
-      
-      // Get preferences from database, filtering to app.bsky namespace only
-      const preferences = await storage.getUserPreferences(userDid);
-      const filteredPreferences = preferences ? preferences.filter(pref => 
-        pref.$type && 
-        pref.$type.startsWith('app.bsky.') &&
-        prefAllowed(pref.$type, hasAccessFull)
-      ) : [];
-      
-      // Store in cache for future requests
-      this.preferencesCache.set(userDid, {
-        preferences: filteredPreferences,
-        timestamp: Date.now()
-      });
-      
-      console.log(`[PREFERENCES] Retrieved ${filteredPreferences.length} preferences for ${userDid}`);
-      return res.json({ preferences: filteredPreferences });
+      try {
+        // Get user's PDS endpoint from DID document
+        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
+        if (!pdsEndpoint) {
+          console.log(`[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`);
+          return res.json({ preferences: [] });
+        }
+
+        // Forward request to user's PDS
+        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`, {
+          headers: {
+            'Authorization': req.headers.authorization || '',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (pdsResponse.ok) {
+          const pdsData = await pdsResponse.json();
+          
+          // Cache the response
+          this.preferencesCache.set(userDid, {
+            preferences: pdsData.preferences || [],
+            timestamp: Date.now()
+          });
+          
+          console.log(`[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`);
+          return res.json({ preferences: pdsData.preferences || [] });
+        } else {
+          console.warn(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status);
+          return res.json({ preferences: [] });
+        }
+      } catch (pdsError) {
+        console.error(`[PREFERENCES] Error fetching from PDS for ${userDid}:`, pdsError);
+        return res.json({ preferences: [] });
+      }
     } catch (error) {
       this._handleError(res, error, 'getPreferences');
     }
@@ -1076,24 +1092,13 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // Check if user has full access (simplified - in real implementation, check OAuth scope)
-      const hasAccessFull = true; // For now, assume full access
-      
       // Validate preferences like Bluesky does
       const checkedPreferences: Array<{ $type: string; [key: string]: any }> = [];
       for (const pref of body.preferences) {
         if (typeof pref.$type === 'string' && pref.$type.length > 0) {
           // Only allow app.bsky namespace preferences (like Bluesky)
           if (pref.$type.startsWith('app.bsky.')) {
-            // Check if user has permission to set this preference type
-            if (prefAllowed(pref.$type, hasAccessFull)) {
-              checkedPreferences.push(pref);
-            } else {
-              return res.status(400).json({ 
-                error: 'InvalidRequest', 
-                message: `Do not have authorization to set preferences: ${pref.$type}` 
-              });
-            }
+            checkedPreferences.push(pref);
           } else {
             return res.status(400).json({ 
               error: 'InvalidRequest', 
@@ -1108,16 +1113,49 @@ export class XRPCApi {
         }
       }
 
-      // Store preferences in database (following Bluesky's pattern)
-      await storage.putUserPreferences(userDid, checkedPreferences);
-      
-      // Invalidate cache after update
-      this.invalidatePreferencesCache(userDid);
-      
-      console.log(`[PREFERENCES] Updated ${checkedPreferences.length} preferences for ${userDid}`);
-      
-      // Return success response (no body, like Bluesky)
-      return res.status(200).end();
+      try {
+        // Get user's PDS endpoint from DID document
+        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
+        if (!pdsEndpoint) {
+          return res.status(400).json({ 
+            error: 'InvalidRequest', 
+            message: 'No PDS endpoint found for user' 
+          });
+        }
+
+        // Forward request to user's PDS
+        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`, {
+          method: 'POST',
+          headers: {
+            'Authorization': req.headers.authorization || '',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ preferences: checkedPreferences })
+        });
+
+        if (pdsResponse.ok) {
+          // Invalidate cache after successful update
+          this.invalidatePreferencesCache(userDid);
+          
+          console.log(`[PREFERENCES] Updated ${checkedPreferences.length} preferences via PDS for ${userDid}`);
+          
+          // Return success response (no body, like Bluesky)
+          return res.status(200).end();
+        } else {
+          const errorText = await pdsResponse.text();
+          console.error(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status, errorText);
+          return res.status(pdsResponse.status).json({ 
+            error: 'InvalidRequest', 
+            message: 'Failed to update preferences on PDS' 
+          });
+        }
+      } catch (pdsError) {
+        console.error(`[PREFERENCES] Error updating preferences via PDS for ${userDid}:`, pdsError);
+        return res.status(500).json({ 
+          error: 'InternalServerError', 
+          message: 'Failed to update preferences' 
+        });
+      }
     } catch (error) {
       this._handleError(res, error, 'putPreferences');
     }
