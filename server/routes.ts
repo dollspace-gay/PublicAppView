@@ -293,13 +293,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // CSRF token endpoint - Frontend can request token
   app.get("/api/csrf-token", (req, res) => {
-    const token = csrfProtection.getTokenValue(req);
+    // Force token generation to ensure we have a fresh token with proper signature
+    let token = req.cookies?.csrf_token;
+    
     if (!token) {
-      console.warn('[CSRF] No token available for /api/csrf-token request', {
-        cookies: Object.keys(req.cookies || {}),
-        hasSession: !!req.session
+      // Generate new token and signature
+      token = csrfProtection.generateToken();
+      const signature = csrfProtection.signToken(token);
+      
+      // Set the cookies to ensure they're properly synchronized
+      res.cookie('csrf_token', token, {
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+        path: '/'
       });
-      return res.status(500).json({ error: "Failed to generate CSRF token" });
+      
+      res.cookie('csrf_signature', signature, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+        path: '/'
+      });
+      
+      console.log('[CSRF] Generated new token for /api/csrf-token', {
+        tokenLength: token.length,
+        signatureLength: signature.length
+      });
+    } else {
+      // Verify existing token has valid signature
+      const existingSignature = req.cookies?.csrf_signature;
+      if (!existingSignature || !csrfProtection.verifyToken(token, existingSignature)) {
+        // Token exists but signature is invalid, regenerate
+        const signature = csrfProtection.signToken(token);
+        
+        res.cookie('csrf_signature', signature, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 24 * 60 * 60 * 1000,
+          path: '/'
+        });
+        
+        console.log('[CSRF] Regenerated signature for existing token', {
+          tokenLength: token.length,
+          signatureLength: signature.length
+        });
+      }
     }
     
     console.log('[CSRF] Token endpoint accessed', {

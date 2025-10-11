@@ -33,7 +33,7 @@ export class CSRFProtection {
   /**
    * Create HMAC signature for token validation
    */
-  private signToken(token: string): string {
+  signToken(token: string): string {
     return createHmac('sha256', CSRF_SECRET)
       .update(token)
       .digest('hex');
@@ -42,7 +42,7 @@ export class CSRFProtection {
   /**
    * Verify CSRF token matches signature
    */
-  private verifyToken(token: string, signature: string): boolean {
+  verifyToken(token: string, signature: string): boolean {
     const expectedSignature = this.signToken(token);
     
     // Constant-time comparison to prevent timing attacks
