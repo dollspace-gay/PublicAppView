@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type FeedItem, type InsertFeedItem } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -34,6 +34,11 @@ export interface IStorage {
   getPostThread(uri: string): Promise<Post[]>;
   getQuotePosts(postUri: string, limit?: number, cursor?: string): Promise<Post[]>;
 
+  // Feed operations
+  getAuthorFeed(actorDid: string, limit?: number, cursor?: string, feedType?: string): Promise<{ items: FeedItem[], cursor?: string }>;
+  createFeedItem(feedItem: InsertFeedItem): Promise<FeedItem>;
+  deleteFeedItem(uri: string): Promise<void>;
+
   // Like operations
   createLike(like: InsertLike): Promise<Like>;
   deleteLike(uri: string): Promise<void>;
@@ -66,6 +71,7 @@ export interface IStorage {
   createBlock(block: InsertBlock): Promise<Block>;
   deleteBlock(uri: string): Promise<void>;
   getBlocks(blockerDid: string, limit?: number, cursor?: string): Promise<{ blocks: Block[], cursor?: string }>;
+  getBlocksBetweenUsers(blockerDid: string, targetDids: string[]): Promise<Block[]>;
   
   // Mute operations
   createMute(mute: InsertMute): Promise<Mute>;
@@ -613,6 +619,79 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getAuthorFeed(actorDid: string, limit = 50, cursor?: string, feedType?: string): Promise<{ items: FeedItem[], cursor?: string }> {
+    let builder = db
+      .select()
+      .from(feedItems)
+      .innerJoin(posts, eq(posts.uri, feedItems.postUri))
+      .where(eq(feedItems.originatorDid, actorDid));
+
+    // Apply feed type filtering
+    if (feedType === 'posts_no_replies') {
+      builder = builder.where(
+        and(
+          eq(feedItems.type, 'post'),
+          isNull(posts.parentUri)
+        ).or(eq(feedItems.type, 'repost'))
+      );
+    } else if (feedType === 'posts_with_media') {
+      builder = builder
+        .where(eq(feedItems.type, 'post'))
+        .where(sql`${posts.embed} IS NOT NULL 
+          AND ${posts.embed}->>'$type' IN ('app.bsky.embed.images', 'app.bsky.embed.external')`);
+    } else if (feedType === 'posts_with_video') {
+      builder = builder
+        .where(eq(feedItems.type, 'post'))
+        .where(sql`${posts.embed} IS NOT NULL 
+          AND ${posts.embed}->>'$type' = 'app.bsky.embed.recordWithMedia'
+          AND ${posts.embed}->'media'->>'$type' = 'app.bsky.embed.video'`);
+    } else if (feedType === 'posts_and_author_threads') {
+      builder = builder.where(
+        eq(feedItems.type, 'repost')
+          .or(eq(feedItems.type, 'post').and(isNull(posts.parentUri)))
+          .or(sql`${posts.rootUri} LIKE ${`at://${actorDid}/%`}`)
+      );
+    }
+
+    if (cursor) {
+      builder = builder.where(sql`${feedItems.sortAt} < ${cursor}`);
+    }
+
+    const feedItemsData = await builder
+      .orderBy(desc(feedItems.sortAt))
+      .limit(limit)
+      .execute();
+
+    const items: FeedItem[] = feedItemsData.map((item) => ({
+      post: { uri: item.feed_items.postUri, cid: item.feed_items.cid },
+      repost: item.feed_items.type === 'repost' ? { uri: item.feed_items.uri, cid: item.feed_items.cid } : undefined,
+    }));
+
+    const nextCursor = feedItemsData.length > 0 
+      ? feedItemsData[feedItemsData.length - 1].feed_items.sortAt.toISOString()
+      : undefined;
+
+    return { items, cursor: nextCursor };
+  }
+
+  async createFeedItem(feedItem: InsertFeedItem): Promise<FeedItem> {
+    const [result] = await db.insert(feedItems).values(feedItem).returning();
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('feed_items');
+    
+    return result;
+  }
+
+  async deleteFeedItem(uri: string): Promise<void> {
+    await db.delete(feedItems).where(eq(feedItems.uri, uri));
+    
+    // Update Redis counter for dashboard metrics
+    const { redisQueue } = await import("./services/redis-queue");
+    await redisQueue.incrementRecordCount('feed_items', -1);
+  }
+
   async getPostThread(uri: string): Promise<Post[]> {
     const rootPost = await this.getPost(uri);
     if (!rootPost) return [];
@@ -936,6 +1015,20 @@ export class DatabaseStorage implements IStorage {
     const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
 
     return { blocks: items, cursor: nextCursor };
+  }
+
+  async getBlocksBetweenUsers(blockerDid: string, targetDids: string[]): Promise<Block[]> {
+    if (targetDids.length === 0) return [];
+
+    return await db
+      .select()
+      .from(blocks)
+      .where(
+        and(
+          eq(blocks.blockerDid, blockerDid),
+          inArray(blocks.blockedDid, targetDids)
+        )
+      );
   }
 
   async createMute(mute: InsertMute): Promise<Mute> {

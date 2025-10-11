@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   bannerUrl: text("banner_url"),
   description: text("description"),
   profileRecord: jsonb("profile_record"),
+  pinnedPost: jsonb("pinned_post"), // {uri: string, cid: string} for pinned post
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -38,6 +39,11 @@ export const posts = pgTable("posts", {
   parentUri: varchar("parent_uri", { length: 512 }),
   rootUri: varchar("root_uri", { length: 512 }),
   embed: jsonb("embed"),
+  violatesThreadGate: boolean("violates_thread_gate").default(false).notNull(),
+  violatesEmbeddingRules: boolean("violates_embedding_rules").default(false).notNull(),
+  hasThreadGate: boolean("has_thread_gate").default(false).notNull(),
+  hasPostGate: boolean("has_post_gate").default(false).notNull(),
+  tags: jsonb("tags").default(sql`'[]'::jsonb`).notNull(),
   searchVector: tsvector("search_vector"),
   createdAt: timestamp("created_at").notNull(),
   indexedAt: timestamp("indexed_at").defaultNow().notNull(),
@@ -47,6 +53,64 @@ export const posts = pgTable("posts", {
   parentIdx: index("idx_posts_parent_uri").on(table.parentUri),
   rootIdx: index("idx_posts_root_uri").on(table.rootUri),
   searchVectorIdx: index("idx_posts_search_vector").using("gin", table.searchVector),
+}));
+
+// Feed items table - tracks different types of content in feeds (posts, reposts, replies)
+export const feedItems = pgTable("feed_items", {
+  uri: varchar("uri", { length: 512 }).primaryKey(), // URI of the feed item (post or repost)
+  postUri: varchar("post_uri", { length: 512 }).notNull(), // URI of the original post
+  originatorDid: varchar("originator_did", { length: 255 }).notNull(), // DID of the user who created this feed item
+  type: varchar("type", { length: 32 }).notNull(), // 'post', 'repost', 'reply'
+  sortAt: timestamp("sort_at").notNull(), // Timestamp for sorting (createdAt for posts, createdAt for reposts)
+  cid: varchar("cid", { length: 255 }).notNull(), // CID of the record
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  originatorIdx: index("idx_feed_items_originator").on(table.originatorDid),
+  postIdx: index("idx_feed_items_post").on(table.postUri),
+  sortAtIdx: index("idx_feed_items_sort_at").on(table.sortAt),
+  typeIdx: index("idx_feed_items_type").on(table.type),
+  originatorSortIdx: index("idx_feed_items_originator_sort").on(table.originatorDid, table.sortAt),
+}));
+
+// Post aggregations table - stores counts for posts
+export const postAggregations = pgTable("post_aggregations", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  likeCount: integer("like_count").default(0).notNull(),
+  repostCount: integer("repost_count").default(0).notNull(),
+  replyCount: integer("reply_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  likeCountIdx: index("idx_post_aggregations_like_count").on(table.likeCount),
+  repostCountIdx: index("idx_post_aggregations_repost_count").on(table.repostCount),
+  replyCountIdx: index("idx_post_aggregations_reply_count").on(table.replyCount),
+}));
+
+// Post viewer states table - stores viewer-specific state for posts
+export const postViewerStates = pgTable("post_viewer_states", {
+  postUri: varchar("post_uri", { length: 512 }).notNull(),
+  viewerDid: varchar("viewer_did", { length: 255 }).notNull(),
+  likeUri: varchar("like_uri", { length: 512 }),
+  repostUri: varchar("repost_uri", { length: 512 }),
+  bookmarked: boolean("bookmarked").default(false).notNull(),
+  threadMuted: boolean("thread_muted").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  postViewerIdx: uniqueIndex("idx_post_viewer_states_post_viewer").on(table.postUri, table.viewerDid),
+  postIdx: index("idx_post_viewer_states_post").on(table.postUri),
+  viewerIdx: index("idx_post_viewer_states_viewer").on(table.viewerDid),
+}));
+
+// Thread contexts table - stores thread-specific context
+export const threadContexts = pgTable("thread_contexts", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  rootAuthorLikeUri: varchar("root_author_like_uri", { length: 512 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  rootAuthorLikeIdx: index("idx_thread_contexts_root_author_like").on(table.rootAuthorLikeUri),
 }));
 
 // Likes table
@@ -474,6 +538,12 @@ export const postsRelations = relations(posts, ({ one, many }) => ({
   author: one(users, { fields: [posts.authorDid], references: [users.did] }),
   likes: many(likes),
   reposts: many(reposts),
+  feedItems: many(feedItems),
+}));
+
+export const feedItemsRelations = relations(feedItems, ({ one }) => ({
+  post: one(posts, { fields: [feedItems.postUri], references: [posts.uri] }),
+  originator: one(users, { fields: [feedItems.originatorDid], references: [users.did] }),
 }));
 
 export const likesRelations = relations(likes, ({ one }) => ({
@@ -576,6 +646,7 @@ export const labelerServicesRelations = relations(labelerServices, ({ one }) => 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true, indexedAt: true });
 export const insertPostSchema = createInsertSchema(posts).omit({ indexedAt: true });
+export const insertFeedItemSchema = createInsertSchema(feedItems).omit({ indexedAt: true });
 export const insertLikeSchema = createInsertSchema(likes).omit({ indexedAt: true });
 export const insertRepostSchema = createInsertSchema(reposts).omit({ indexedAt: true });
 export const insertFollowSchema = createInsertSchema(follows).omit({ indexedAt: true });
@@ -611,6 +682,8 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type Post = typeof posts.$inferSelect;
 export type InsertPost = z.infer<typeof insertPostSchema>;
+export type FeedItem = typeof feedItems.$inferSelect;
+export type InsertFeedItem = z.infer<typeof insertFeedItemSchema>;
 export type Like = typeof likes.$inferSelect;
 export type InsertLike = z.infer<typeof insertLikeSchema>;
 export type Repost = typeof reposts.$inferSelect;
