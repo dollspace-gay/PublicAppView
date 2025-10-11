@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { logCollector } from "./services/log-collector";
+import { cacheService } from "./services/cache";
 import { spawn } from "child_process";
 
 const app = express();
@@ -211,6 +212,13 @@ app.use((req, res, next) => {
       databaseHealthService.start().catch(err => {
         console.error("[DB_HEALTH] Failed to start health monitoring:", err);
       });
+    });
+    
+    // Initialize cache service
+    cacheService.connect().then(() => {
+      logCollector.info("Redis cache service initialized");
+    }).catch(err => {
+      console.error("[CACHE] Failed to initialize cache service:", err);
     });
     
     // Initialize data pruning service (if enabled)

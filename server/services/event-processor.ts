@@ -705,6 +705,9 @@ export class EventProcessor {
             case "app.bsky.feed.repost":
               await this.processRepost(uri, repo, record, cid);
               break;
+            case "app.bsky.bookmark":
+              await this.processBookmark(uri, repo, record, cid);
+              break;
             case "app.bsky.actor.profile":
               await this.processProfile(repo, record);
               break;
@@ -932,6 +935,9 @@ export class EventProcessor {
         likeUri: uri,
         bookmarked: false,
         threadMuted: false,
+        replyDisabled: false,
+        embeddingDisabled: false,
+        pinned: false,
       });
       
       // Try to create notification if post exists locally
@@ -995,6 +1001,9 @@ export class EventProcessor {
         repostUri: uri,
         bookmarked: false,
         threadMuted: false,
+        replyDisabled: false,
+        embeddingDisabled: false,
+        pinned: false,
       });
       
       // Create feed item for the repost
@@ -1027,6 +1036,52 @@ export class EventProcessor {
           smartConsole.error(`[NOTIFICATION] Error creating repost notification:`, error);
         }
       }
+    } catch (error: any) {
+      // Ignore duplicate key errors (23505)
+      if (error.code === '23505') {
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async processBookmark(uri: string, userDid: string, record: any, cid?: string) {
+    const userReady = await this.ensureUser(userDid);
+    if (!userReady) {
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping bookmark ${uri} - user not ready`);
+      return;
+    }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(userDid)) {
+      return;
+    }
+
+    const postUri = record.subject.uri;
+    const bookmark = {
+      uri,
+      userDid,
+      postUri,
+      createdAt: this.safeDate(record.createdAt),
+    };
+
+    // Insert bookmark directly - foreign key constraints removed for federated data
+    try {
+      await this.storage.createBookmark(bookmark);
+      
+      // Increment post aggregation bookmark count
+      await this.storage.incrementPostAggregation(postUri, 'bookmarkCount', 1);
+      
+      // Create or update viewer state for the bookmark
+      await this.storage.createPostViewerState({
+        postUri,
+        viewerDid: userDid,
+        bookmarked: true,
+        threadMuted: false,
+        replyDisabled: false,
+        embeddingDisabled: false,
+        pinned: false,
+      });
     } catch (error: any) {
       // Ignore duplicate key errors (23505)
       if (error.code === '23505') {
@@ -1386,6 +1441,14 @@ export class EventProcessor {
           await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
           await this.storage.incrementPostAggregation(repost.postUri, 'repostCount', -1);
           await this.storage.deletePostViewerState(repost.postUri, repost.userDid);
+        }
+        break;
+      case "app.bsky.bookmark":
+        const bookmark = await this.storage.getBookmark(uri);
+        if (bookmark) {
+          await this.storage.deleteBookmark(uri);
+          await this.storage.incrementPostAggregation(bookmark.postUri, 'bookmarkCount', -1);
+          await this.storage.deletePostViewerState(bookmark.postUri, bookmark.userDid);
         }
         break;
       case "app.bsky.graph.follow":
