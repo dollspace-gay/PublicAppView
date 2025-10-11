@@ -597,12 +597,38 @@ export class XRPCApi {
       };
 
       if (post.embed) {
-        // Debug: Log embed structure to understand what we're working with
-        console.log(`[SERIALIZE_POSTS] Embed for post ${post.uri}:`, JSON.stringify(post.embed, null, 2));
-        
         // Ensure embed has proper $type field and is an object
         if (post.embed && typeof post.embed === 'object' && post.embed.$type) {
-          record.embed = post.embed;
+          // Transform blob references to CDN URLs
+          let transformedEmbed = { ...post.embed };
+          
+          if (post.embed.$type === 'app.bsky.embed.images') {
+            // Handle image embeds
+            transformedEmbed.images = post.embed.images?.map((img: any) => ({
+              ...img,
+              image: {
+                ...img.image,
+                ref: {
+                  ...img.image.ref,
+                  link: `https://cdn.bsky.app/img/feed_fullsize/plain/${post.authorDid}/${img.image.ref.$link}@jpeg`
+                }
+              }
+            }));
+          } else if (post.embed.$type === 'app.bsky.embed.external' && post.embed.external?.thumb?.ref?.$link) {
+            // Handle external embeds with thumbnails
+            transformedEmbed.external = {
+              ...post.embed.external,
+              thumb: {
+                ...post.embed.external.thumb,
+                ref: {
+                  ...post.embed.external.thumb.ref,
+                  link: `https://cdn.bsky.app/img/feed_thumbnail/plain/${post.authorDid}/${post.embed.external.thumb.ref.$link}@jpeg`
+                }
+              }
+            };
+          }
+          
+          record.embed = transformedEmbed;
         } else {
           console.warn(`[SERIALIZE_POSTS] Invalid embed for post ${post.uri}:`, post.embed);
           // Don't include invalid embeds
