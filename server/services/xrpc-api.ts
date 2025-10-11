@@ -2583,8 +2583,10 @@ export class XRPCApi {
           }
         }
 
-        // Generate a deterministic CID for the notification
-        const notificationCid = `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64').slice(0, 44)}`;
+        // Use a placeholder CID since we don't store the actual record CID
+        // Generate a deterministic multibase-encoded CID
+        const hash = require('crypto').createHash('sha256').update(`${n.uri}-${n.indexedAt.getTime()}`).digest();
+        const notificationCid = `bafkrei${hash.toString('base64url').slice(0, 44)}`;
 
         const view: any = {
           $type: 'app.bsky.notification.listNotifications#notification',
