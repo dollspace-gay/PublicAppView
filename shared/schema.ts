@@ -159,6 +159,21 @@ export const bookmarks = pgTable("bookmarks", {
   uniqueBookmark: uniqueIndex("unique_bookmark_user_post").on(table.userDid, table.postUri),
 }));
 
+// Quotes table - tracks quote posts
+export const quotes = pgTable("quotes", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  postUri: varchar("post_uri", { length: 512 }).notNull(), // The quote post URI
+  quotedUri: varchar("quoted_uri", { length: 512 }).notNull(), // The URI of the quoted post
+  quotedCid: varchar("quoted_cid", { length: 255 }),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  postIdx: index("idx_quotes_post").on(table.postUri),
+  quotedIdx: index("idx_quotes_quoted").on(table.quotedUri),
+  uniqueQuote: uniqueIndex("unique_quote_post_quoted").on(table.postUri, table.quotedUri),
+}));
+
 // Follows table
 export const follows = pgTable("follows", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
@@ -402,6 +417,21 @@ export const notifications = pgTable("notifications", {
   indexedAtIdx: index("idx_notifications_indexed_at").on(table.indexedAt),
 }));
 
+// Activity subscriptions table - per-actor notification preferences
+export const activitySubscriptions = pgTable("activity_subscriptions", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  subscriberDid: varchar("subscriber_did", { length: 255 }).notNull(), // No FK - user subscribing
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(), // No FK - user being subscribed to
+  priority: boolean("priority").default(false).notNull(), // Priority notifications flag
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  subscriberIdx: index("idx_activity_subscriptions_subscriber").on(table.subscriberDid),
+  subjectIdx: index("idx_activity_subscriptions_subject").on(table.subjectDid),
+  uniqueSubscription: uniqueIndex("unique_activity_subscription").on(table.subscriberDid, table.subjectDid),
+}));
+
 // Lists table - curated user lists
 export const lists = pgTable("lists", {
   uri: varchar("uri", { length: 512 }).primaryKey(),
@@ -482,6 +512,21 @@ export const labelerServices = pgTable("labeler_services", {
   creatorIdx: index("idx_labeler_services_creator").on(table.creatorDid),
   likeCountIdx: index("idx_labeler_services_like_count").on(table.likeCount),
   indexedAtIdx: index("idx_labeler_services_indexed_at").on(table.indexedAt),
+}));
+
+// Verifications table - handle verification records
+export const verifications = pgTable("verifications", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  subjectDid: varchar("subject_did", { length: 255 }).notNull(), // No FK - can reference external users
+  handle: varchar("handle", { length: 255 }).notNull(),
+  verifiedAt: timestamp("verified_at").notNull(),
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  subjectIdx: index("idx_verifications_subject").on(table.subjectDid),
+  handleIdx: index("idx_verifications_handle").on(table.handle),
+  uniqueVerification: uniqueIndex("unique_verification_subject").on(table.subjectDid),
 }));
 
 // Push subscriptions table - device push notification registrations
@@ -682,6 +727,9 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
 export const insertVideoJobSchema = createInsertSchema(videoJobs).omit({ id: true, createdAt: true, updatedAt: true });
 // Bookmark insert schema/types
 export const insertBookmarkSchema = createInsertSchema(bookmarks).omit({ indexedAt: true });
+export const insertQuoteSchema = createInsertSchema(quotes).omit({ indexedAt: true });
+export const insertVerificationSchema = createInsertSchema(verifications).omit({ indexedAt: true });
+export const insertActivitySubscriptionSchema = createInsertSchema(activitySubscriptions).omit({ indexedAt: true });
 export const insertFirehoseCursorSchema = createInsertSchema(firehoseCursor).omit({ id: true, updatedAt: true });
 
 // Types
@@ -744,5 +792,12 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 export type VideoJob = typeof videoJobs.$inferSelect;
 export type Bookmark = typeof bookmarks.$inferSelect;
 export type InsertVideoJob = z.infer<typeof insertVideoJobSchema>;
+export type InsertBookmark = z.infer<typeof insertBookmarkSchema>;
+export type Quote = typeof quotes.$inferSelect;
+export type InsertQuote = z.infer<typeof insertQuoteSchema>;
+export type Verification = typeof verifications.$inferSelect;
+export type InsertVerification = z.infer<typeof insertVerificationSchema>;
+export type ActivitySubscription = typeof activitySubscriptions.$inferSelect;
+export type InsertActivitySubscription = z.infer<typeof insertActivitySubscriptionSchema>;
 export type FirehoseCursor = typeof firehoseCursor.$inferSelect;
 export type InsertFirehoseCursor = z.infer<typeof insertFirehoseCursorSchema>;

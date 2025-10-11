@@ -1,6 +1,6 @@
-import { users, posts, likes, reposts, bookmarks, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, postAggregations, postViewerStates, threadContexts, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type FeedItem, type InsertFeedItem, type PostAggregation, type InsertPostAggregation, type PostViewerState, type InsertPostViewerState, type ThreadContext, type InsertThreadContext } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, quotes, verifications, activitySubscriptions, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, postAggregations, postViewerStates, threadContexts, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type Quote, type InsertQuote, type Verification, type InsertVerification, type ActivitySubscription, type InsertActivitySubscription, type FeedItem, type InsertFeedItem, type PostAggregation, type InsertPostAggregation, type PostViewerState, type InsertPostViewerState, type ThreadContext, type InsertThreadContext } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
-import { eq, desc, and, sql, inArray, isNull } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
 import { sanitizeObject } from "./utils/sanitize";
 import { cacheService } from "./services/cache";
@@ -63,6 +63,24 @@ export interface IStorage {
   getBookmark(uri: string): Promise<Bookmark | undefined>;
   getBookmarks(userDid: string, limit?: number, cursor?: string): Promise<{ bookmarks: Bookmark[], cursor?: string }>;
   getBookmarkUri(userDid: string, postUri: string): Promise<string | undefined>;
+
+  // Quote operations
+  createQuote(quote: InsertQuote): Promise<Quote>;
+  deleteQuote(uri: string): Promise<void>;
+  getQuote(uri: string): Promise<Quote | undefined>;
+  getQuotes(postUri: string, limit?: number, cursor?: string): Promise<{ quotes: Quote[], cursor?: string }>;
+
+  // Verification operations
+  createVerification(verification: InsertVerification): Promise<Verification>;
+  deleteVerification(uri: string): Promise<void>;
+  getVerification(uri: string): Promise<Verification | undefined>;
+  getVerificationBySubject(subjectDid: string): Promise<Verification | undefined>;
+
+  // Activity subscription operations
+  createActivitySubscription(subscription: InsertActivitySubscription): Promise<ActivitySubscription>;
+  deleteActivitySubscription(uri: string): Promise<void>;
+  getActivitySubscription(uri: string): Promise<ActivitySubscription | undefined>;
+  getActivitySubscriptions(subscriberDid: string, limit?: number, cursor?: string): Promise<{ subscriptions: ActivitySubscription[], cursor?: string }>;
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
@@ -205,6 +223,7 @@ export interface IStorage {
   getFeedGenerators(uris: string[]): Promise<FeedGenerator[]>;
   getActorFeeds(actorDid: string, limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
   getSuggestedFeeds(limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
+  searchFeedGeneratorsByName(q: string, limit?: number, cursor?: string): Promise<{ feedGenerators: FeedGenerator[], cursor?: string }>;
   updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined>;
   
   // Starter pack operations
@@ -964,6 +983,118 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(bookmarks.userDid, userDid), eq(bookmarks.postUri, postUri)))
       .limit(1);
     return row?.uri;
+  }
+
+  // Quote operations
+  async createQuote(quote: InsertQuote): Promise<Quote> {
+    const [row] = await this.db
+      .insert(quotes)
+      .values(quote)
+      .onConflictDoNothing()
+      .returning();
+    return row as Quote;
+  }
+
+  async deleteQuote(uri: string): Promise<void> {
+    await this.db.delete(quotes).where(eq(quotes.uri, uri));
+  }
+
+  async getQuote(uri: string): Promise<Quote | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(quotes)
+      .where(eq(quotes.uri, uri))
+      .limit(1);
+    return row as Quote | undefined;
+  }
+
+  async getQuotes(postUri: string, limit = 50, cursor?: string): Promise<{ quotes: Quote[]; cursor?: string }> {
+    const conditions = [eq(quotes.quotedUri, postUri)];
+    if (cursor) {
+      conditions.push(sql`${quotes.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await this.db
+      .select()
+      .from(quotes)
+      .where(and(...conditions))
+      .orderBy(desc(quotes.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { quotes: items as Quote[], cursor: nextCursor };
+  }
+
+  // Verification operations
+  async createVerification(verification: InsertVerification): Promise<Verification> {
+    const [row] = await this.db
+      .insert(verifications)
+      .values(verification)
+      .onConflictDoNothing()
+      .returning();
+    return row as Verification;
+  }
+
+  async deleteVerification(uri: string): Promise<void> {
+    await this.db.delete(verifications).where(eq(verifications.uri, uri));
+  }
+
+  async getVerification(uri: string): Promise<Verification | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(verifications)
+      .where(eq(verifications.uri, uri))
+      .limit(1);
+    return row as Verification | undefined;
+  }
+
+  async getVerificationBySubject(subjectDid: string): Promise<Verification | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(verifications)
+      .where(eq(verifications.subjectDid, subjectDid))
+      .limit(1);
+    return row as Verification | undefined;
+  }
+
+  // Activity subscription operations
+  async createActivitySubscription(subscription: InsertActivitySubscription): Promise<ActivitySubscription> {
+    const [row] = await this.db
+      .insert(activitySubscriptions)
+      .values(subscription)
+      .onConflictDoNothing()
+      .returning();
+    return row as ActivitySubscription;
+  }
+
+  async deleteActivitySubscription(uri: string): Promise<void> {
+    await this.db.delete(activitySubscriptions).where(eq(activitySubscriptions.uri, uri));
+  }
+
+  async getActivitySubscription(uri: string): Promise<ActivitySubscription | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(activitySubscriptions)
+      .where(eq(activitySubscriptions.uri, uri))
+      .limit(1);
+    return row as ActivitySubscription | undefined;
+  }
+
+  async getActivitySubscriptions(subscriberDid: string, limit = 50, cursor?: string): Promise<{ subscriptions: ActivitySubscription[]; cursor?: string }> {
+    const conditions = [eq(activitySubscriptions.subscriberDid, subscriberDid)];
+    if (cursor) {
+      conditions.push(sql`${activitySubscriptions.indexedAt} < ${new Date(cursor)}`);
+    }
+    const results = await this.db
+      .select()
+      .from(activitySubscriptions)
+      .where(and(...conditions))
+      .orderBy(desc(activitySubscriptions.indexedAt))
+      .limit(limit + 1);
+    const hasMore = results.length > limit;
+    const items = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? items[items.length - 1].indexedAt.toISOString() : undefined;
+    return { subscriptions: items as ActivitySubscription[], cursor: nextCursor };
   }
 
   async createFollow(follow: InsertFollow): Promise<Follow> {
@@ -2208,6 +2339,39 @@ export class DatabaseStorage implements IStorage {
       : undefined;
 
     return { generators: results, cursor: nextCursor };
+  }
+
+  async searchFeedGeneratorsByName(q: string, limit = 25, cursor?: string): Promise<{ feedGenerators: FeedGenerator[], cursor?: string }> {
+    const searchPattern = `%${q.toLowerCase()}%`;
+    const conditions = [
+      or(
+        sql`LOWER(${feedGenerators.displayName}) LIKE ${searchPattern}`,
+        sql`LOWER(${feedGenerators.description}) LIKE ${searchPattern}`
+      )
+    ];
+
+    // Use composite cursor matching the ordering: likeCount DESC, indexedAt DESC
+    if (cursor) {
+      const [likeCount, indexedAt] = cursor.split('::');
+      conditions.push(
+        sql`(${feedGenerators.likeCount}, ${feedGenerators.indexedAt}) < (${parseInt(likeCount)}, ${new Date(indexedAt)})`
+      );
+    }
+
+    const results = await db
+      .select()
+      .from(feedGenerators)
+      .where(and(...conditions))
+      .orderBy(desc(feedGenerators.likeCount), desc(feedGenerators.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const feedGeneratorList = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore 
+      ? `${feedGeneratorList[feedGeneratorList.length - 1].likeCount}::${feedGeneratorList[feedGeneratorList.length - 1].indexedAt.toISOString()}`
+      : undefined;
+
+    return { feedGenerators: feedGeneratorList, cursor: nextCursor };
   }
 
   async updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined> {

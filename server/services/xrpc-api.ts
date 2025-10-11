@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
 import { Views } from "./views";
+import { enhancedHydrator } from "./hydration/index";
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -254,6 +255,12 @@ const getActorFeedsSchema = z.object({
 const getSuggestedFeedsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
+});
+
+const getPopularFeedGeneratorsSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+  query: z.string().optional(),
 });
 
 const describeFeedGeneratorSchema = z.object({
@@ -683,7 +690,132 @@ export class XRPCApi {
     };
   }
 
+  private async serializePostsEnhanced(posts: any[], viewerDid?: string) {
+    const startTime = performance.now();
+    
+    if (posts.length === 0) {
+      return [];
+    }
+
+    const postUris = posts.map((p) => p.uri);
+    
+    const state = await enhancedHydrator.hydratePosts(postUris, viewerDid);
+    
+    const hydrationTime = performance.now() - startTime;
+    console.log(`[ENHANCED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`);
+
+    const serializedPosts = posts.map((post) => {
+      const hydratedPost = state.posts.get(post.uri);
+      const author = state.actors.get(post.authorDid);
+      const aggregation = state.aggregations.get(post.uri);
+      const viewerState = state.viewerStates.get(post.uri);
+      const actorViewerState = state.actorViewerStates.get(post.authorDid);
+      const labels = state.labels.get(post.uri) || [];
+      const authorLabels = state.labels.get(post.authorDid) || [];
+      const hydratedEmbed = state.embeds.get(post.uri);
+
+      const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
+        ? author.handle 
+        : 'handle.invalid';
+
+      const record: any = {
+        $type: 'app.bsky.feed.post',
+        text: hydratedPost?.text || post.text,
+        createdAt: hydratedPost?.createdAt || post.createdAt.toISOString(),
+      };
+
+      if (hydratedPost?.embed || post.embed) {
+        const embedData = hydratedPost?.embed || post.embed;
+        if (embedData && typeof embedData === 'object' && embedData.$type) {
+          let transformedEmbed = { ...embedData };
+          
+          if (embedData.$type === 'app.bsky.embed.images') {
+            transformedEmbed.images = embedData.images?.map((img: any) => ({
+              ...img,
+              image: {
+                ...img.image,
+                ref: {
+                  ...img.image.ref,
+                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize')
+                }
+              }
+            }));
+          } else if (embedData.$type === 'app.bsky.embed.external' && embedData.external?.thumb?.ref?.$link) {
+            transformedEmbed.external = {
+              ...embedData.external,
+              thumb: {
+                ...embedData.external.thumb,
+                ref: {
+                  ...embedData.external.thumb.ref,
+                  link: this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail')
+                }
+              }
+            };
+          }
+          
+          record.embed = transformedEmbed;
+        }
+      }
+      if (hydratedPost?.facets || post.facets) record.facets = hydratedPost?.facets || post.facets;
+      if (hydratedPost?.reply) record.reply = hydratedPost.reply;
+
+      const avatarUrl = author?.avatarUrl;
+      const avatarCdn = avatarUrl 
+        ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar'))
+        : undefined;
+
+      const postView: any = {
+        $type: 'app.bsky.feed.defs#postView',
+        uri: post.uri,
+        cid: post.cid,
+        author: {
+          $type: 'app.bsky.actor.defs#profileViewBasic',
+          did: post.authorDid,
+          handle: authorHandle,
+          displayName: author?.displayName ?? authorHandle,
+          pronouns: author?.pronouns,
+          avatar: avatarCdn,
+          viewer: actorViewerState || {},
+          labels: authorLabels,
+          createdAt: author?.createdAt?.toISOString(),
+        },
+        record,
+        replyCount: aggregation?.replyCount || 0,
+        repostCount: aggregation?.repostCount || 0,
+        likeCount: aggregation?.likeCount || 0,
+        bookmarkCount: aggregation?.bookmarkCount || 0,
+        quoteCount: aggregation?.quoteCount || 0,
+        indexedAt: hydratedPost?.indexedAt || post.indexedAt.toISOString(),
+        labels: labels,
+        viewer: viewerState ? { 
+          $type: 'app.bsky.feed.defs#viewerState',
+          like: viewerState.likeUri || undefined, 
+          repost: viewerState.repostUri || undefined,
+          bookmarked: viewerState.bookmarked || false,
+          threadMuted: viewerState.threadMuted || false,
+          replyDisabled: viewerState.replyDisabled || false,
+          embeddingDisabled: viewerState.embeddingDisabled || false,
+          pinned: viewerState.pinned || false,
+        } : {},
+      };
+
+      if (hydratedEmbed) {
+        postView.embed = hydratedEmbed;
+      }
+
+      return postView;
+    });
+
+    return serializedPosts;
+  }
+
   private async serializePosts(posts: any[], viewerDid?: string) {
+    const useEnhancedHydration = process.env.ENHANCED_HYDRATION_ENABLED === 'true';
+    
+    if (useEnhancedHydration) {
+      return this.serializePostsEnhanced(posts, viewerDid);
+    }
+
     if (posts.length === 0) {
       return [];
     }
@@ -995,40 +1127,85 @@ export class XRPCApi {
         items.unshift(pinnedItem);
       }
 
-      // Hydrate the feed items
-      const hydrator = new Hydrator();
-      const views = new Views();
+      // Extract post URIs for hydration
+      const postUris = items.map(item => item.post.uri);
+
+      // Fetch posts from storage for serialization
+      const posts = await storage.getPosts(postUris);
       
-      const hydrationState = await hydrator.hydrateFeedItems(items, viewerDid);
+      // Fetch reposts and reposter profiles for reason construction
+      const repostUris = items
+        .filter(item => item.repost)
+        .map(item => item.repost!.uri);
+      
+      const reposts = await Promise.all(
+        repostUris.map(uri => storage.getRepost(uri))
+      );
+      const repostsByUri = new Map(
+        reposts.filter(Boolean).map(r => [r!.uri, r!])
+      );
 
-      // Filter out blocked/muted content
-      const filteredItems = items.filter((item) => {
-        const bam = views.feedItemBlocksAndMutes(item, hydrationState);
-        return (
-          !bam.authorBlocked &&
-          !bam.originatorBlocked &&
-          (!bam.authorMuted || bam.originatorMuted) // repost of muted content
-        );
-      });
+      // Get all reposter DIDs for profile fetching
+      const reposterDids = Array.from(repostsByUri.values()).map(r => r.repostedByDid);
+      const reposters = await Promise.all(
+        reposterDids.map(did => storage.getUser(did))
+      );
+      const repostersByDid = new Map(
+        reposters.filter(Boolean).map(u => [u!.did, u!])
+      );
 
-      // Handle posts_and_author_threads filter
-      if (params.filter === 'posts_and_author_threads') {
-        const { SelfThreadTracker } = await import('../types/feed');
-        const selfThread = new SelfThreadTracker(filteredItems, hydrationState);
-        items = filteredItems.filter((item) => {
-          return (
-            item.repost || 
-            item.authorPinned || 
-            selfThread.ok(item.post.uri)
-          );
-        });
-      } else {
-        items = filteredItems;
+      // Apply content filtering if viewer is authenticated
+      let filteredPosts = posts;
+      if (viewerDid) {
+        const settings = await storage.getUserSettings(viewerDid);
+        if (settings) {
+          filteredPosts = contentFilter.filterPosts(posts, settings);
+        }
       }
 
-      // Convert to feed view posts
+      // Serialize posts with enhanced hydration (when flag is enabled)
+      const serializedPosts = await this.serializePosts(filteredPosts, viewerDid);
+      const postsByUri = new Map(serializedPosts.map(p => [p.uri, p]));
+
+      // Build feed with reposts and pinned posts
       const feed = items
-        .map((item) => views.feedViewPost(item, hydrationState))
+        .map(item => {
+          const post = postsByUri.get(item.post.uri);
+          if (!post) return null;
+
+          let reason: any = undefined;
+
+          // Handle pinned post reason
+          if (item.authorPinned) {
+            reason = {
+              $type: 'app.bsky.feed.defs#reasonPin',
+            };
+          }
+          // Handle repost reason
+          else if (item.repost) {
+            const repost = repostsByUri.get(item.repost.uri);
+            const reposter = repost ? repostersByDid.get(repost.repostedByDid) : null;
+            
+            if (repost && reposter) {
+              reason = {
+                $type: 'app.bsky.feed.defs#reasonRepost',
+                by: {
+                  $type: 'app.bsky.actor.defs#profileViewBasic',
+                  did: reposter.did,
+                  handle: reposter.handle,
+                  displayName: reposter.displayName,
+                  avatar: reposter.avatarUrl ? this.transformBlobToCdnUrl(reposter.avatarUrl, reposter.did, 'avatar') : undefined,
+                },
+                indexedAt: repost.indexedAt.toISOString(),
+              };
+            }
+          }
+
+          return {
+            post,
+            ...(reason && { reason }),
+          };
+        })
         .filter(Boolean);
 
       res.json({
@@ -1719,15 +1896,15 @@ export class XRPCApi {
       const relationships = await storage.getRelationships(actorDid, targetDids);
 
       res.json({
-        actor: params.actor,
+        actor: actorDid,
         relationships: Array.from(relationships.entries()).map(([did, rel]) => ({
+          $type: 'app.bsky.graph.defs#relationship',
           did,
-          following: rel.following
-            ? `at://${actorDid}/app.bsky.graph.follow/${did}`
-            : undefined,
-          followedBy: rel.followedBy
-            ? `at://${did}/app.bsky.graph.follow/${actorDid}`
-            : undefined,
+          following: rel.following || undefined,
+          followedBy: rel.followedBy || undefined,
+          blocking: rel.blocking || undefined,
+          blockedBy: rel.blockedBy || undefined,
+          muted: rel.muting || undefined,
         })),
       });
     } catch (error) {
@@ -2257,6 +2434,68 @@ export class XRPCApi {
       });
     } catch (error) {
       this._handleError(res, error, 'describeFeedGenerator');
+    }
+  }
+
+  async getPopularFeedGenerators(req: Request, res: Response) {
+    try {
+      const params = getPopularFeedGeneratorsSchema.parse(req.query);
+
+      let generators: any[];
+      let cursor: string | undefined;
+
+      // If query is provided, search for feed generators by name/description
+      // Otherwise, return suggested feeds (popular by default)
+      if (params.query && params.query.trim()) {
+        const searchResults = await storage.searchFeedGeneratorsByName(
+          params.query.trim(),
+          params.limit,
+          params.cursor
+        );
+        generators = searchResults.feedGenerators;
+        cursor = searchResults.cursor;
+      } else {
+        const suggestedResults = await storage.getSuggestedFeeds(
+          params.limit,
+          params.cursor,
+        );
+        generators = suggestedResults.generators;
+        cursor = suggestedResults.cursor;
+      }
+
+      const feeds = await Promise.all(
+        generators.map(async (generator) => {
+          const creator = await storage.getUser(generator.creatorDid);
+
+          const creatorView: any = {
+            did: generator.creatorDid,
+            handle:
+              creator?.handle ||
+              `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+          };
+          if (creator?.displayName)
+            creatorView.displayName = creator.displayName;
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+
+          const view: any = {
+            uri: generator.uri,
+            cid: generator.cid,
+            did: generator.did,
+            creator: creatorView,
+            displayName: generator.displayName,
+            likeCount: generator.likeCount,
+            indexedAt: generator.indexedAt.toISOString(),
+          };
+          if (generator.description) view.description = generator.description;
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
+
+          return view;
+        }),
+      );
+
+      res.json({ cursor, feeds });
+    } catch (error) {
+      this._handleError(res, error, 'getPopularFeedGenerators');
     }
   }
 
@@ -2879,7 +3118,29 @@ export class XRPCApi {
 
   async getUnspeccedConfig(req: Request, res: Response) {
     try {
-      res.json({ liveNowConfig: { enabled: false } });
+      // Get country code from request headers or IP
+      // Default to US for self-hosted instances
+      const countryCode = req.headers['cf-ipcountry'] || 
+                          req.headers['x-country-code'] || 
+                          process.env.DEFAULT_COUNTRY_CODE || 
+                          'US';
+      
+      const regionCode = req.headers['cf-region-code'] || 
+                         req.headers['x-region-code'] || 
+                         process.env.DEFAULT_REGION_CODE || 
+                         '';
+
+      // For self-hosted instances, disable age restrictions unless explicitly configured
+      const isAgeBlockedGeo = process.env.AGE_BLOCKED_GEOS?.split(',')?.includes(countryCode.toString()) || false;
+      const isAgeRestrictedGeo = process.env.AGE_RESTRICTED_GEOS?.split(',')?.includes(countryCode.toString()) || false;
+
+      res.json({ 
+        liveNowConfig: { enabled: false },
+        countryCode: countryCode.toString().substring(0, 2),
+        regionCode: regionCode ? regionCode.toString() : undefined,
+        isAgeBlockedGeo,
+        isAgeRestrictedGeo,
+      });
     } catch (error) {
       this._handleError(res, error, 'getUnspeccedConfig');
     }

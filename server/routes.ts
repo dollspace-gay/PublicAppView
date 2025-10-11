@@ -2125,6 +2125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/xrpc/app.bsky.unspecced.getPostThreadOtherV2", xrpcApi.getPostThreadOtherV2.bind(xrpcApi));
   app.get("/xrpc/app.bsky.unspecced.getSuggestedUsers", xrpcApi.getSuggestedUsersUnspecced.bind(xrpcApi));
   app.get("/xrpc/app.bsky.unspecced.getSuggestedFeeds", xrpcApi.getSuggestedFeedsUnspecced.bind(xrpcApi));
+  app.get("/xrpc/app.bsky.unspecced.getPopularFeedGenerators", xrpcApi.getPopularFeedGenerators.bind(xrpcApi));
   app.get("/xrpc/app.bsky.unspecced.getOnboardingSuggestedStarterPacks", xrpcApi.getOnboardingSuggestedStarterPacks.bind(xrpcApi));
   app.get("/xrpc/app.bsky.unspecced.getTaggedSuggestions", xrpcApi.getTaggedSuggestions.bind(xrpcApi));
   app.get("/xrpc/app.bsky.unspecced.getTrendingTopics", xrpcApi.getTrendingTopics.bind(xrpcApi));

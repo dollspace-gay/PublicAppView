@@ -5,7 +5,7 @@ import { didResolver } from "./did-resolver";
 import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
-import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem } from "@shared/schema";
+import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -735,6 +735,9 @@ export class EventProcessor {
             case "com.atproto.label.label":
               await this.processLabel(uri, repo, record);
               break;
+            case "app.bsky.graph.verification":
+              await this.processVerification(uri, cid, repo, record);
+              break;
           }
         } else if (action === "delete") {
           await this.processDelete(uri, collection);
@@ -890,6 +893,51 @@ export class EventProcessor {
       }
     } catch (error) {
         smartConsole.error(`[NOTIFICATION] Error creating mention notifications:`, error);
+    }
+    
+    // Handle quote posts (embed.record or embed.recordWithMedia)
+    try {
+      let quotedUri: string | null = null;
+      let quotedCid: string | null = null;
+      
+      if (record.embed?.$type === 'app.bsky.embed.record') {
+        quotedUri = record.embed.record.uri;
+        quotedCid = record.embed.record.cid;
+      } else if (record.embed?.$type === 'app.bsky.embed.recordWithMedia') {
+        quotedUri = record.embed.record.record.uri;
+        quotedCid = record.embed.record.record.cid;
+      }
+      
+      if (quotedUri) {
+        await this.storage.createQuote({
+          uri: `${uri}#quote`,
+          cid,
+          postUri: uri,
+          quotedUri,
+          quotedCid: quotedCid || undefined,
+          createdAt: this.safeDate(record.createdAt),
+        });
+        
+        // Increment quoted post's quote count
+        await this.storage.incrementPostAggregation(quotedUri, 'quoteCount', 1);
+        
+        // Create notification for quote
+        const quotedPost = await this.storage.getPost(quotedUri);
+        if (quotedPost && quotedPost.authorDid !== authorDid) {
+          await this.storage.createNotification({
+            uri: `at://${uri.replace('at://', '')}#notification/quote`,
+            recipientDid: quotedPost.authorDid,
+            authorDid,
+            reason: 'quote',
+            reasonSubject: uri,
+            cid: cid,
+            isRead: false,
+            createdAt: new Date(record.createdAt),
+          });
+        }
+      }
+    } catch (error) {
+      smartConsole.error(`[QUOTE] Error processing quote:`, error);
     }
     
     // Flush any pending operations for this post
@@ -1390,6 +1438,31 @@ export class EventProcessor {
 
     await this.storage.createLabelerService(labelerService);
     smartConsole.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
+  }
+
+  private async processVerification(uri: string, cid: string, creatorDid: string, record: any) {
+    const creatorReady = await this.ensureUser(creatorDid);
+    if (!creatorReady) {
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping verification ${uri} - creator not ready`);
+      return;
+    }
+    
+    // Check if data collection is forbidden for this user
+    if (await this.isDataCollectionForbidden(creatorDid)) {
+      return;
+    }
+
+    const verification: InsertVerification = {
+      uri,
+      cid,
+      subjectDid: record.subject || creatorDid,
+      handle: record.handle || '',
+      verifiedAt: this.safeDate(record.verifiedAt),
+      createdAt: this.safeDate(record.createdAt),
+    };
+
+    await this.storage.createVerification(verification);
+    smartConsole.log(`[VERIFICATION] Processed verification ${uri} for ${verification.subjectDid}`);
   }
 
   // Guard against invalid or missing dates in upstream records
