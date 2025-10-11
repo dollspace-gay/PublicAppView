@@ -949,13 +949,11 @@ export class XRPCApi {
         return res.json({ preferences: cached.preferences });
       }
 
-      // Cache miss - return empty preferences
-      // According to the AT Protocol architecture, preferences are application-specific
-      // and should be managed by the AppView, not fetched from the PDS
+      // Cache miss - return empty preferences for now
       console.log(`[PREFERENCES] Cache miss for ${userDid}, returning empty preferences`);
       
-      // Return empty preferences array as default
-      // In a full implementation, preferences would be stored in the AppView's database
+      // For now, return empty preferences array
+      // In a full implementation, this would be stored in the AppView's database
       const emptyPreferences = [];
       
       // Store in cache for future requests
@@ -980,13 +978,11 @@ export class XRPCApi {
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
       
-      // Store preferences in AppView's database
-      // According to the AT Protocol architecture, preferences are application-specific
-      // and should be managed by the AppView, not sent to the PDS
+      // For now, just invalidate the cache and return success
+      // In a full implementation, this would store preferences in the AppView's database
       console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
       
-      // For now, just invalidate the cache and return success
-      // In a full implementation, preferences would be stored in the AppView's database
+      // Invalidate cache after update
       this.invalidatePreferencesCache(userDid);
       
       // Return success response
