@@ -20,18 +20,32 @@ export class Hydrator {
     // Hydrate reposts
     const repostsData = await this.hydrateReposts(repostUris);
     
+    // Get all author DIDs
+    const authorDids = new Set<string>();
+    postsData.forEach(post => {
+      if (post) authorDids.add(post.authorDid);
+    });
+    repostsData.forEach(repost => {
+      if (repost) authorDids.add(repost.authorDid);
+    });
+
+    // Hydrate actors
+    const actors = await this.hydrateActors(Array.from(authorDids));
+    
     // Hydrate profile viewers if viewer is authenticated
     const profileViewers = viewerDid 
-      ? await this.hydrateProfileViewers(
-          Array.from(new Set(items.map(item => item.post.uri))),
-          viewerDid
-        )
+      ? await this.hydrateProfileViewers(Array.from(authorDids), viewerDid)
       : new Map();
 
+    // Hydrate post aggregations
+    const postAggs = await this.hydratePostAggregations(postUris);
+
     return {
+      actors,
       posts: postsData,
       reposts: repostsData,
       profileViewers,
+      postAggs,
     };
   }
 
