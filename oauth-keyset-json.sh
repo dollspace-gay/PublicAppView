@@ -36,18 +36,21 @@ fi
 # --- Key Generation ---
 echo "🔑 Generating P-256 key pair for ES256..."
 # Generate a P-256 private key (required for ES256)
-openssl ecparam -name prime256v1 -genkey -noout -out private.pem
+openssl ecparam -name prime256v1 -genkey -noout -out private_ec.pem
+
+# Convert EC private key to PKCS#8 format (required by JoseKey.fromImportable)
+openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in private_ec.pem -out private.pem
 
 # Generate the corresponding public key
-openssl ec -in private.pem -pubout -out public.pem 2>/dev/null
+openssl ec -in private_ec.pem -pubout -out public.pem 2>/dev/null
 
 # Read PEM file contents into variables
 PRIVATE_KEY_PEM=$(cat private.pem)
 PUBLIC_KEY_PEM=$(cat public.pem)
 
 echo "⚙️  Formatting key into JWK format..."
-# Extract all key components in hex format
-KEY_COMPONENTS_HEX=$(openssl ec -in private.pem -text -noout)
+# Extract all key components in hex format (use original EC key for component extraction)
+KEY_COMPONENTS_HEX=$(openssl ec -in private_ec.pem -text -noout)
 
 # Isolate and clean up each component
 PRIV_HEX=$(echo "$KEY_COMPONENTS_HEX" | grep priv -A 3 | tail -n +2 | tr -d ' \n:')
@@ -89,7 +92,7 @@ $JQ_CMD -n \
   }' > oauth-keyset.json
 
 # --- Cleanup ---
-rm private.pem public.pem
+rm private.pem private_ec.pem public.pem
 
 echo ""
 echo "✅ Success! oauth-keyset.json generated."
