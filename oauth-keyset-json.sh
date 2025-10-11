@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # A pure Bash script to generate a standalone oauth-keyset.json file
-# using a secp256k1 key, suitable for an AT Protocol AppView's internal OAuth.
+# using a P-256 key (ES256), suitable for an AT Protocol AppView's internal OAuth.
 #
 # Dependencies: openssl, jq, xxd
 
@@ -12,7 +12,7 @@ echo "==========================="
 echo ""
 
 # --- Dependency Check ---
-for cmd in openssl jq xxd; do
+for cmd in openssl xxd; do
   if ! command -v $cmd &> /dev/null; then
     echo "❌ Missing required dependency: $cmd"
     echo "Please install it and try again."
@@ -20,10 +20,23 @@ for cmd in openssl jq xxd; do
   fi
 done
 
+# Check for jq (local or system)
+if ! command -v jq &> /dev/null && ! [ -f "./jq" ]; then
+  echo "❌ Missing required dependency: jq"
+  echo "Please install it and try again."
+  exit 1
+fi
+
+# Use local jq if available
+JQ_CMD="jq"
+if [ -f "./jq" ]; then
+  JQ_CMD="./jq"
+fi
+
 # --- Key Generation ---
-echo "🔑 Generating secp256k1 key pair..."
-# Generate a secp256k1 private key
-openssl ecparam -name secp256k1 -genkey -noout -out private.pem
+echo "🔑 Generating P-256 key pair for ES256..."
+# Generate a P-256 private key (required for ES256)
+openssl ecparam -name prime256v1 -genkey -noout -out private.pem
 
 # Generate the corresponding public key
 openssl ec -in private.pem -pubout -out public.pem 2>/dev/null
@@ -52,7 +65,7 @@ KID="$(date +%s)-$(openssl rand -hex 4)"
 
 # --- File Creation ---
 echo "📄 Creating oauth-keyset.json file..."
-jq -n \
+$JQ_CMD -n \
   --arg kid "$KID" \
   --arg pkpem "$PRIVATE_KEY_PEM" \
   --arg pubpem "$PUBLIC_KEY_PEM" \
@@ -66,8 +79,8 @@ jq -n \
     jwk: {
       kid: $kid,
       kty: "EC",
-      crv: "secp256k1",
-      alg: "ES256K",
+      crv: "P-256",
+      alg: "ES256",
       use: "sig",
       d: $d,
       x: $x,
