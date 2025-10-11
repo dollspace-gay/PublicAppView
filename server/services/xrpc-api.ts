@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
 import { Views } from "./views";
+import { INVALID_HANDLE } from '@atproto/syntax';
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -672,12 +673,18 @@ export class XRPCApi {
     );
     const replyPostsByUri = new Map(replyPosts.map((p) => [p.uri, p]));
 
-    return posts.map((post) => {
+    const serializedPosts = posts.map((post) => {
       const author = authorsByDid.get(post.authorDid);
       const likeUri = likeUris.get(post.uri);
       const repostUri = repostUris.get(post.uri);
       const aggregation = aggregations.get(post.uri);
       const viewerState = viewerStates.get(post.uri);
+
+      // Ensure we have a valid author object structure
+      if (!post.authorDid) {
+        console.error(`[SERIALIZE_POSTS] Post ${post.uri} missing authorDid`);
+        return null; // Skip invalid posts
+      }
 
       let reply = undefined;
       if (post.parentUri) {
@@ -756,7 +763,7 @@ export class XRPCApi {
         author: {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
-          handle: author?.handle || 'handle.invalid',
+          handle: author?.handle ?? INVALID_HANDLE,
           displayName: author?.displayName || author?.handle || 'Unknown User',
           pronouns: author?.pronouns,
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
@@ -795,6 +802,9 @@ export class XRPCApi {
         } : {},
       };
     });
+
+    // Filter out any null values (invalid posts)
+    return serializedPosts.filter(post => post !== null);
   }
 
   async getTimeline(req: Request, res: Response) {
@@ -1884,7 +1894,7 @@ export class XRPCApi {
             author: {
               $type: 'app.bsky.actor.defs#profileViewBasic',
               did: post.authorDid,
-              handle: author?.handle || 'handle.invalid',
+              handle: author?.handle ?? INVALID_HANDLE,
               displayName: author?.displayName || 'Unknown User',
               pronouns: author?.pronouns,
               avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
@@ -2960,7 +2970,7 @@ export class XRPCApi {
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
-                handle: author.handle,
+                handle: author.handle ?? INVALID_HANDLE,
                 displayName: author.displayName || author.handle, // Fallback to handle
                 pronouns: author.pronouns,
                 avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
@@ -2990,10 +3000,10 @@ export class XRPCApi {
                 verification: undefined,
                 status: undefined,
               }
-            : { 
+            :               { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
-                handle: 'handle.invalid',
+                handle: INVALID_HANDLE,
                 displayName: 'Unknown User', // Use proper fallback
                 pronouns: undefined,
                 avatar: undefined,

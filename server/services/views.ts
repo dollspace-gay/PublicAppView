@@ -1,4 +1,5 @@
 import { HydrationState, FeedItem, FeedViewPost, ProfileViewerState } from '../types/feed';
+import { INVALID_HANDLE } from '@atproto/syntax';
 
 export class Views {
   feedViewPost(
@@ -97,7 +98,7 @@ export class Views {
       by: authorProfile ? {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: authorProfile.handle || 'handle.invalid',
+        handle: authorProfile.handle ?? INVALID_HANDLE,
         displayName: authorProfile.displayName || authorProfile.handle || 'Unknown User',
         pronouns: authorProfile.pronouns,
         avatar: authorProfile.avatarUrl,
@@ -129,7 +130,7 @@ export class Views {
       } : {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: 'handle.invalid',
+        handle: INVALID_HANDLE,
         displayName: 'Unknown User',
         pronouns: undefined,
         avatar: undefined,
@@ -173,7 +174,7 @@ export class Views {
       by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: repost.userDid,
-        handle: reposterProfile.handle || 'handle.invalid',
+        handle: reposterProfile.handle ?? INVALID_HANDLE,
         displayName: reposterProfile.displayName || reposterProfile.handle || 'Unknown User',
         pronouns: reposterProfile.pronouns,
         avatar: reposterProfile.avatarUrl,

@@ -1,5 +1,5 @@
 // Test script to verify our feed implementation
-const { FILTER_TO_FEED_TYPE, FeedType, FeedItemType } = require('./server/types/feed.ts');
+import { FILTER_TO_FEED_TYPE, FeedType, FeedItemType } from './server/types/feed.ts';
 
 console.log('Testing feed implementation...');
 
