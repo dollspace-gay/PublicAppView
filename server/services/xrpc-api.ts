@@ -1067,8 +1067,13 @@ export class XRPCApi {
         ? await storage.getRelationships(viewerDid, followDids)
         : new Map();
 
+      // Get the actor's handle for the subject
+      const actor = await storage.getUser(actorDid);
       res.json({
-        subject: { did: actorDid },
+        subject: { 
+          did: actorDid,
+          handle: actor?.handle || actorDid
+        },
         follows: follows
           .map((f) => {
             const user = userMap.get(f.followingDid);
@@ -1077,15 +1082,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(f.followingDid)
               : null;
-            const viewer = viewerState
-              ? {
-                  muted: !!viewerState.muting,
-                  blockedBy: viewerState.blockedBy,
-                  blocking: viewerState.blocking,
-                  following: viewerState.following,
-                  followedBy: viewerState.followedBy,
-                }
-              : {};
+            const viewer = {
+              muted: viewerState ? !!viewerState.muting : false,
+              blockedBy: viewerState?.blockedBy || false,
+              blocking: viewerState?.blocking || false,
+              following: viewerState?.following || false,
+              followedBy: viewerState?.followedBy || false,
+            };
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -1121,8 +1124,13 @@ export class XRPCApi {
         ? await storage.getRelationships(viewerDid, followerDids)
         : new Map();
 
+      // Get the actor's handle for the subject
+      const actor = await storage.getUser(actorDid);
       res.json({
-        subject: { did: actorDid },
+        subject: { 
+          did: actorDid,
+          handle: actor?.handle || actorDid
+        },
         followers: followers
           .map((f) => {
             const user = userMap.get(f.followerDid);
@@ -1131,15 +1139,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(f.followerDid)
               : null;
-            const viewer = viewerState
-              ? {
-                  muted: !!viewerState.muting,
-                  blockedBy: viewerState.blockedBy,
-                  blocking: viewerState.blocking,
-                  following: viewerState.following,
-                  followedBy: viewerState.followedBy,
-                }
-              : {};
+            const viewer = {
+              muted: viewerState ? !!viewerState.muting : false,
+              blockedBy: viewerState?.blockedBy || false,
+              blocking: viewerState?.blocking || false,
+              following: viewerState?.following || false,
+              followedBy: viewerState?.followedBy || false,
+            };
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -1416,8 +1422,15 @@ export class XRPCApi {
         params.cursor,
       );
 
+      // Resolve actor to get handle
+      const actorDid = await this._resolveActor(res, params.actor);
+      if (!actorDid) return;
+      const actor = await storage.getUser(actorDid);
       res.json({
-        subject: params.actor,
+        subject: {
+          did: actorDid,
+          handle: actor?.handle || params.actor
+        },
         cursor,
         followers: followers.map((user) => ({
           did: user.did,
@@ -2781,15 +2794,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(like.userDid)
               : null;
-            const viewer = viewerState
-              ? {
-                  muted: !!viewerState.muting,
-                  blockedBy: viewerState.blockedBy,
-                  blocking: viewerState.blocking,
-                  following: viewerState.following,
-                  followedBy: viewerState.followedBy,
-                }
-              : {};
+            const viewer = {
+              muted: viewerState ? !!viewerState.muting : false,
+              blockedBy: viewerState?.blockedBy || false,
+              blocking: viewerState?.blocking || false,
+              following: viewerState?.following || false,
+              followedBy: viewerState?.followedBy || false,
+            };
 
             return {
               actor: {
@@ -2839,15 +2850,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(repost.userDid)
               : null;
-            const viewer = viewerState
-              ? {
-                  muted: !!viewerState.muting,
-                  blockedBy: viewerState.blockedBy,
-                  blocking: viewerState.blocking,
-                  following: viewerState.following,
-                  followedBy: viewerState.followedBy,
-                }
-              : {};
+            const viewer = {
+              muted: viewerState ? !!viewerState.muting : false,
+              blockedBy: viewerState?.blockedBy || false,
+              blocking: viewerState?.blocking || false,
+              following: viewerState?.following || false,
+              followedBy: viewerState?.followedBy || false,
+            };
 
             return {
               did: user.did,
