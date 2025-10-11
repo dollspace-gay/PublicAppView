@@ -596,7 +596,15 @@ export class XRPCApi {
         createdAt: post.createdAt.toISOString(),
       };
 
-      if (post.embed) record.embed = post.embed;
+      if (post.embed) {
+        // Ensure embed has proper $type field and is an object
+        if (post.embed && typeof post.embed === 'object' && post.embed.$type) {
+          record.embed = post.embed;
+        } else {
+          console.warn(`[SERIALIZE_POSTS] Invalid embed for post ${post.uri}:`, post.embed);
+          // Don't include invalid embeds
+        }
+      }
       if (post.facets) record.facets = post.facets;
       if (reply) record.reply = reply;
 
@@ -612,7 +620,6 @@ export class XRPCApi {
           ...(author?.avatarUrl && { avatar: author.avatarUrl }),
         },
         record,
-        embed: post.embed,
         replyCount: post.replyCount || 0,
         repostCount: post.repostCount || 0,
         likeCount: post.likeCount || 0,
