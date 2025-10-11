@@ -612,6 +612,7 @@ export class XRPCApi {
     const listBlock = listBlocks.get(authorDid);
     
     return {
+      $type: 'app.bsky.actor.defs#viewerState',
       muted: !!listMute,
       mutedByList: listMute ? {
         $type: 'app.bsky.graph.defs#listViewBasic',
@@ -629,6 +630,8 @@ export class XRPCApi {
       } : undefined,
       following: undefined,
       followedBy: undefined,
+      knownFollowers: undefined,
+      activitySubscription: undefined,
     };
   }
 
@@ -755,8 +758,22 @@ export class XRPCApi {
           did: post.authorDid,
           handle: author?.handle || 'handle.invalid',
           displayName: author?.displayName || author?.handle || 'Unknown User',
+          pronouns: author?.pronouns,
           avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+          associated: {
+            $type: 'app.bsky.actor.defs#profileAssociated',
+            lists: 0, // TODO: Get actual list count
+            feedgens: 0, // TODO: Get actual feedgen count
+            starterPacks: 0, // TODO: Get actual starter pack count
+            labeler: false, // TODO: Check if user is a labeler
+            chat: undefined, // TODO: Implement chat settings
+            activitySubscription: undefined, // TODO: Implement activity subscription
+          },
           viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks),
+          labels: [], // TODO: Get actual labels
+          createdAt: author?.createdAt?.toISOString(),
+          verification: undefined, // TODO: Implement verification state
+          status: undefined, // TODO: Implement status view
         },
         record,
         replyCount: aggregation?.replyCount || 0,
@@ -1158,8 +1175,13 @@ export class XRPCApi {
             cts: l.createdAt.toISOString(),
           })),
           associated: {
+            $type: 'app.bsky.actor.defs#profileAssociated',
             lists: listCounts.get(did) || 0,
             feedgens: feedgenCounts.get(did) || 0,
+            starterPacks: 0, // TODO: Get actual starter pack count
+            labeler: false, // TODO: Check if user is a labeler
+            chat: undefined, // TODO: Implement chat settings
+            activitySubscription: undefined, // TODO: Implement activity subscription
           },
         };
         if (pinnedPostUri && pinnedPostCid) {
@@ -1860,10 +1882,26 @@ export class XRPCApi {
             uri: post.uri,
             cid: post.cid,
             author: {
+              $type: 'app.bsky.actor.defs#profileViewBasic',
               did: post.authorDid,
               handle: author?.handle || 'handle.invalid',
               displayName: author?.displayName || 'Unknown User',
+              pronouns: author?.pronouns,
               avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+              associated: {
+                $type: 'app.bsky.actor.defs#profileAssociated',
+                lists: 0,
+                feedgens: 0,
+                starterPacks: 0,
+                labeler: false,
+                chat: undefined,
+                activitySubscription: undefined,
+              },
+              viewer: undefined,
+              labels: [],
+              createdAt: author?.createdAt?.toISOString(),
+              verification: undefined,
+              status: undefined,
             },
             record: {
               text: post.text,
@@ -2924,27 +2962,66 @@ export class XRPCApi {
                 did: author.did,
                 handle: author.handle,
                 displayName: author.displayName || author.handle, // Fallback to handle
+                pronouns: author.pronouns,
                 avatar: author.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
+                associated: {
+                  $type: 'app.bsky.actor.defs#profileAssociated',
+                  lists: 0,
+                  feedgens: 0,
+                  starterPacks: 0,
+                  labeler: false,
+                  chat: undefined,
+                  activitySubscription: undefined,
+                },
                 viewer: {
+                  $type: 'app.bsky.actor.defs#viewerState',
                   muted: false,
+                  mutedByList: undefined,
                   blockedBy: false,
                   blocking: undefined,
+                  blockingByList: undefined,
                   following: undefined,
                   followedBy: undefined,
+                  knownFollowers: undefined,
+                  activitySubscription: undefined,
                 },
+                labels: [],
+                createdAt: author.createdAt?.toISOString(),
+                verification: undefined,
+                status: undefined,
               }
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
                 handle: 'handle.invalid',
                 displayName: 'Unknown User', // Use proper fallback
+                pronouns: undefined,
+                avatar: undefined,
+                associated: {
+                  $type: 'app.bsky.actor.defs#profileAssociated',
+                  lists: 0,
+                  feedgens: 0,
+                  starterPacks: 0,
+                  labeler: false,
+                  chat: undefined,
+                  activitySubscription: undefined,
+                },
                 viewer: {
+                  $type: 'app.bsky.actor.defs#viewerState',
                   muted: false,
+                  mutedByList: undefined,
                   blockedBy: false,
                   blocking: undefined,
+                  blockingByList: undefined,
                   following: undefined,
                   followedBy: undefined,
+                  knownFollowers: undefined,
+                  activitySubscription: undefined,
                 },
+                labels: [],
+                createdAt: undefined,
+                verification: undefined,
+                status: undefined,
               },
         };
         return view;

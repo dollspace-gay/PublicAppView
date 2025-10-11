@@ -49,12 +49,40 @@ export interface HydrationState {
 
 // Profile viewer state
 export interface ProfileViewerState {
-  blocking?: boolean;
+  $type?: 'app.bsky.actor.defs#viewerState';
+  muted?: boolean;
+  mutedByList?: {
+    $type: 'app.bsky.graph.defs#listViewBasic';
+    uri: string;
+    name: string;
+    purpose: string;
+  };
   blockedBy?: boolean;
-  following?: boolean;
-  followedBy?: boolean;
-  blockingByList?: boolean;
-  blockedByList?: boolean;
+  blocking?: string; // URI, not boolean
+  blockingByList?: {
+    $type: 'app.bsky.graph.defs#listViewBasic';
+    uri: string;
+    name: string;
+    purpose: string;
+  };
+  following?: string; // URI, not boolean
+  followedBy?: string; // URI, not boolean
+  knownFollowers?: {
+    $type: 'app.bsky.actor.defs#knownFollowers';
+    count: number;
+    followers: Array<{
+      $type: 'app.bsky.actor.defs#profileViewBasic';
+      did: string;
+      handle: string;
+      displayName?: string;
+      avatar?: string;
+    }>;
+  };
+  activitySubscription?: {
+    $type: 'app.bsky.notification.defs#activitySubscription';
+    post: boolean;
+    reply: boolean;
+  };
 }
 
 // Feed view post structure
