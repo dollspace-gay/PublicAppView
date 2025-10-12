@@ -6,6 +6,8 @@ import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
+import { CID } from 'multiformats/cid';
+import * as Digest from 'multiformats/hashes/digest';
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -15,6 +17,86 @@ function sanitizeText(text: string | undefined | null): string | undefined {
 function sanitizeRequiredText(text: string | undefined | null): string {
   if (!text) return '';
   return text.replace(/\u0000/g, '');
+}
+
+/**
+ * Extract CID from various blob reference formats used in AT Protocol
+ * Handles: 
+ * - {ref: {$link: 'cid'}} (JSON format from API)
+ * - {ref: {code, version, multihash}} (Binary CID object from CAR files)
+ * - {cid: 'cid'} (Direct CID field)
+ * - Direct CID string
+ */
+function extractBlobCid(blob: any): string | null {
+  if (!blob) return null;
+  
+  // Handle direct string
+  if (typeof blob === 'string') {
+    return blob === 'undefined' ? null : blob;
+  }
+  
+  // Handle blob.ref field
+  if (blob.ref) {
+    // String CID: {ref: {$link: 'cid'}} or {ref: 'cid'}
+    if (typeof blob.ref === 'string') {
+      return blob.ref !== 'undefined' ? blob.ref : null;
+    }
+    
+    if (blob.ref.$link) {
+      return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
+    }
+    
+    // Binary CID object from CAR files: {ref: {code, version, multihash}}
+    if (blob.ref.code !== undefined && blob.ref.multihash) {
+      try {
+        // If it's already a CID object with toString method, use it
+        if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
+          const cidString = blob.ref.toString();
+          return cidString !== 'undefined' ? cidString : null;
+        }
+        
+        // Otherwise, construct CID from the binary parts
+        const mh = blob.ref.multihash;
+        const digest = mh.digest;
+        
+        // Convert digest to Uint8Array if it's an object with numeric keys
+        let digestBytes: Uint8Array;
+        if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+          const size = mh.size || Object.keys(digest).length;
+          digestBytes = new Uint8Array(size);
+          for (let i = 0; i < size; i++) {
+            digestBytes[i] = digest[i];
+          }
+        } else if (ArrayBuffer.isView(digest)) {
+          digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+        } else {
+          return null;
+        }
+        
+        // Create a proper Multihash Digest
+        const multihashDigest = Digest.create(mh.code, digestBytes);
+        
+        // Create CID from parts: version, codec, and multihash
+        const cidObj = CID.create(
+          blob.ref.version || 1,
+          blob.ref.code,
+          multihashDigest
+        );
+        
+        return cidObj.toString();
+      } catch (error) {
+        console.error('[EXTRACT_CID] Error converting binary CID:', error);
+        return null;
+      }
+    }
+  }
+  
+  // Handle blob.cid field
+  if (blob.cid) {
+    return blob.cid !== 'undefined' ? blob.cid : null;
+  }
+  
+  return null;
 }
 
 interface PendingOp {
@@ -562,11 +644,17 @@ export class EventProcessor {
           handle: handle,
         });
         
+        // Mark user for profile fetching to get avatar/banner data
+        pdsDataFetcher.markIncomplete('user', did);
+        
         // Batch logging: only log every 5000 user creations
         this.userCreationCount++;
         if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
           smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
         }
+      } else if (!user.avatarUrl && !user.displayName) {
+        // User exists but has no profile data - mark for fetching
+        pdsDataFetcher.markIncomplete('user', did);
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
@@ -1149,8 +1237,8 @@ export class EventProcessor {
       handle: handle || did, // Use resolved handle or fallback to DID
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
-      bannerUrl: record.banner?.ref?.$link,
+      avatarUrl: extractBlobCid(record.avatar),
+      bannerUrl: extractBlobCid(record.banner),
       profileRecord: record,
     };
 
@@ -1282,7 +1370,7 @@ export class EventProcessor {
       name: sanitizeRequiredText(record.name),
       purpose: record.purpose,
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
+      avatarUrl: extractBlobCid(record.avatar),
       createdAt: this.safeDate(record.createdAt),
     };
 
@@ -1378,7 +1466,7 @@ export class EventProcessor {
       did: record.did,
       displayName: sanitizeRequiredText(record.displayName),
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
+      avatarUrl: extractBlobCid(record.avatar),
       createdAt: this.safeDate(record.createdAt),
     };
 

@@ -77,22 +77,28 @@ export class EmbedResolver {
               notFound: true
             }
           };
+        } else {
+          // If no record URI, skip this embed (invalid data)
+          resolved = null;
         }
       } else if (embed.$type === 'app.bsky.embed.recordWithMedia') {
         // Quote with media
         const recordUri = embed.record?.record?.uri;
         if (recordUri) {
           childUris.push(recordUri);
+          resolved = {
+            $type: 'app.bsky.embed.recordWithMedia#view',
+            record: {
+              $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
+              uri: recordUri,
+              notFound: true
+            },
+            media: this.resolveMediaEmbed(embed.media, post.authorDid)
+          };
+        } else {
+          // If no record URI, just show the media (not recordWithMedia)
+          resolved = this.resolveMediaEmbed(embed.media, post.authorDid);
         }
-        resolved = {
-          $type: 'app.bsky.embed.recordWithMedia#view',
-          record: recordUri ? {
-            $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
-            uri: recordUri,
-            notFound: true
-          } : undefined,
-          media: this.resolveMediaEmbed(embed.media, post.authorDid)
-        };
       } else if (embed.$type === 'app.bsky.embed.images') {
         // Images
         resolved = this.resolveImagesEmbed(embed, post.authorDid);
@@ -251,33 +257,39 @@ export class EmbedResolver {
   private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.images#view',
-      images: (embed.images || []).map((img: any) => ({
-        thumb: this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail'),
-        fullsize: this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize'),
-        alt: img.alt || '',
-        aspectRatio: img.aspectRatio
-      }))
+      images: (embed.images || []).map((img: any) => {
+        const thumb = this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail');
+        const fullsize = this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize');
+        return {
+          thumb: thumb || undefined,
+          fullsize: fullsize || undefined,
+          alt: img.alt || '',
+          aspectRatio: img.aspectRatio
+        };
+      }).filter((img: any) => img.thumb && img.fullsize) // Only include images with valid URLs
     };
   }
 
   private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const thumbUrl = embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : '';
     return {
       $type: 'app.bsky.embed.external#view',
       external: {
         uri: embed.external?.uri || '',
         title: embed.external?.title || '',
         description: embed.external?.description || '',
-        thumb: embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : undefined
+        ...(thumbUrl && { thumb: thumbUrl })
       }
     };
   }
 
   private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const thumbnailUrl = embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : '';
     return {
       $type: 'app.bsky.embed.video#view',
       cid: embed.video?.ref?.$link || '',
       playlist: undefined, // Video playlist URLs not yet implemented
-      thumbnail: embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : undefined,
+      ...(thumbnailUrl && { thumbnail: thumbnailUrl }),
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };
@@ -301,6 +313,9 @@ export class EmbedResolver {
     if (!blob || !blob.ref) return '';
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
+    // Check for the string "undefined" which can happen with improper data extraction
+    if (!cid || cid === 'undefined') return '';
+    
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
     // PUBLIC_URL is our publicUrl (base URL of the application)
@@ -319,7 +334,8 @@ export class EmbedResolver {
   
   // Transform a plain CID string (as stored in database) to CDN URL
   private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
-    if (!cid) return '';
+    // Check for falsy values and the literal string "undefined"
+    if (!cid || cid === 'undefined') return '';
     
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
