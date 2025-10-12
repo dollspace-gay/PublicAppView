@@ -509,6 +509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       });
 
+
       // Redirect to appropriate page based on admin status
       const redirectPath = isAdmin ? '/admin/moderation' : '/user/panel';
       res.redirect(redirectPath);
