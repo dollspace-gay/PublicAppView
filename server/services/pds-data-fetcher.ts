@@ -311,29 +311,11 @@ export class PDSDataFetcher {
           // Ignore if we can't read the body
         }
         
-        // If record not found, the account exists but has no profile (deleted/deactivated)
-        // Create a minimal user record and treat as success to stop retrying
+        // If record not found at PDS, try the AppView as fallback
+        // This handles cases where the profile exists but isn't at this PDS endpoint
         if (profileResponse.status === 400 && isRecordNotFound) {
-          const handle = await didResolver.resolveDIDToHandle(did);
-          
-          await storage.updateUser(did, {
-            handle: handle || did,
-            displayName: null,
-            description: null,
-            avatarUrl: null,
-            bannerUrl: null,
-          });
-          
-          console.warn(`[PDS_FETCHER] No profile record for ${did} (deleted/deactivated account) - created minimal record`);
-          
-          // Flush pending operations
-          await eventProcessor.flushPendingUserOps(did);
-          await eventProcessor.flushPendingUserCreationOps(did);
-          
-          return {
-            success: true, // Treat as success to stop retrying
-            data: { did, handle: handle || did, profile: null }
-          };
+          console.warn(`[PDS_FETCHER] Profile not found at PDS for ${did}, trying AppView fallback...`);
+          return await this.fetchUserDataFromAppView(did);
         }
         
         const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
