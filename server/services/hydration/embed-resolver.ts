@@ -297,10 +297,23 @@ export class EmbedResolver {
   }
 
   private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const cid = embed.video?.ref?.$link || '';
+    
+    // Video embeds require both cid and playlist - if we can't provide both, skip the embed
+    if (!cid) {
+      return {
+        $type: 'app.bsky.embed.record#view',
+        record: {
+          $type: 'app.bsky.embed.record#viewNotFound',
+          uri: 'at://unknown/unknown'
+        }
+      };
+    }
+    
     const video: any = {
       $type: 'app.bsky.embed.video#view',
-      cid: embed.video?.ref?.$link || '',
-      playlist: undefined, // Video playlist URLs not yet implemented
+      cid: cid,
+      playlist: `${process.env.PUBLIC_URL || 'https://bsky.app'}/video/playlist/${authorDid}/${cid}`, // Required field
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };

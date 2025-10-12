@@ -2180,6 +2180,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/xrpc/app.bsky.notification.putPreferences", xrpcApi.putNotificationPreferences.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getJobStatus", xrpcApi.getJobStatus.bind(xrpcApi));
   app.get("/xrpc/app.bsky.video.getUploadLimits", xrpcApi.getUploadLimits.bind(xrpcApi));
+  
+  // Video playlist endpoint (required for video embeds)
+  app.get("/video/playlist/:did/:cid", (req: Request, res: Response) => {
+    const { did, cid } = req.params;
+    // For now, redirect to the video file or return a placeholder playlist
+    // In a real implementation, this would return an HLS playlist or similar
+    res.redirect(`/video/${did}/${cid}.mp4`);
+  });
 
   // Bookmark endpoints
   app.post("/xrpc/app.bsky.bookmark.createBookmark", xrpcApi.createBookmark.bind(xrpcApi));
