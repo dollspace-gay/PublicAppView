@@ -749,9 +749,13 @@ export class XRPCApi {
       const authorLabels = state.labels.get(post.authorDid) || [];
       const hydratedEmbed = state.embeds.get(post.uri);
 
-      const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
-        ? author.handle 
-        : 'unknown.invalid';
+      // Author must have a valid handle at this point
+      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
+        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
+        return null;
+      }
+      
+      const authorHandle = author.handle;
 
       const record: any = {
         $type: 'app.bsky.feed.post',
@@ -841,7 +845,8 @@ export class XRPCApi {
       return postView;
     });
 
-    return serializedPosts;
+    // Filter out null entries (posts from authors without valid handles)
+    return serializedPosts.filter(post => post !== null);
   }
 
   private async serializePosts(posts: any[], viewerDid?: string) {
@@ -932,9 +937,13 @@ export class XRPCApi {
       const viewerState = viewerStates.get(post.uri);
 
       // Ensure author handle is always present and valid
-      const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
-        ? author.handle 
-        : 'unknown.invalid';
+      // Author must have a valid handle at this point
+      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
+        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
+        return null;
+      }
+      
+      const authorHandle = author.handle;
 
       let reply = undefined;
       if (post.parentUri) {
@@ -1113,9 +1122,12 @@ export class XRPCApi {
 
       const serializedPosts = await this.serializePosts(rankedPosts, userDid);
 
+      // Filter out any null entries
+      const validPosts = serializedPosts.filter(post => post !== null);
+      
       res.json({
         cursor: oldestPost ? oldestPost.indexedAt.toISOString() : undefined,
-        feed: serializedPosts.map((post) => ({ post })),
+        feed: validPosts.map((post) => ({ post })),
       });
     } catch (error) {
       this._handleError(res, error, 'getTimeline');
@@ -2259,10 +2271,22 @@ export class XRPCApi {
         `[XRPC] Hydrated ${hydratedFeed.length} posts from feed generator`,
       );
 
+      // Ensure all author profiles are loaded before building the feed
+      const authorDids = [...new Set(hydratedFeed.map(item => item.post.authorDid))];
+      await Promise.all(
+        authorDids.map(authorDid => lazyDataLoader.ensureUserProfile(authorDid))
+      );
+
       // Build post views with author information
       const feed = await Promise.all(
         hydratedFeed.map(async ({ post, reason }) => {
           const author = await storage.getUser(post.authorDid);
+          
+          // Skip posts from authors without valid handles
+          if (!author || !author.handle) {
+            console.warn(`[XRPC] Skipping post ${post.uri} - author ${post.authorDid} has no handle`);
+            return null;
+          }
 
           const postView: any = {
             uri: post.uri,
@@ -2270,8 +2294,8 @@ export class XRPCApi {
             author: {
               $type: 'app.bsky.actor.defs#profileViewBasic',
               did: post.authorDid,
-              handle: author?.handle ?? 'unknown.invalid',
-              displayName: author?.displayName ?? 'Unknown User',
+              handle: author.handle,
+              displayName: author.displayName ?? author.handle,
               pronouns: author?.pronouns,
               ...this.maybeAvatar(author?.avatarUrl, author?.did),
               associated: {
@@ -2310,7 +2334,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ feed, cursor });
+      // Filter out null entries (posts from authors without handles)
+      const validFeed = feed.filter(item => item !== null);
+
+      res.json({ feed: validFeed, cursor });
     } catch (error) {
       // If feed generator is unavailable, provide a helpful error
       if (
@@ -3771,9 +3798,12 @@ export class XRPCApi {
         viewerDid || undefined,
       );
 
+      // Filter out any null entries
+      const validPosts = serializedPosts.filter(post => post !== null);
+
       res.json({
         cursor,
-        feed: serializedPosts.map((post) => ({ post })),
+        feed: validPosts.map((post) => ({ post })),
       });
     } catch (error) {
       this._handleError(res, error, 'getActorLikes');
