@@ -156,6 +156,11 @@ export class EventProcessor {
     pendingUserCreationOpsExpired: 0,
   };
   private dataCollectionCache = new Map<string, boolean>(); // DID -> dataCollectionForbidden
+  
+  // Concurrent user creation limiting to prevent connection pool exhaustion
+  private pendingUserCreations = new Map<string, Promise<boolean>>(); // did -> pending promise
+  private activeUserCreations = 0;
+  private readonly MAX_CONCURRENT_USER_CREATIONS = 100; // Limit concurrent user creations
 
   constructor(storageInstance: IStorage = storage) {
     this.storage = storageInstance;
@@ -547,6 +552,8 @@ export class EventProcessor {
       pendingUserOpsCount: this.totalPendingUserOps,
       pendingListItemsCount: this.totalPendingListItems,
       pendingUserCreationOpsCount: this.totalPendingUserCreationOps,
+      activeUserCreations: this.activeUserCreations,
+      pendingUserCreationDeduplication: this.pendingUserCreations.size,
     };
   }
 
@@ -626,36 +633,88 @@ export class EventProcessor {
   }
 
   private async ensureUser(did: string): Promise<boolean> {
+    // Check if there's already a pending creation for this user
+    // This prevents duplicate concurrent operations for the same user
+    const existingCreation = this.pendingUserCreations.get(did);
+    if (existingCreation) {
+      return existingCreation;
+    }
+    
+    // Create the promise and store it
+    const creationPromise = this.ensureUserInternal(did);
+    this.pendingUserCreations.set(did, creationPromise);
+    
+    // Clean up after completion
+    creationPromise.finally(() => {
+      this.pendingUserCreations.delete(did);
+    });
+    
+    return creationPromise;
+  }
+  
+  private async ensureUserInternal(did: string): Promise<boolean> {
     try {
+      // First check if user exists - quick DB query
       const user = await this.storage.getUser(did);
+      
       if (!user) {
-        // Resolve DID to get handle from DID document
-        const handle = await didResolver.resolveDIDToHandle(did);
-        
-        if (!handle) {
-          // If we can't resolve the handle, mark as incomplete for PDS fetching
-          smartConsole.warn(`[EVENT_PROCESSOR] Could not resolve handle for ${did}, marking for PDS fetch`);
-          pdsDataFetcher.markIncomplete('user', did);
-          return false;
+        // Wait if we're at the concurrent creation limit
+        // This prevents overwhelming the database with too many concurrent user creations
+        while (this.activeUserCreations >= this.MAX_CONCURRENT_USER_CREATIONS) {
+          await new Promise(resolve => setTimeout(resolve, 10)); // Wait 10ms before checking again
         }
         
-        await this.storage.createUser({
-          did,
-          handle: handle,
-        });
+        this.activeUserCreations++;
         
-        // Mark user for profile fetching to get avatar/banner data
-        pdsDataFetcher.markIncomplete('user', did);
-        
-        // Batch logging: only log every 5000 user creations
-        this.userCreationCount++;
-        if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
-          smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+        try {
+          // User doesn't exist - we need to create them
+          // CRITICAL: We use a short timeout for DID resolution to avoid holding DB connections
+          // for extended periods, which would exhaust the connection pool
+          
+          // Try to resolve handle with a short timeout
+          let handle: string | null = null;
+          try {
+            // Use a promise with a timeout wrapper to prevent long waits
+            handle = await Promise.race([
+              didResolver.resolveDIDToHandle(did),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)) // 5 second timeout
+            ]);
+          } catch (error) {
+            // DID resolution failed, but we can still create the user with DID as handle
+            smartConsole.warn(`[EVENT_PROCESSOR] DID resolution failed for ${did}, using DID as handle`);
+          }
+          
+          // Create user with resolved handle or DID as fallback
+          // This keeps the DB operation fast
+          try {
+            await this.storage.createUser({
+              did,
+              handle: handle || did, // Use DID as fallback handle
+            });
+            
+            // Mark user for profile fetching to get proper handle and avatar/banner data
+            pdsDataFetcher.markIncomplete('user', did);
+            
+            // Batch logging: only log every 5000 user creations
+            this.userCreationCount++;
+            if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
+              smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+            }
+          } catch (createError: any) {
+            // If createUser resulted in a unique constraint violation, it means the user was created
+            // by a parallel process. This is fine - we can continue.
+            if (createError.code !== '23505') {
+              throw createError;
+            }
+          }
+        } finally {
+          this.activeUserCreations--;
         }
       } else if (!user.avatarUrl && !user.displayName) {
         // User exists but has no profile data - mark for fetching
         pdsDataFetcher.markIncomplete('user', did);
       }
+      
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
       await this.flushPendingUserOps(did);
