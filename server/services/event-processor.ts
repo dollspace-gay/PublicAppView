@@ -7,6 +7,7 @@ import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
 import { CID } from 'multiformats/cid';
+import * as Digest from 'multiformats/hashes/digest';
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -48,44 +49,44 @@ function extractBlobCid(blob: any): string | null {
     // Binary CID object from CAR files: {ref: {code, version, multihash}}
     if (blob.ref.code !== undefined && blob.ref.multihash) {
       try {
-        // The ref field IS a CID object, we can create a CID instance from it
-        const cidObj = CID.decode(blob.ref as any);
-        return cidObj.toString();
-      } catch (error) {
-        // If that doesn't work, try reconstructing from the parts
-        try {
-          const digest = blob.ref.multihash.digest;
-          
-          // Convert digest to Uint8Array if it's an object with numeric keys
-          let digestBytes: Uint8Array;
-          if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
-            const size = blob.ref.multihash.size || Object.keys(digest).length;
-            digestBytes = new Uint8Array(size);
-            for (let i = 0; i < size; i++) {
-              digestBytes[i] = digest[i];
-            }
-          } else if (ArrayBuffer.isView(digest)) {
-            digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
-          } else {
-            return null;
+        // If it's already a CID object with toString method, use it
+        if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
+          const cidString = blob.ref.toString();
+          return cidString !== 'undefined' ? cidString : null;
+        }
+        
+        // Otherwise, construct CID from the binary parts
+        const mh = blob.ref.multihash;
+        const digest = mh.digest;
+        
+        // Convert digest to Uint8Array if it's an object with numeric keys
+        let digestBytes: Uint8Array;
+        if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+          const size = mh.size || Object.keys(digest).length;
+          digestBytes = new Uint8Array(size);
+          for (let i = 0; i < size; i++) {
+            digestBytes[i] = digest[i];
           }
-          
-          // Create CID from parts: version, code, and multihash bytes
-          const cidObj = CID.create(
-            blob.ref.version || 1,
-            blob.ref.code,
-            {
-              code: blob.ref.multihash.code,
-              digest: digestBytes,
-              bytes: null as any // Will be computed
-            }
-          );
-          
-          return cidObj.toString();
-        } catch (error2) {
-          console.error('[EXTRACT_CID] Error converting binary CID:', error2);
+        } else if (ArrayBuffer.isView(digest)) {
+          digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+        } else {
           return null;
         }
+        
+        // Create a proper Multihash Digest
+        const multihashDigest = Digest.create(mh.code, digestBytes);
+        
+        // Create CID from parts: version, codec, and multihash
+        const cidObj = CID.create(
+          blob.ref.version || 1,
+          blob.ref.code,
+          multihashDigest
+        );
+        
+        return cidObj.toString();
+      } catch (error) {
+        console.error('[EXTRACT_CID] Error converting binary CID:', error);
+        return null;
       }
     }
   }
