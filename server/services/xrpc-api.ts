@@ -751,7 +751,7 @@ export class XRPCApi {
 
       const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
         ? author.handle 
-        : 'handle.invalid';
+        : 'unknown.invalid';
 
       const record: any = {
         $type: 'app.bsky.feed.post',
@@ -934,7 +934,7 @@ export class XRPCApi {
       // Ensure author handle is always present and valid
       const authorHandle = (author?.handle && typeof author.handle === 'string' && author.handle.trim() !== '') 
         ? author.handle 
-        : 'handle.invalid';
+        : 'unknown.invalid';
 
       let reply = undefined;
       if (post.parentUri) {
@@ -1509,7 +1509,7 @@ export class XRPCApi {
             followers: knownFollowersResult.followers.map((f) => {
               const follower: any = {
                 did: f.did,
-                handle: f.handle || 'handle.invalid',
+                handle: f.handle || 'unknown.invalid',
               };
               // Only include displayName if it exists (AT Protocol requires string or omit, not null)
               if (f.displayName) follower.displayName = f.displayName;
@@ -2270,7 +2270,7 @@ export class XRPCApi {
             author: {
               $type: 'app.bsky.actor.defs#profileViewBasic',
               did: post.authorDid,
-              handle: author?.handle ?? 'handle.invalid',
+              handle: author?.handle ?? 'unknown.invalid',
               displayName: author?.displayName ?? 'Unknown User',
               pronouns: author?.pronouns,
               ...this.maybeAvatar(author?.avatarUrl, author?.did),
@@ -3430,7 +3430,7 @@ export class XRPCApi {
             ? {
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: author.did,
-                handle: author.handle ?? 'handle.invalid',
+                handle: author.handle ?? 'unknown.invalid',
                 displayName: author.displayName ?? author.handle ?? 'Unknown User',
                 pronouns: author.pronouns,
                 ...this.maybeAvatar(author.avatarUrl, author.did),
@@ -3463,7 +3463,7 @@ export class XRPCApi {
             : { 
                 $type: 'app.bsky.actor.defs#profileViewBasic',
                 did: n.authorDid, 
-                handle: 'handle.invalid',
+                handle: 'unknown.invalid',
                 displayName: 'Unknown User', // Use proper fallback
                 pronouns: undefined,
                 avatar: undefined,

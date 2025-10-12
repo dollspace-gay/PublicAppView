@@ -97,7 +97,7 @@ export class Views {
       by: authorProfile ? {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: authorProfile.handle ?? 'handle.invalid',
+        handle: authorProfile.handle ?? 'unknown.invalid',
         displayName: authorProfile.displayName ?? authorProfile.handle ?? 'Unknown User',
         pronouns: authorProfile.pronouns,
         avatar: authorProfile.avatarUrl,
@@ -129,7 +129,7 @@ export class Views {
       } : {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: 'handle.invalid',
+        handle: 'unknown.invalid',
         displayName: 'Unknown User',
         pronouns: undefined,
         avatar: undefined,
@@ -173,7 +173,7 @@ export class Views {
       by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: repost.userDid,
-        handle: reposterProfile.handle ?? 'handle.invalid',
+        handle: reposterProfile.handle ?? 'unknown.invalid',
         displayName: reposterProfile.displayName ?? reposterProfile.handle ?? 'Unknown User',
         pronouns: reposterProfile.pronouns,
         avatar: reposterProfile.avatarUrl,
