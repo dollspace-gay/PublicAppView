@@ -87,7 +87,7 @@ export class LazyDataLoader {
       for (const targetDid of userDids) {
         try {
           // Check if we have recent posts for this user
-          const existingPosts = await storage.getUserPosts(targetDid, 10);
+          const existingPosts = await storage.getAuthorPosts(targetDid, 10);
           
           if (existingPosts.length >= 5) {
             // We have enough recent posts
