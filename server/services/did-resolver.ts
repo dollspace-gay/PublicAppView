@@ -6,6 +6,7 @@
 
 import { smartConsole } from './console-wrapper';
 import { isUrlSafeToFetch } from '../utils/security';
+import { promises as dnsPromises } from 'dns';
 
 interface DIDDocument {
   id: string;
@@ -334,9 +335,40 @@ export class DIDResolver {
   }
 
   private async resolveHandleViaDNS(handle: string): Promise<string | null> {
-    // DNS resolution requires a DNS library - skip for now
-    // In production, use dns.promises.resolveTxt(`_atproto.${handle}`)
-    return null;
+    try {
+      // Resolve DNS TXT record for _atproto subdomain
+      const txtRecords = await dnsPromises.resolveTxt(`_atproto.${handle}`);
+      
+      // TXT records come as arrays of strings (each record can have multiple parts)
+      // We need to find the one that looks like a DID
+      for (const record of txtRecords) {
+        // Join the parts of the TXT record (usually just one part)
+        const txtValue = Array.isArray(record) ? record.join('') : record;
+        const did = txtValue.trim();
+        
+        // Validate DID format
+        if (did.startsWith('did:')) {
+          // Validate it's a supported DID method
+          if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
+            smartConsole.warn(`[DID_RESOLVER] Unsupported DID method in DNS for ${handle}: ${did}`);
+          }
+          return did;
+        }
+      }
+      
+      // No valid DID found in TXT records
+      return null;
+    } catch (error) {
+      // DNS lookup errors are common for domains without _atproto records
+      // Don't log these as errors - just return null and try HTTPS fallback
+      if (error instanceof Error) {
+        // Only log if it's not a NOTFOUND/NODATA error
+        if (!error.message.includes('ENOTFOUND') && !error.message.includes('ENODATA')) {
+          smartConsole.warn(`[DID_RESOLVER] DNS error for ${handle}:`, error.message);
+        }
+      }
+      return null;
+    }
   }
 
   private async resolveHandleViaHTTPS(handle: string): Promise<string | null> {
