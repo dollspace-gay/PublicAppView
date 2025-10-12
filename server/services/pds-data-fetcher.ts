@@ -223,9 +223,35 @@ export class PDSDataFetcher {
       const profile = await profileResponse.json();
       
       if (profile.did && profile.handle) {
-        // Update user with resolved handle
-        await storage.upsertUserHandle(did, profile.handle);
-        console.log(`[PDS_FETCHER] Updated user ${did} with handle ${profile.handle}`);
+        // Extract avatar and banner CIDs from URLs (if they're from a Bluesky/AT Protocol CDN)
+        // URLs look like: https://cdn.bsky.app/img/avatar/plain/did:plc:.../bafkreixyz@jpeg
+        const extractCidFromUrl = (url: string | undefined): string | null => {
+          if (!url) return null;
+          try {
+            // Match pattern: .../did:xxx/CID@format
+            const match = url.match(/\/([^\/]+)@[^@]+$/);
+            if (match && match[1] && (match[1].startsWith('bafkrei') || match[1].startsWith('bafybei') || match[1].startsWith('bafy'))) {
+              return match[1];
+            }
+          } catch (e) {
+            // Ignore
+          }
+          return null;
+        };
+        
+        const avatarCid = extractCidFromUrl(profile.avatar);
+        const bannerCid = extractCidFromUrl(profile.banner);
+        
+        // Update user with full profile data
+        await storage.updateUser(did, {
+          handle: profile.handle,
+          displayName: profile.displayName || null,
+          description: profile.description || null,
+          avatarUrl: avatarCid,
+          bannerUrl: bannerCid,
+        });
+        
+        console.log(`[PDS_FETCHER] Updated user ${did} - handle: ${profile.handle}, avatar: ${avatarCid ? 'YES' : 'NO'}, banner: ${bannerCid ? 'YES' : 'NO'}`);
         
         // Flush any pending operations for this user
         await eventProcessor.flushPendingUserOps(did);
