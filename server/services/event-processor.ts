@@ -6,6 +6,7 @@ import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
+import { CID } from 'multiformats/cid';
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -19,24 +20,77 @@ function sanitizeRequiredText(text: string | undefined | null): string {
 
 /**
  * Extract CID from various blob reference formats used in AT Protocol
- * Handles: {ref: {$link: 'cid'}}, {cid: 'cid'}, or direct CID string
+ * Handles: 
+ * - {ref: {$link: 'cid'}} (JSON format from API)
+ * - {ref: {code, version, multihash}} (Binary CID object from CAR files)
+ * - {cid: 'cid'} (Direct CID field)
+ * - Direct CID string
  */
 function extractBlobCid(blob: any): string | null {
   if (!blob) return null;
   
-  // Handle different blob formats
+  // Handle direct string
   if (typeof blob === 'string') {
-    // Direct CID string
     return blob === 'undefined' ? null : blob;
   }
   
-  // {ref: {$link: 'cid'}} format
+  // Handle blob.ref field
   if (blob.ref) {
-    const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
-    return (cid && cid !== 'undefined') ? cid : null;
+    // String CID: {ref: {$link: 'cid'}} or {ref: 'cid'}
+    if (typeof blob.ref === 'string') {
+      return blob.ref !== 'undefined' ? blob.ref : null;
+    }
+    
+    if (blob.ref.$link) {
+      return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
+    }
+    
+    // Binary CID object from CAR files: {ref: {code, version, multihash}}
+    if (blob.ref.code !== undefined && blob.ref.multihash) {
+      try {
+        // The ref field IS a CID object, we can create a CID instance from it
+        const cidObj = CID.decode(blob.ref as any);
+        return cidObj.toString();
+      } catch (error) {
+        // If that doesn't work, try reconstructing from the parts
+        try {
+          const digest = blob.ref.multihash.digest;
+          
+          // Convert digest to Uint8Array if it's an object with numeric keys
+          let digestBytes: Uint8Array;
+          if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+            const size = blob.ref.multihash.size || Object.keys(digest).length;
+            digestBytes = new Uint8Array(size);
+            for (let i = 0; i < size; i++) {
+              digestBytes[i] = digest[i];
+            }
+          } else if (ArrayBuffer.isView(digest)) {
+            digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+          } else {
+            return null;
+          }
+          
+          // Create CID from parts: version, code, and multihash bytes
+          const cidObj = CID.create(
+            blob.ref.version || 1,
+            blob.ref.code,
+            {
+              code: blob.ref.multihash.code,
+              digest: digestBytes,
+              bytes: null as any // Will be computed
+            }
+          );
+          
+          return cidObj.toString();
+        } catch (error2) {
+          console.error('[EXTRACT_CID] Error converting binary CID:', error2);
+          return null;
+        }
+      }
+    }
   }
   
-  // {cid: 'cid'} format
+  // Handle blob.cid field
   if (blob.cid) {
     return blob.cid !== 'undefined' ? blob.cid : null;
   }
