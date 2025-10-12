@@ -77,22 +77,28 @@ export class EmbedResolver {
               notFound: true
             }
           };
+        } else {
+          // If no record URI, skip this embed (invalid data)
+          resolved = null;
         }
       } else if (embed.$type === 'app.bsky.embed.recordWithMedia') {
         // Quote with media
         const recordUri = embed.record?.record?.uri;
         if (recordUri) {
           childUris.push(recordUri);
+          resolved = {
+            $type: 'app.bsky.embed.recordWithMedia#view',
+            record: {
+              $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
+              uri: recordUri,
+              notFound: true
+            },
+            media: this.resolveMediaEmbed(embed.media, post.authorDid)
+          };
+        } else {
+          // If no record URI, just show the media (not recordWithMedia)
+          resolved = this.resolveMediaEmbed(embed.media, post.authorDid);
         }
-        resolved = {
-          $type: 'app.bsky.embed.recordWithMedia#view',
-          record: recordUri ? {
-            $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
-            uri: recordUri,
-            notFound: true
-          } : undefined,
-          media: this.resolveMediaEmbed(embed.media, post.authorDid)
-        };
       } else if (embed.$type === 'app.bsky.embed.images') {
         // Images
         resolved = this.resolveImagesEmbed(embed, post.authorDid);

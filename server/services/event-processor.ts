@@ -644,11 +644,17 @@ export class EventProcessor {
           handle: handle,
         });
         
+        // Mark user for profile fetching to get avatar/banner data
+        pdsDataFetcher.markIncomplete('user', did);
+        
         // Batch logging: only log every 5000 user creations
         this.userCreationCount++;
         if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
           smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
         }
+      } else if (!user.avatarUrl && !user.displayName) {
+        // User exists but has no profile data - mark for fetching
+        pdsDataFetcher.markIncomplete('user', did);
       }
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
