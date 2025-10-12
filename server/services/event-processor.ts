@@ -825,7 +825,13 @@ export class EventProcessor {
         default:
           smartConsole.log(`[EVENT_PROCESSOR] Unknown record type: ${recordType}`);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Handle duplicate key errors gracefully (common during firehose reconnections)
+      // Silently skip duplicates as they don't matter
+      if (error?.code === '23505') {
+        // Silently skip duplicates
+        return;
+      }
       smartConsole.error(`[EVENT_PROCESSOR] Error processing record ${uri}:`, error);
     }
   }
