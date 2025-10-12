@@ -3,9 +3,17 @@
  * Re-extracts CIDs from stored profile_record JSON
  */
 
-import { db } from './server/db';
-import { users } from './shared/schema';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 import { sql } from 'drizzle-orm';
+import { users } from './shared/schema.ts';
+
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL must be set');
+}
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(pool, { schema: { users } });
 
 /**
  * Extract CID from various blob reference formats used in AT Protocol
@@ -93,11 +101,13 @@ async function fixAvatarUrls() {
 
 // Run the fix
 fixAvatarUrls()
-  .then(() => {
+  .then(async () => {
     console.log('[FIX_AVATARS] Script completed successfully');
+    await pool.end();
     process.exit(0);
   })
-  .catch((error) => {
+  .catch(async (error) => {
     console.error('[FIX_AVATARS] Script failed:', error);
+    await pool.end();
     process.exit(1);
   });
