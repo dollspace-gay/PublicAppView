@@ -833,7 +833,7 @@ export class EventProcessor {
       } catch (error: any) {
         // Handle duplicate key errors gracefully (common during firehose reconnections)
         if (error?.code === '23505') {
-          smartConsole.log(`[EVENT_PROCESSOR] Skipped duplicate ${action} ${uri}`);
+          // Silently skip duplicates
         } 
         // Handle foreign key constraint violations (record references missing data)
         else if (error?.code === '23503') {
