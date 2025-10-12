@@ -162,8 +162,9 @@ export class EventProcessor {
   private pendingUserCreations = new Map<string, Promise<boolean>>(); // did -> pending promise
   private activeUserCreations = 0;
   // Limit concurrent user creations to avoid overwhelming DB pool
-  // Set to 2x pool size to allow some queuing while preventing timeout
-  private readonly MAX_CONCURRENT_USER_CREATIONS = parseInt(process.env.MAX_CONCURRENT_USER_CREATIONS || '10');
+  // Default to 50% of MAX_CONCURRENT_OPS to allow headroom for other operations
+  // Can be tuned based on DB pool size and server resources
+  private readonly MAX_CONCURRENT_USER_CREATIONS = parseInt(process.env.MAX_CONCURRENT_USER_CREATIONS || '50');
 
   constructor(storageInstance: IStorage = storage) {
     this.storage = storageInstance;
@@ -565,6 +566,10 @@ export class EventProcessor {
       pendingUserCreationOpsCount: this.totalPendingUserCreationOps,
       activeUserCreations: this.activeUserCreations,
       pendingUserCreationDeduplication: this.pendingUserCreations.size,
+      maxConcurrentUserCreations: this.MAX_CONCURRENT_USER_CREATIONS,
+      userCreationUtilization: this.MAX_CONCURRENT_USER_CREATIONS > 0 
+        ? ((this.activeUserCreations / this.MAX_CONCURRENT_USER_CREATIONS) * 100).toFixed(1) + '%'
+        : '0%',
     };
   }
 
@@ -671,7 +676,15 @@ export class EventProcessor {
       if (!user) {
         // Wait if we're at the concurrent creation limit
         // This prevents overwhelming the database with too many concurrent user creations
+        // Add a timeout to prevent indefinite waiting
+        const maxWaitTime = 30000; // 30 seconds max wait
+        const startWait = Date.now();
+        
         while (this.activeUserCreations >= this.MAX_CONCURRENT_USER_CREATIONS) {
+          if (Date.now() - startWait > maxWaitTime) {
+            smartConsole.warn(`[EVENT_PROCESSOR] User creation queue timeout for ${did} - dropping event`);
+            return false;
+          }
           await new Promise(resolve => setTimeout(resolve, 10)); // Wait 10ms before checking again
         }
         

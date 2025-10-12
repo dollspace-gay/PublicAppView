@@ -256,6 +256,7 @@ docker exec -it publicappview-app-1 sh
 - `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
 - `DB_POOL_SIZE`: Database connection pool size (default: `32`)
 - `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)
+- `MAX_CONCURRENT_USER_CREATIONS`: Max concurrent user creation operations (default: `50`)
 
 ## Production Deployment
 
