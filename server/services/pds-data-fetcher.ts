@@ -232,22 +232,26 @@ export class PDSDataFetcher {
   }
 
   /**
-   * Fetch user data from PDS using describeRepo (public endpoint)
+   * Fetch user data from public Bluesky AppView API
+   * This is the proper way for an AppView to backfill missing user data
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
-      // Use com.atproto.repo.describeRepo - public endpoint that gives us the handle
+      // Use the public Bluesky AppView API to get profile data
       const encodedDid = encodeURIComponent(did);
-      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.describeRepo?repo=${encodedDid}`;
+      const url = `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodedDid}`;
       
-      const repoResponse = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
+      const profileResponse = await fetch(url, {
+        headers: { 
+          'Accept': 'application/json',
+          'User-Agent': 'AT-Protocol-AppView/1.0'
+        },
         signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
       });
 
-      if (!repoResponse.ok) {
-        const errorMsg = `Repo describe failed: ${repoResponse.status}`;
-        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
+      if (!profileResponse.ok) {
+        const errorMsg = `Profile fetch failed: ${profileResponse.status}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did}`);
         
         return {
           success: false,
@@ -255,20 +259,27 @@ export class PDSDataFetcher {
         };
       }
 
-      const repoData = await repoResponse.json();
-      const handle = repoData.handle || did;
+      const profileView = await profileResponse.json();
       
-      // Now try to get the profile record if it exists
-      const profileUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
-      const profileResponse = await fetch(profileUrl, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
-      });
-
-      let profile = null;
-      if (profileResponse.ok) {
-        const response = await profileResponse.json();
-        profile = response.value;
+      // Extract data from the profile view
+      const handle = profileView.handle || did;
+      const displayName = profileView.displayName || null;
+      const description = profileView.description || null;
+      
+      // Extract avatar and banner URLs/CIDs
+      let avatarCid = null;
+      let bannerCid = null;
+      
+      if (profileView.avatar) {
+        // Extract CID from avatar URL (format: https://cdn.bsky.app/img/avatar/plain/did/.../cid@jpeg)
+        const avatarMatch = profileView.avatar.match(/\/([a-zA-Z0-9]+)@/);
+        avatarCid = avatarMatch ? avatarMatch[1] : null;
+      }
+      
+      if (profileView.banner) {
+        // Extract CID from banner URL
+        const bannerMatch = profileView.banner.match(/\/([a-zA-Z0-9]+)@/);
+        bannerCid = bannerMatch ? bannerMatch[1] : null;
       }
       
       // Extract avatar and banner CIDs from blob references (same logic as event processor)
