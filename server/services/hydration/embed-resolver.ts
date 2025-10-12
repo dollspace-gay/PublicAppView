@@ -152,10 +152,10 @@ export class EmbedResolver {
         if (author?.handle) authorView.handle = author.handle;
         if (author?.displayName) authorView.displayName = author.displayName;
         if (author?.avatarUrl) {
-          // Transform avatar blob reference to CDN URL (like XRPC API does)
+          // Transform avatar CID to CDN URL (avatarUrl is already just the CID string from database)
           authorView.avatar = author.avatarUrl.startsWith('http') 
             ? author.avatarUrl 
-            : this.blobToCdnUrl({ ref: author.avatarUrl }, author.did, 'avatar');
+            : this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
         }
         
         // Construct full record value following app.bsky.feed.post schema
@@ -304,6 +304,23 @@ export class EmbedResolver {
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
     // PUBLIC_URL is our publicUrl (base URL of the application)
+    const endpoint = process.env.IMG_URI_ENDPOINT || 
+                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
+                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+    
+    if (!endpoint) {
+      console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
+      return '';
+    }
+    
+    return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
+  }
+  
+  // Transform a plain CID string (as stored in database) to CDN URL
+  private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
+    if (!cid) return '';
+    
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
                      (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||

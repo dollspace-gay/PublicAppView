@@ -675,6 +675,11 @@ export class XRPCApi {
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
     return cdnUrl;
   }
+  
+  // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name
+  private directCidToCdnUrl(cid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
+    return this.transformBlobToCdnUrl(cid, userDid, format);
+  }
 
   private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>, listData?: Map<string, any>): any {
     const listMute = listMutes.get(authorDid);
@@ -1447,11 +1452,11 @@ export class XRPCApi {
               };
               // Only include displayName if it exists (AT Protocol requires string or omit, not null)
               if (f.displayName) follower.displayName = f.displayName;
-              // Only include avatar if it exists
+              // Only include avatar if it exists (avatarUrl is a CID string from database)
               if (f.avatarUrl) {
                 follower.avatar = f.avatarUrl.startsWith('http')
                   ? f.avatarUrl
-                  : this.transformBlobToCdnUrl(f.avatarUrl, f.did, 'avatar');
+                  : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar');
               }
               return follower;
             }),
