@@ -1487,7 +1487,7 @@ export class XRPCApi {
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
           avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
-          ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
+          ...(user.bannerUrl ? { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') } : {}),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
           postsCount: postsCounts.get(did) || 0,
