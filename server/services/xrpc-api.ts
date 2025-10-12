@@ -1497,6 +1497,12 @@ export class XRPCApi {
           viewer.followedBy = viewerState.followedBy || undefined;
         }
 
+        // Debug logging for avatar issues
+        if (user.did === 'did:plc:dzvxvsiy3maw4iarpvizsj67') {
+          console.log('[DEBUG_AVATAR] User avatarUrl from DB:', user.avatarUrl);
+          console.log('[DEBUG_AVATAR] maybeAvatar result:', this.maybeAvatar(user.avatarUrl, user.did));
+        }
+
         const profileView: any = {
           $type: 'app.bsky.actor.defs#profileViewDetailed',
           did: user.did,
