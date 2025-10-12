@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { authService, validateAndRefreshSession } from "../services/auth";
 import { pdsClient } from "../services/pds-client";
-import { isContentTypeSafe } from "../utils/security";
+import { isContentTypeSafe, sanitizeResponseHeaders } from "../utils/security";
 
 /**
  * A catch-all middleware to proxy authenticated XRPC requests
@@ -79,7 +79,25 @@ export const xrpcProxyMiddleware = async (
         return res.status(500).json({ error: "UnsafeResponse", message: "PDS returned unsafe content type." });
       }
 
-      res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
+      // Sanitize headers to prevent header injection attacks
+      const sanitizedHeaders = sanitizeResponseHeaders(pdsResponse.headers);
+      
+      // For JSON responses, ensure we're sending valid JSON
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          // Parse and re-stringify to ensure it's valid JSON and prevent injection
+          const jsonBody = typeof pdsResponse.body === 'string' 
+            ? JSON.parse(pdsResponse.body) 
+            : pdsResponse.body;
+          return res.status(pdsResponse.status).set(sanitizedHeaders).json(jsonBody);
+        } catch (error) {
+          console.error(`[XRPC_PROXY] Invalid JSON from PDS:`, error);
+          return res.status(500).json({ error: "InvalidResponse", message: "PDS returned invalid JSON." });
+        }
+      }
+      
+      // For other content types, send as-is but with sanitized headers
+      res.status(pdsResponse.status).set(sanitizedHeaders).send(pdsResponse.body);
 
     } else {
       // AT Protocol access token from third-party client - use it directly
@@ -114,7 +132,25 @@ export const xrpcProxyMiddleware = async (
         return res.status(500).json({ error: "UnsafeResponse", message: "PDS returned unsafe content type." });
       }
 
-      res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
+      // Sanitize headers to prevent header injection attacks
+      const sanitizedHeaders = sanitizeResponseHeaders(pdsResponse.headers);
+      
+      // For JSON responses, ensure we're sending valid JSON
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          // Parse and re-stringify to ensure it's valid JSON and prevent injection
+          const jsonBody = typeof pdsResponse.body === 'string' 
+            ? JSON.parse(pdsResponse.body) 
+            : pdsResponse.body;
+          return res.status(pdsResponse.status).set(sanitizedHeaders).json(jsonBody);
+        } catch (error) {
+          console.error(`[XRPC_PROXY] Invalid JSON from PDS:`, error);
+          return res.status(500).json({ error: "InvalidResponse", message: "PDS returned invalid JSON." });
+        }
+      }
+      
+      // For other content types, send as-is but with sanitized headers
+      res.status(pdsResponse.status).set(sanitizedHeaders).send(pdsResponse.body);
     }
 
   } catch (error) {

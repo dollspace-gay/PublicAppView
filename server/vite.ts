@@ -42,9 +42,6 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
-    // Sanitize URL to prevent XSS attacks
-    const url = sanitizeUrlPath(req.originalUrl);
-
     try {
       const clientTemplate = path.resolve(
         import.meta.dirname,
@@ -59,7 +56,23 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
-      const page = await vite.transformIndexHtml(url, template);
+      
+      // Use a safe URL path for HTML transformation
+      // Only use the pathname, not query params or fragments which could contain XSS payloads
+      let safePath = '/';
+      try {
+        const parsedUrl = new URL(req.originalUrl, `http://${req.headers.host || 'localhost'}`);
+        // Only use the pathname component, properly sanitized
+        safePath = sanitizeUrlPath(parsedUrl.pathname);
+        // Ensure path is normalized and doesn't contain dangerous patterns
+        safePath = path.posix.normalize(safePath);
+      } catch (error) {
+        // If URL parsing fails, use root path
+        console.warn('[VITE] Invalid URL, using root path:', req.originalUrl);
+        safePath = '/';
+      }
+      
+      const page = await vite.transformIndexHtml(safePath, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
