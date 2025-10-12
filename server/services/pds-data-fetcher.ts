@@ -198,7 +198,32 @@ export class PDSDataFetcher {
         // Skip if too many retries
         if (entry.retryCount >= this.MAX_RETRY_ATTEMPTS) {
           const identifier = entry.uri || this.sanitizeDID(entry.did);
-          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier} - removing`);
+          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier} - creating minimal record`);
+          
+          // For users, create a minimal record so they exist in the database
+          if (entry.type === 'user') {
+            try {
+              const cleanDid = this.sanitizeDID(entry.did);
+              const handle = await didResolver.resolveDIDToHandle(cleanDid);
+              
+              await storage.updateUser(cleanDid, {
+                handle: handle || cleanDid,
+                displayName: null,
+                description: null,
+                avatarUrl: null,
+                bannerUrl: null,
+              });
+              
+              console.log(`[PDS_FETCHER] Created minimal user record for ${cleanDid} after max retries`);
+              
+              // Flush any pending operations for this user
+              await eventProcessor.flushPendingUserOps(cleanDid);
+              await eventProcessor.flushPendingUserCreationOps(cleanDid);
+            } catch (error) {
+              console.error(`[PDS_FETCHER] Failed to create minimal user record for ${entry.did}:`, error);
+            }
+          }
+          
           this.incompleteEntries.delete(key);
           continue;
         }
