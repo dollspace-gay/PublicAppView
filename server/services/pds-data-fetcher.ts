@@ -302,11 +302,38 @@ export class PDSDataFetcher {
       if (!profileResponse.ok) {
         // Get response body for better error diagnostics
         let errorDetails = '';
+        let isRecordNotFound = false;
         try {
           const errorBody = await profileResponse.text();
           errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
         } catch (e) {
           // Ignore if we can't read the body
+        }
+        
+        // If record not found, the account exists but has no profile (deleted/deactivated)
+        // Create a minimal user record and treat as success to stop retrying
+        if (profileResponse.status === 400 && isRecordNotFound) {
+          const handle = await didResolver.resolveDIDToHandle(did);
+          
+          await storage.updateUser(did, {
+            handle: handle || did,
+            displayName: null,
+            description: null,
+            avatarUrl: null,
+            bannerUrl: null,
+          });
+          
+          console.warn(`[PDS_FETCHER] No profile record for ${did} (deleted/deactivated account) - created minimal record`);
+          
+          // Flush pending operations
+          await eventProcessor.flushPendingUserOps(did);
+          await eventProcessor.flushPendingUserCreationOps(did);
+          
+          return {
+            success: true, // Treat as success to stop retrying
+            data: { did, handle: handle || did, profile: null }
+          };
         }
         
         const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
@@ -449,11 +476,22 @@ export class PDSDataFetcher {
 
       if (!recordResponse.ok) {
         let errorDetails = '';
+        let isRecordNotFound = false;
         try {
           const errorBody = await recordResponse.text();
           errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
         } catch (e) {
           // Ignore
+        }
+        
+        // If record not found, stop retrying - the post was deleted
+        if ((recordResponse.status === 400 || recordResponse.status === 404) && isRecordNotFound) {
+          console.warn(`[PDS_FETCHER] Post not found (deleted): ${postUri}`);
+          return {
+            success: true, // Treat as success to stop retrying
+            data: null
+          };
         }
         
         const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
@@ -522,11 +560,22 @@ export class PDSDataFetcher {
 
       if (!recordResponse.ok) {
         let errorDetails = '';
+        let isRecordNotFound = false;
         try {
           const errorBody = await recordResponse.text();
           errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
         } catch (e) {
           // Ignore
+        }
+        
+        // If record not found, stop retrying - the record was deleted
+        if ((recordResponse.status === 400 || recordResponse.status === 404) && isRecordNotFound) {
+          console.warn(`[PDS_FETCHER] Record not found (deleted): ${uri}`);
+          return {
+            success: true, // Treat as success to stop retrying
+            data: null
+          };
         }
         
         const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
