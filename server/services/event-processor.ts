@@ -1172,6 +1172,15 @@ export class EventProcessor {
     
     const existingUser = await this.storage.getUser(did);
 
+    // Debug logging for ANY profile update
+    const avatarCid = extractBlobCid(record.avatar);
+    const bannerCid = extractBlobCid(record.banner);
+    
+    console.log(`[PROFILE_UPDATE] ${did}`);
+    console.log(`  Avatar: ${avatarCid ? 'YES ('+avatarCid.substring(0,12)+'...)' : 'NO'}`);
+    console.log(`  Banner: ${bannerCid ? 'YES ('+bannerCid.substring(0,12)+'...)' : 'NO'}`);
+    console.log(`  Raw avatar:`, record.avatar ? JSON.stringify(record.avatar).substring(0,100) : 'missing');
+
     const profileData = {
       handle: handle || did, // Use resolved handle or fallback to DID
       displayName: sanitizeText(record.displayName),
