@@ -655,10 +655,10 @@ export class XRPCApi {
     return (json?.['cid'] ?? '') as string;
   }
 
-  private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
-    // Return undefined for null, undefined, empty string, or the literal string "undefined"
+  private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | null {
+    // Return null for null, undefined, empty string, or the literal string "undefined"
     if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '') {
-      return undefined;
+      return null;
     }
     
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
@@ -671,7 +671,7 @@ export class XRPCApi {
     
     if (!endpoint) {
       console.error('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return undefined;
+      return null;
     }
     
     const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
@@ -680,8 +680,18 @@ export class XRPCApi {
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name
-  private directCidToCdnUrl(cid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
+  private directCidToCdnUrl(cid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | null {
     return this.transformBlobToCdnUrl(cid, userDid, format);
+  }
+
+  /**
+   * Helper function to conditionally add fields to objects
+   * Only adds the field if the value is not null/undefined
+   */
+  private addIfDefined(obj: any, key: string, value: string | null | undefined) {
+    if (value != null) {
+      obj[key] = value;
+    }
   }
 
   private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>, listData?: Map<string, any>): any {
@@ -784,7 +794,7 @@ export class XRPCApi {
       const avatarUrl = author?.avatarUrl;
       const avatarCdn = avatarUrl 
         ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar'))
-        : undefined;
+        : null;
 
       const postView: any = {
         $type: 'app.bsky.feed.defs#postView',
@@ -796,7 +806,6 @@ export class XRPCApi {
           handle: authorHandle,
           displayName: author?.displayName ?? authorHandle,
           pronouns: author?.pronouns,
-          avatar: avatarCdn,
           viewer: actorViewerState || {},
           labels: authorLabels,
           createdAt: author?.createdAt?.toISOString(),
@@ -820,6 +829,9 @@ export class XRPCApi {
           pinned: viewerState.pinned || false,
         } : {},
       };
+
+      // Conditionally add avatar field only if it exists
+      this.addIfDefined(postView.author, 'avatar', avatarCdn);
 
       if (hydratedEmbed) {
         postView.embed = hydratedEmbed;

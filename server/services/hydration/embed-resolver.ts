@@ -153,9 +153,12 @@ export class EmbedResolver {
         if (author?.displayName) authorView.displayName = author.displayName;
         if (author?.avatarUrl) {
           // Transform avatar CID to CDN URL (avatarUrl is already just the CID string from database)
-          authorView.avatar = author.avatarUrl.startsWith('http') 
+          const avatarUrl = author.avatarUrl.startsWith('http') 
             ? author.avatarUrl 
             : this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
+          if (avatarUrl) {
+            authorView.avatar = avatarUrl;
+          }
         }
         
         // Construct full record value following app.bsky.feed.post schema
@@ -297,13 +300,13 @@ export class EmbedResolver {
     return undefined;
   }
 
-  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
-    if (!blob || !blob.ref) return undefined;
+  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | null {
+    if (!blob || !blob.ref) return null;
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
-    // Return undefined for invalid CIDs
+    // Return null for invalid CIDs
     if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') {
-      return undefined;
+      return null;
     }
     
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
@@ -316,15 +319,15 @@ export class EmbedResolver {
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return undefined;
+      return null;
     }
     
     return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL
-  private directCidToCdnUrl(cid: string | null | undefined, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
-    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') return undefined;
+  private directCidToCdnUrl(cid: string | null | undefined, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | null {
+    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') return null;
     
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
@@ -333,7 +336,7 @@ export class EmbedResolver {
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return undefined;
+      return null;
     }
     
     return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
