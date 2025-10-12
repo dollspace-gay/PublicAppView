@@ -50,6 +50,23 @@ export class PDSDataFetcher {
   private successCount = 0;
   private postCount = 0;
 
+  /**
+   * Transform blob CID to CDN URL
+   */
+  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
+    if (!blobCid || blobCid === 'undefined') return undefined;
+    
+    const endpoint = process.env.IMG_URI_ENDPOINT || 
+                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
+                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+    
+    if (!endpoint) return undefined;
+    
+    const sizeStr = format === 'avatar' || format === 'banner' ? 'plain' : 'fullsize';
+    return `${endpoint}/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
+  }
+
   constructor() {
     // Start periodic processing of incomplete entries
     this.startPeriodicProcessing();
