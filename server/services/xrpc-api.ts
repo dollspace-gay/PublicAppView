@@ -657,7 +657,13 @@ export class XRPCApi {
 
   private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | null {
     // Return null for null, undefined, empty string, or the literal string "undefined"
-    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '') {
+    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '' || blobCid === 'undefined@jpeg') {
+      return null;
+    }
+    
+    // Additional safety check - ensure blobCid is a valid string
+    if (typeof blobCid !== 'string' || blobCid.includes('undefined') || blobCid.includes('null')) {
+      console.warn(`[CDN_TRANSFORM] Invalid blobCid: ${blobCid}`);
       return null;
     }
     
@@ -691,6 +697,19 @@ export class XRPCApi {
   private addIfDefined(obj: any, key: string, value: string | null | undefined) {
     if (value != null) {
       obj[key] = value;
+    }
+  }
+
+  /**
+   * Helper function to conditionally add avatar field to profile objects
+   * Only adds the avatar field if we have a valid URL
+   */
+  private addAvatarIfDefined(obj: any, avatarUrl: string | null | undefined, userDid: string) {
+    if (avatarUrl) {
+      const avatarCdn = avatarUrl.startsWith('http') 
+        ? avatarUrl 
+        : this.transformBlobToCdnUrl(avatarUrl, userDid, 'avatar');
+      this.addIfDefined(obj, 'avatar', avatarCdn);
     }
   }
 

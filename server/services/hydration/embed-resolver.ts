@@ -339,6 +339,12 @@ export class EmbedResolver {
       return null;
     }
     
+    // Additional safety check - ensure cid is a valid string
+    if (typeof cid !== 'string' || cid.includes('undefined') || cid.includes('null')) {
+      console.warn(`[EMBED_RESOLVER] Invalid CID: ${cid}`);
+      return null;
+    }
+    
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
     // PUBLIC_URL is our publicUrl (base URL of the application)
@@ -358,6 +364,12 @@ export class EmbedResolver {
   // Transform a plain CID string (as stored in database) to CDN URL
   private directCidToCdnUrl(cid: string | null | undefined, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | null {
     if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') return null;
+    
+    // Additional safety check - ensure cid is a valid string
+    if (typeof cid !== 'string' || cid.includes('undefined') || cid.includes('null')) {
+      console.warn(`[EMBED_RESOLVER] Invalid CID: ${cid}`);
+      return null;
+    }
     
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
