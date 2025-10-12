@@ -42,12 +42,82 @@ export class PDSDataFetcher {
   private readonly MAX_RETRY_ATTEMPTS = 3;
   private readonly RETRY_DELAY_MS = 30000; // 30 seconds
   private readonly FETCH_TIMEOUT_MS = 10000; // 10 seconds
+  private readonly BATCH_LOG_SIZE = 5000; // Log every 5000 operations
   private incompleteEntries = new Map<string, IncompleteEntry>();
   private isProcessing = false;
+  private fetchCount = 0;
+  private updateCount = 0;
+  private successCount = 0;
+  private postCount = 0;
+
+  /**
+   * Transform blob CID to CDN URL
+   */
+  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
+    if (!blobCid || blobCid === 'undefined') return undefined;
+    
+    const endpoint = process.env.IMG_URI_ENDPOINT || 
+                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
+                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+    
+    if (!endpoint) return undefined;
+    
+    const sizeStr = format === 'avatar' || format === 'banner' ? 'plain' : 'fullsize';
+    return `${endpoint}/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
+  }
 
   constructor() {
     // Start periodic processing of incomplete entries
     this.startPeriodicProcessing();
+  }
+
+  /**
+   * Sanitize and validate DID format
+   */
+  private sanitizeDID(did: string): string {
+    if (!did) return '';
+    
+    const original = did;
+    
+    // Remove all whitespace (spaces, tabs, newlines, etc.)
+    let cleaned = did.replace(/\s+/g, '');
+    
+    // Remove any duplicate colons (e.g., did::plc: becomes did:plc:)
+    cleaned = cleaned.replace(/:+/g, ':');
+    
+    // Remove trailing colons, commas, and other punctuation
+    cleaned = cleaned.replace(/[:;,._-]+$/g, '');
+    
+    // Remove leading colons, commas, and other punctuation  
+    cleaned = cleaned.replace(/^[:;,._-]+/g, '');
+    
+    // Remove any trailing non-alphanumeric characters (except in the identifier itself)
+    // This catches things like invisible characters, control characters, etc.
+    cleaned = cleaned.replace(/[^a-zA-Z0-9]+$/g, '');
+    
+    // If cleaning changed the DID, log it with character codes for debugging
+    if (cleaned !== original) {
+      const originalBytes = Array.from(original).map(c => c.charCodeAt(0)).join(',');
+      const cleanedBytes = Array.from(cleaned).map(c => c.charCodeAt(0)).join(',');
+      console.warn(`[PDS_FETCHER] Cleaned malformed DID: "${original}" → "${cleaned}"`);
+      console.warn(`[PDS_FETCHER] Character codes - Original: [${originalBytes}] Cleaned: [${cleanedBytes}]`);
+    }
+    
+    // Ensure it starts with 'did:' and follows valid format
+    if (!cleaned.startsWith('did:')) {
+      console.warn(`[PDS_FETCHER] Invalid DID format (doesn't start with 'did:'): "${cleaned}"`);
+    }
+    
+    // Validate the DID matches expected pattern: did:method:identifier
+    // For did:plc: the identifier should be base32 lowercase (a-z, 2-7)
+    // For did:web: the identifier should be a domain
+    const didPattern = /^did:[a-z]+:[a-z0-9._:-]+$/i;
+    if (!didPattern.test(cleaned)) {
+      console.warn(`[PDS_FETCHER] DID doesn't match expected pattern: "${cleaned}"`);
+    }
+    
+    return cleaned;
   }
 
   /**
@@ -70,7 +140,10 @@ export class PDSDataFetcher {
     uri?: string,
     missingData?: any,
   ) {
-    const key = `${type}:${did}:${uri || ''}`;
+    // Sanitize DID before storing
+    const cleanDid = this.sanitizeDID(did);
+    // Build key without trailing colons when uri is empty
+    const key = uri ? `${type}:${cleanDid}:${uri}` : `${type}:${cleanDid}`;
     const existing = this.incompleteEntries.get(key);
     
     if (existing) {
@@ -80,7 +153,7 @@ export class PDSDataFetcher {
     } else {
       this.incompleteEntries.set(key, {
         type,
-        did,
+        did: cleanDid,
         uri,
         missingData,
         retryCount: 0,
@@ -127,7 +200,8 @@ export class PDSDataFetcher {
       try {
         // Skip if too many retries
         if (entry.retryCount >= this.MAX_RETRY_ATTEMPTS) {
-          console.warn(`[PDS_FETCHER] Max retries exceeded for ${key}, removing`);
+          const identifier = entry.uri || this.sanitizeDID(entry.did);
+          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier} - removing`);
           this.incompleteEntries.delete(key);
           continue;
         }
@@ -142,14 +216,21 @@ export class PDSDataFetcher {
         if (result.success) {
           success++;
           this.incompleteEntries.delete(key);
-          console.log(`[PDS_FETCHER] Successfully fetched data for ${key}`);
+          // Batch logging: only log every 5000 successful fetches
+          this.successCount++;
+          if (this.successCount % this.BATCH_LOG_SIZE === 0) {
+            console.log(`[PDS_FETCHER] ${this.BATCH_LOG_SIZE} successful fetches (total: ${this.successCount})`);
+          }
         } else {
-          console.warn(`[PDS_FETCHER] Failed to fetch data for ${key}: ${result.error}`);
+          // Show cleaner error message with just the DID/URI
+          const identifier = entry.uri || this.sanitizeDID(entry.did);
+          console.warn(`[PDS_FETCHER] Failed to fetch ${entry.type} ${identifier}: ${result.error}`);
         }
         
         processed++;
       } catch (error) {
-        console.error(`[PDS_FETCHER] Error processing ${key}:`, error);
+        const identifier = entry.uri || this.sanitizeDID(entry.did);
+        console.error(`[PDS_FETCHER] Error processing ${entry.type} ${identifier}:`, error);
       }
     }
 
@@ -162,22 +243,37 @@ export class PDSDataFetcher {
    */
   private async fetchMissingData(entry: IncompleteEntry): Promise<PDSDataFetchResult> {
     try {
+      // Sanitize the DID before using it
+      const cleanDid = this.sanitizeDID(entry.did);
+      
+      // Validate DID format
+      if (!cleanDid.startsWith('did:plc:') && !cleanDid.startsWith('did:web:')) {
+        return {
+          success: false,
+          error: `Invalid DID format: ${cleanDid}`
+        };
+      }
+      
       // Resolve DID to PDS endpoint
-      const pdsEndpoint = await didResolver.resolveDIDToPDS(entry.did);
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(cleanDid);
       if (!pdsEndpoint) {
         return {
           success: false,
-          error: `Could not resolve PDS endpoint for DID: ${entry.did}`
+          error: `Could not resolve PDS endpoint for DID: ${cleanDid}`
         };
       }
 
-      console.log(`[PDS_FETCHER] Fetching data for ${entry.type} ${entry.did} from ${pdsEndpoint}`);
+      // Batch logging: only log every 5000 fetches
+      this.fetchCount++;
+      if (this.fetchCount % this.BATCH_LOG_SIZE === 0) {
+        console.log(`[PDS_FETCHER] Fetched data for ${this.BATCH_LOG_SIZE} entries (total: ${this.fetchCount})`);
+      }
 
       switch (entry.type) {
         case 'user':
-          return await this.fetchUserData(entry.did, pdsEndpoint);
+          return await this.fetchUserData(cleanDid, pdsEndpoint);
         case 'post':
-          return await this.fetchPostData(entry.did, entry.uri!, pdsEndpoint);
+          return await this.fetchPostData(cleanDid, entry.uri!, pdsEndpoint);
         case 'list':
         case 'listitem':
         case 'feedgen':
@@ -189,7 +285,7 @@ export class PDSDataFetcher {
         case 'repost':
         case 'follow':
           // Ensure the actor exists first; referenced subject fetch is handled via 'post'/'record' marks
-          return await this.fetchUserData(entry.did, pdsEndpoint);
+          return await this.fetchUserData(cleanDid, pdsEndpoint);
         default:
           return {
             success: false,
@@ -209,25 +305,60 @@ export class PDSDataFetcher {
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
-      // Fetch the profile record directly from PDS using com.atproto.repo.getRecord
-      // This is a PDS endpoint and doesn't require authentication
-      const profileResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${did}&collection=app.bsky.actor.profile&rkey=self`,
-        {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
-        }
-      );
+      const encodedDid = encodeURIComponent(did);
+      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
+      
+      const profileResponse = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
+      });
 
       if (!profileResponse.ok) {
+        let errorDetails = '';
+        let isRecordNotFound = false;
+        try {
+          const errorBody = await profileResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
+        } catch (e) {
+          // Ignore
+        }
+        
+        // If RecordNotFound, the account exists but has no profile record
+        // This is valid - just create a minimal user record and move on
+        if (profileResponse.status === 400 && isRecordNotFound) {
+          const handle = await didResolver.resolveDIDToHandle(did);
+          
+          await storage.updateUser(did, {
+            handle: handle || did,
+            displayName: null,
+            description: null,
+            avatarUrl: null,
+            bannerUrl: null,
+          });
+          
+          console.warn(`[PDS_FETCHER] No profile record at PDS for ${did} - created minimal user record`);
+          
+          await eventProcessor.flushPendingUserOps(did);
+          await eventProcessor.flushPendingUserCreationOps(did);
+          
+          return {
+            success: true, // Treat as success to stop retrying
+            data: { did, handle: handle || did, profile: null }
+          };
+        }
+        
+        const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
+        
         return {
           success: false,
-          error: `Profile fetch failed: ${profileResponse.status}`
+          error: errorMsg
         };
       }
 
       const response = await profileResponse.json();
-      const profile = response.value; // The actual profile record is in .value
+      const profile = response.value;
       
       if (profile) {
         // Resolve handle from DID
@@ -303,7 +434,11 @@ export class PDSDataFetcher {
           bannerUrl: bannerCid,
         });
         
-        console.log(`[PDS_FETCHER] Updated user ${did} - handle: ${handle || did}, avatar: ${avatarCid ? 'YES' : 'NO'}, banner: ${bannerCid ? 'YES' : 'NO'}`);
+        // Batch logging: only log every 5000 updates
+        this.updateCount++;
+        if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
+          console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
+        }
         
         // Flush any pending operations for this user
         await eventProcessor.flushPendingUserOps(did);
@@ -337,9 +472,14 @@ export class PDSDataFetcher {
       const collection = uriParts[uriParts.length - 2];
       const rkey = uriParts[uriParts.length - 1];
 
+      // URL encode parameters
+      const encodedDid = encodeURIComponent(authorDid);
+      const encodedCollection = encodeURIComponent(collection);
+      const encodedRkey = encodeURIComponent(rkey);
+
       // Fetch the post record
       const recordResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${authorDid}&collection=${collection}&rkey=${rkey}`,
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=${encodedCollection}&rkey=${encodedRkey}`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
@@ -347,9 +487,31 @@ export class PDSDataFetcher {
       );
 
       if (!recordResponse.ok) {
+        let errorDetails = '';
+        let isRecordNotFound = false;
+        try {
+          const errorBody = await recordResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
+        } catch (e) {
+          // Ignore
+        }
+        
+        // If record not found, stop retrying - the post was deleted
+        if ((recordResponse.status === 400 || recordResponse.status === 404) && isRecordNotFound) {
+          console.warn(`[PDS_FETCHER] Post not found (deleted): ${postUri}`);
+          return {
+            success: true, // Treat as success to stop retrying
+            data: null
+          };
+        }
+        
+        const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${postUri}`);
+        
         return {
           success: false,
-          error: `Record fetch failed: ${recordResponse.status}`
+          error: errorMsg
         };
       }
 
@@ -364,7 +526,11 @@ export class PDSDataFetcher {
           recordData.value
         );
         
-        console.log(`[PDS_FETCHER] Fetched and processed post ${postUri}`);
+        // Batch logging: only log every 5000 posts
+        this.postCount++;
+        if (this.postCount % this.BATCH_LOG_SIZE === 0) {
+          console.log(`[PDS_FETCHER] Fetched and processed ${this.BATCH_LOG_SIZE} posts (total: ${this.postCount})`);
+        }
         
         return {
           success: true,
@@ -391,8 +557,13 @@ export class PDSDataFetcher {
     try {
       const { repo, collection, rkey } = this.parseAtUri(uri);
 
+      // URL encode parameters
+      const encodedRepo = encodeURIComponent(repo);
+      const encodedCollection = encodeURIComponent(collection);
+      const encodedRkey = encodeURIComponent(rkey);
+
       const recordResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${repo}&collection=${collection}&rkey=${rkey}`,
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedRepo}&collection=${encodedCollection}&rkey=${encodedRkey}`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS),
@@ -400,7 +571,29 @@ export class PDSDataFetcher {
       );
 
       if (!recordResponse.ok) {
-        return { success: false, error: `Record fetch failed: ${recordResponse.status}` };
+        let errorDetails = '';
+        let isRecordNotFound = false;
+        try {
+          const errorBody = await recordResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
+        } catch (e) {
+          // Ignore
+        }
+        
+        // If record not found, stop retrying - the record was deleted
+        if ((recordResponse.status === 400 || recordResponse.status === 404) && isRecordNotFound) {
+          console.warn(`[PDS_FETCHER] Record not found (deleted): ${uri}`);
+          return {
+            success: true, // Treat as success to stop retrying
+            data: null
+          };
+        }
+        
+        const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${uri}`);
+        
+        return { success: false, error: errorMsg };
       }
 
       const recordData = await recordResponse.json();
