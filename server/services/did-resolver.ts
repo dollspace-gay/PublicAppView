@@ -176,11 +176,28 @@ export class DIDResolver {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const did = (await response.text()).trim();
+        const contentType = response.headers.get('content-type') || '';
+        const responseText = await response.text();
+        const did = responseText.trim();
         
-        // Validate DID format
+        // Check if response looks like HTML (common error case)
+        if (did.startsWith('<') || did.startsWith('{') || contentType.includes('html') || contentType.includes('json')) {
+          smartConsole.warn(`[DID_RESOLVER] Unexpected content type for ${handle}: ${contentType}`);
+          smartConsole.warn(`[DID_RESOLVER] Response preview: ${did.substring(0, 200)}`);
+          throw new Error(`Invalid response format: expected plain text DID, got ${contentType || 'unknown content type'}`);
+        }
+        
+        // Validate DID format (must start with did: and have a method)
         if (!did.startsWith('did:')) {
-          throw new Error('Invalid DID format in response');
+          smartConsole.warn(`[DID_RESOLVER] Invalid DID format for ${handle}. Expected format: did:<method>:<identifier>`);
+          smartConsole.warn(`[DID_RESOLVER] Received: "${did.substring(0, 100)}"`);
+          throw new Error(`Invalid DID format in response: "${did.substring(0, 50)}"`);
+        }
+        
+        // Validate it's a supported DID method
+        if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
+          smartConsole.warn(`[DID_RESOLVER] Unsupported DID method for ${handle}: ${did}`);
+          // Don't throw - still return it as it might be valid
         }
 
         return did;
@@ -219,7 +236,8 @@ export class DIDResolver {
 
     try {
       const result = await this.retryWithBackoff(async () => {
-        const response = await fetch(`${this.plcDirectory}/${did}`, {
+        const plcUrl = `${this.plcDirectory}/${did}`;
+        const response = await fetch(plcUrl, {
           headers: { 
             'Accept': 'application/json',
             'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
@@ -229,17 +247,36 @@ export class DIDResolver {
 
         if (!response.ok) {
           if (response.status === 404) {
-            smartConsole.warn(`[DID_RESOLVER] DID not found: ${did}`);
+            smartConsole.warn(`[DID_RESOLVER] DID not found in PLC directory: ${did}`);
             return null;
           }
+          if (response.status >= 500) {
+            throw new Error(`PLC directory server error ${response.status}: ${response.statusText}`);
+          }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          smartConsole.warn(`[DID_RESOLVER] Unexpected content type from PLC directory for ${did}: ${contentType}`);
         }
 
         const data = await response.json();
         
         // Validate the response is a proper DID document
-        if (!data || typeof data !== 'object' || !data.id) {
-          throw new Error('Invalid DID document format');
+        if (!data || typeof data !== 'object') {
+          smartConsole.warn(`[DID_RESOLVER] Invalid DID document format from PLC for ${did}: not an object`);
+          throw new Error('Invalid DID document format: not an object');
+        }
+        
+        if (!data.id) {
+          smartConsole.warn(`[DID_RESOLVER] Invalid DID document format from PLC for ${did}: missing id field`);
+          throw new Error('Invalid DID document format: missing id');
+        }
+        
+        // Verify the DID in the document matches what we requested
+        if (data.id !== did) {
+          smartConsole.warn(`[DID_RESOLVER] DID mismatch from PLC for ${did}: document contains ${data.id}`);
         }
         
         return data;
@@ -253,9 +290,9 @@ export class DIDResolver {
       this.recordFailure();
       
       if (error instanceof Error) {
-        if (error.name === 'TimeoutError') {
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
           smartConsole.error(`[DID_RESOLVER] Timeout resolving PLC DID ${did} after ${this.maxRetries + 1} attempts`);
-        } else if (error.message.includes('fetch')) {
+        } else if (error.message.includes('fetch') || error.message.includes('network')) {
           smartConsole.error(`[DID_RESOLVER] Network error resolving PLC DID ${did}:`, error.message);
         } else {
           smartConsole.error(`[DID_RESOLVER] Error resolving PLC DID ${did}:`, error.message);
@@ -271,8 +308,19 @@ export class DIDResolver {
     try {
       return await this.retryWithBackoff(async () => {
         // Extract domain from did:web:example.com format
-        const domain = did.replace('did:web:', '');
-        const response = await fetch(`https://${domain}/.well-known/did.json`, {
+        // Support both simple domain (did:web:example.com) and path-based (did:web:example.com:path:to:did)
+        const didParts = did.replace('did:web:', '').split(':');
+        const domain = didParts[0];
+        const path = didParts.length > 1 ? '/' + didParts.slice(1).join('/') : '';
+        
+        // Construct the URL for the DID document
+        const didDocUrl = path 
+          ? `https://${domain}${path}/did.json`
+          : `https://${domain}/.well-known/did.json`;
+        
+        smartConsole.log(`[DID_RESOLVER] Resolving Web DID from: ${didDocUrl}`);
+        
+        const response = await fetch(didDocUrl, {
           headers: { 
             'Accept': 'application/json',
             'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
@@ -282,17 +330,34 @@ export class DIDResolver {
 
         if (!response.ok) {
           if (response.status === 404) {
-            smartConsole.warn(`[DID_RESOLVER] Web DID not found: ${did}`);
+            smartConsole.warn(`[DID_RESOLVER] Web DID not found: ${did} at ${didDocUrl}`);
             return null;
           }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          smartConsole.warn(`[DID_RESOLVER] Unexpected content type for Web DID ${did}: ${contentType}`);
+        }
+
         const data = await response.json();
         
         // Validate the response is a proper DID document
-        if (!data || typeof data !== 'object' || !data.id) {
-          throw new Error('Invalid DID document format');
+        if (!data || typeof data !== 'object') {
+          smartConsole.warn(`[DID_RESOLVER] Invalid DID document format for ${did}: not an object`);
+          throw new Error('Invalid DID document format: not an object');
+        }
+        
+        if (!data.id) {
+          smartConsole.warn(`[DID_RESOLVER] Invalid DID document format for ${did}: missing id field`);
+          throw new Error('Invalid DID document format: missing id');
+        }
+        
+        // Verify the DID in the document matches what we requested
+        if (data.id !== did) {
+          smartConsole.warn(`[DID_RESOLVER] DID mismatch for ${did}: document contains ${data.id}`);
+          // Don't throw - some implementations might use different formats
         }
         
         return data;
@@ -315,24 +380,45 @@ export class DIDResolver {
 
   /**
    * Extract PDS endpoint from DID document
+   * Supports both public and privately owned PDS instances
    */
   getPDSEndpoint(didDoc: DIDDocument): string | null {
-    if (!didDoc.service) {
+    if (!didDoc.service || !Array.isArray(didDoc.service)) {
+      smartConsole.warn(`[DID_RESOLVER] No services array found in DID document for ${didDoc.id}`);
       return null;
     }
 
     // Find the AtprotoPersonalDataServer service
+    // Support multiple formats for compatibility with different PDS implementations
     const pdsService = didDoc.service.find(
       (service) =>
         service.id === '#atproto_pds' ||
-        service.type === 'AtprotoPersonalDataServer'
+        service.id === 'atproto_pds' ||
+        service.type === 'AtprotoPersonalDataServer' ||
+        service.type === 'AtProtoPersonalDataServer'
     );
 
     if (!pdsService) {
+      smartConsole.warn(`[DID_RESOLVER] No PDS service found in DID document for ${didDoc.id}`);
+      smartConsole.warn(`[DID_RESOLVER] Available services: ${didDoc.service.map(s => `${s.id}:${s.type}`).join(', ')}`);
       return null;
     }
 
-    return pdsService.serviceEndpoint;
+    const endpoint = pdsService.serviceEndpoint;
+    
+    // Validate endpoint is a valid URL
+    if (!endpoint || typeof endpoint !== 'string') {
+      smartConsole.warn(`[DID_RESOLVER] Invalid PDS endpoint format for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+    
+    // Ensure endpoint is a valid HTTPS URL (required for AT Protocol)
+    if (!endpoint.startsWith('https://') && !endpoint.startsWith('http://')) {
+      smartConsole.warn(`[DID_RESOLVER] PDS endpoint must be HTTP(S) URL for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+
+    return endpoint;
   }
 
   /**
@@ -446,18 +532,29 @@ export class DIDResolver {
 
   /**
    * Extract handle from DID document
+   * Supports handles from both public and privately owned PDS instances
    */
   getHandleFromDIDDocument(didDoc: DIDDocument): string | null {
-    if (!didDoc.alsoKnownAs || didDoc.alsoKnownAs.length === 0) {
+    if (!didDoc.alsoKnownAs || !Array.isArray(didDoc.alsoKnownAs) || didDoc.alsoKnownAs.length === 0) {
       return null;
     }
 
     // Find handle URI in alsoKnownAs field (format: at://username.domain)
-    const handleUri = didDoc.alsoKnownAs.find(uri => uri.startsWith('at://'));
+    const handleUri = didDoc.alsoKnownAs.find(uri => 
+      typeof uri === 'string' && uri.startsWith('at://')
+    );
+    
     if (handleUri) {
-      return handleUri.replace('at://', '');
+      const handle = handleUri.replace('at://', '');
+      // Validate handle format (should be domain-like)
+      if (handle && handle.includes('.')) {
+        return handle;
+      }
+      smartConsole.warn(`[DID_RESOLVER] Invalid handle format in alsoKnownAs for ${didDoc.id}: ${handle}`);
     }
 
+    // Log available alsoKnownAs values for debugging
+    smartConsole.warn(`[DID_RESOLVER] No valid handle found in alsoKnownAs for ${didDoc.id}:`, didDoc.alsoKnownAs);
     return null;
   }
 
