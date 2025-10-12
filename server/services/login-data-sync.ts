@@ -42,11 +42,16 @@ export class LoginDataSyncService {
    * This is called on login to fetch the last 3 days of activity
    */
   async syncRecentUserData(userDid: string, accessToken: string): Promise<void> {
+    console.log(`[LOGIN_SYNC] ========== SYNC CALLED for ${userDid} ==========`);
+    console.log(`[LOGIN_SYNC] Access token length: ${accessToken?.length || 0}`);
+    
     try {
       console.log(`[LOGIN_SYNC] Starting data sync for ${userDid} (last ${this.DAYS_TO_FETCH} days)`);
       
       // Resolve user's PDS endpoint
       const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+      console.log(`[LOGIN_SYNC] Resolved PDS endpoint: ${pdsEndpoint}`);
+      
       if (!pdsEndpoint) {
         console.error(`[LOGIN_SYNC] Could not resolve PDS endpoint for ${userDid}`);
         return;
@@ -238,4 +243,7 @@ export class LoginDataSyncService {
   }
 }
 
+// Create and export singleton instance
 export const loginDataSyncService = new LoginDataSyncService();
+
+console.log('[LOGIN_SYNC] Service initialized');

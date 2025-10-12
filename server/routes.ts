@@ -512,6 +512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Trigger background sync of recent user data from PDS (non-blocking)
       // For OAuth sessions, we need to get the access token from the stored session
+      console.log(`[AUTH] Attempting to trigger OAuth background sync for ${did}`);
       const session = await storage.getSession(did);
       if (session && session.accessToken) {
         const { encryptionService } = await import("./services/encryption");
@@ -519,14 +520,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // OAuth sessions store the full session object encrypted
           const savedSession = JSON.parse(encryptionService.decrypt(session.accessToken));
           if (savedSession.tokenSet && savedSession.tokenSet.access_token) {
+            console.log(`[AUTH] Starting OAuth background data sync for ${did}`);
             loginDataSyncService.syncRecentUserData(did, savedSession.tokenSet.access_token)
+              .then(() => {
+                console.log(`[AUTH] OAuth background data sync completed for ${did}`);
+              })
               .catch(error => {
-                console.error(`[AUTH] Background data sync failed for ${did}:`, error);
+                console.error(`[AUTH] OAuth background data sync failed for ${did}:`, error);
               });
+          } else {
+            console.log(`[AUTH] No access token found in OAuth session for ${did}`);
           }
         } catch (error) {
           console.error(`[AUTH] Failed to decrypt OAuth session for sync:`, error);
         }
+      } else {
+        console.log(`[AUTH] No session found for OAuth sync for ${did}`);
       }
 
       // Redirect to appropriate page based on admin status
@@ -621,7 +630,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const token = authService.createSessionToken(data.did, sessionId);
       
       // Trigger background sync of recent user data from PDS (non-blocking)
+      console.log(`[AUTH] Triggering background data sync for ${data.did}`);
       loginDataSyncService.syncRecentUserData(data.did, data.accessToken)
+        .then(() => {
+          console.log(`[AUTH] Background data sync completed for ${data.did}`);
+        })
         .catch(error => {
           console.error(`[AUTH] Background data sync failed for ${data.did}:`, error);
         });
@@ -2411,10 +2424,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Trigger background sync of recent user data from PDS (non-blocking)
       if (result.data.did && result.data.accessJwt) {
+        console.log(`[XRPC] Triggering background data sync for ${result.data.did}`);
         loginDataSyncService.syncRecentUserData(result.data.did, result.data.accessJwt)
+          .then(() => {
+            console.log(`[XRPC] Background data sync completed for ${result.data.did}`);
+          })
           .catch(error => {
             console.error(`[XRPC] Background data sync failed for ${result.data.did}:`, error);
           });
+      } else {
+        console.log(`[XRPC] Missing DID or access token for background sync`);
       }
       
       // Return the session data from the PDS
