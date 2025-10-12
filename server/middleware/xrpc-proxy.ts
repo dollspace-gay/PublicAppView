@@ -1,15 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { authService, validateAndRefreshSession } from "../services/auth";
 import { pdsClient } from "../services/pds-client";
-import { loginDataSyncService } from "../services/login-data-sync";
-
-// Track which DIDs have been synced in this session to avoid re-syncing on every request
-const syncedDids = new Set<string>();
-// Clear the cache periodically (every 6 hours) to allow re-syncs
-setInterval(() => {
-  console.log(`[XRPC_PROXY] Clearing sync cache (${syncedDids.size} DIDs tracked)`);
-  syncedDids.clear();
-}, 6 * 60 * 60 * 1000);
 
 /**
  * A catch-all middleware to proxy authenticated XRPC requests
@@ -95,20 +86,6 @@ export const xrpcProxyMiddleware = async (
       if (!pdsEndpoint) {
         console.error(`[XRPC_PROXY] Could not resolve PDS endpoint for DID: ${userDid}`);
         return res.status(500).json({ error: "PDSNotFound", message: "Could not determine PDS endpoint for user." });
-      }
-
-      // Trigger background sync for this user if we haven't synced them yet in this session
-      if (!syncedDids.has(userDid)) {
-        console.log(`[XRPC_PROXY] First AT Protocol request for ${userDid}, triggering background data sync`);
-        syncedDids.add(userDid);
-        
-        loginDataSyncService.syncRecentUserData(userDid, token)
-          .then(() => {
-            console.log(`[XRPC_PROXY] Background data sync completed for ${userDid}`);
-          })
-          .catch(error => {
-            console.error(`[XRPC_PROXY] Background data sync failed for ${userDid}:`, error);
-          });
       }
 
       // Forward the request to the PDS with the original AT Protocol access token
