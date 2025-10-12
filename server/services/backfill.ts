@@ -44,8 +44,21 @@ export class BackfillService {
   
   private readonly PROGRESS_SAVE_INTERVAL = 1000; // Save progress every 1000 events
   private readonly MAX_EVENTS_PER_RUN = 1000000; // Increased safety limit for total backfill
-  private readonly BATCH_SIZE = 10; // Process this many events before delay
-  private readonly BATCH_DELAY_MS = 500; // Wait this long between batches (milliseconds)
+  
+  // Configurable resource throttling for background processing
+  // These defaults make backfill a true background task that won't overwhelm the system
+  private readonly BATCH_SIZE: number; // Process this many events before delay
+  private readonly BATCH_DELAY_MS: number; // Wait this long between batches (milliseconds)
+  private readonly MAX_CONCURRENT_PROCESSING: number; // Max concurrent event processing
+  private readonly MEMORY_CHECK_INTERVAL = 100; // Check memory every N events
+  private readonly MAX_MEMORY_MB: number; // Pause processing if memory exceeds this
+  private readonly USE_IDLE_PROCESSING: boolean; // Use setImmediate for idle-time processing
+  
+  // Memory and concurrency tracking
+  private activeProcessing = 0;
+  private processingQueue: Array<() => Promise<void>> = [];
+  private lastMemoryCheck = 0;
+  private memoryPaused = false;
   private readonly backfillDays: number;
   private cutoffDate: Date | null = null;
   private idResolver: IdResolver;
@@ -61,6 +74,21 @@ export class BackfillService {
     if (process.env.BACKFILL_DAYS && isNaN(backfillDaysRaw)) {
       console.warn(`[BACKFILL] Invalid BACKFILL_DAYS value "${process.env.BACKFILL_DAYS}" - using default (0)`);
     }
+    
+    // Configure resource throttling for background processing
+    // Defaults are VERY conservative to ensure backfill is truly a background task
+    this.BATCH_SIZE = parseInt(process.env.BACKFILL_BATCH_SIZE || "5"); // Small batches (default: 5)
+    this.BATCH_DELAY_MS = parseInt(process.env.BACKFILL_BATCH_DELAY_MS || "2000"); // Long delays (default: 2s)
+    this.MAX_CONCURRENT_PROCESSING = parseInt(process.env.BACKFILL_MAX_CONCURRENT || "2"); // Low concurrency (default: 2)
+    this.MAX_MEMORY_MB = parseInt(process.env.BACKFILL_MAX_MEMORY_MB || "512"); // Memory limit (default: 512MB)
+    this.USE_IDLE_PROCESSING = process.env.BACKFILL_USE_IDLE !== "false"; // Use idle processing (default: true)
+    
+    console.log(`[BACKFILL] Resource throttling config:`);
+    console.log(`  - Batch size: ${this.BATCH_SIZE} events`);
+    console.log(`  - Batch delay: ${this.BATCH_DELAY_MS}ms`);
+    console.log(`  - Max concurrent: ${this.MAX_CONCURRENT_PROCESSING}`);
+    console.log(`  - Memory limit: ${this.MAX_MEMORY_MB}MB`);
+    console.log(`  - Idle processing: ${this.USE_IDLE_PROCESSING}`);
     
     this.idResolver = new IdResolver();
   }
@@ -236,8 +264,18 @@ export class BackfillService {
             this.progress.lastUpdateTime = new Date();
             this.batchCounter++;
 
-            // Add delay between batches to prevent database overload
+            // Memory check and throttling
+            if (this.progress.eventsProcessed % this.MEMORY_CHECK_INTERVAL === 0) {
+              await this.checkMemoryAndThrottle();
+            }
+
+            // Batch delay to prevent resource overload
             if (this.batchCounter >= this.BATCH_SIZE) {
+              if (this.USE_IDLE_PROCESSING) {
+                // Use setImmediate to yield to other tasks (non-blocking idle processing)
+                await new Promise(resolve => setImmediate(resolve));
+              }
+              // Always add the configured delay for background processing
               await new Promise(resolve => setTimeout(resolve, this.BATCH_DELAY_MS));
               this.batchCounter = 0;
             }
@@ -329,6 +367,91 @@ export class BackfillService {
     });
   }
 
+  private async checkMemoryAndThrottle(): Promise<void> {
+    try {
+      const memUsage = process.memoryUsage();
+      const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+      
+      // Check if we're exceeding memory limit
+      if (heapUsedMB > this.MAX_MEMORY_MB) {
+        if (!this.memoryPaused) {
+          console.warn(`[BACKFILL] Memory usage high (${heapUsedMB}MB > ${this.MAX_MEMORY_MB}MB), pausing for GC...`);
+          this.memoryPaused = true;
+        }
+        
+        // Force garbage collection if available (node --expose-gc)
+        if (global.gc) {
+          global.gc();
+        }
+        
+        // Wait longer to allow memory to be freed
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        const newMemUsage = process.memoryUsage();
+        const newHeapUsedMB = Math.round(newMemUsage.heapUsed / 1024 / 1024);
+        
+        if (newHeapUsedMB < this.MAX_MEMORY_MB) {
+          console.log(`[BACKFILL] Memory recovered (${newHeapUsedMB}MB), resuming...`);
+          this.memoryPaused = false;
+        } else {
+          // Still high, wait even longer
+          console.warn(`[BACKFILL] Memory still high (${newHeapUsedMB}MB), waiting longer...`);
+          await new Promise(resolve => setTimeout(resolve, 10000));
+          this.memoryPaused = false;
+        }
+      } else if (this.memoryPaused) {
+        // Memory back to normal
+        console.log(`[BACKFILL] Memory usage normal (${heapUsedMB}MB), resuming...`);
+        this.memoryPaused = false;
+      }
+      
+      // Log memory usage periodically (every 100 checks = every 10k events by default)
+      if (this.progress.eventsProcessed % (this.MEMORY_CHECK_INTERVAL * 100) === 0) {
+        console.log(`[BACKFILL] Memory: ${heapUsedMB}MB / ${this.MAX_MEMORY_MB}MB limit`);
+      }
+    } catch (error) {
+      console.error("[BACKFILL] Error checking memory:", error);
+    }
+  }
+
+  private async queueEventProcessing(task: () => Promise<void>): Promise<void> {
+    // If under concurrency limit, process immediately
+    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING) {
+      return this.processQueuedEvent(task);
+    }
+    
+    // Otherwise, queue and wait for slot
+    return new Promise((resolve, reject) => {
+      this.processingQueue.push(async () => {
+        try {
+          await task();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
+  private async processQueuedEvent(task: () => Promise<void>): Promise<void> {
+    this.activeProcessing++;
+    try {
+      await task();
+    } finally {
+      this.activeProcessing--;
+      this.processNextInQueue();
+    }
+  }
+
+  private processNextInQueue(): void {
+    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING && this.processingQueue.length > 0) {
+      const nextTask = this.processingQueue.shift();
+      if (nextTask) {
+        this.processQueuedEvent(nextTask);
+      }
+    }
+  }
+
   private async saveProgress(): Promise<void> {
     try {
       await backfillStorage.saveBackfillProgress({
@@ -342,7 +465,12 @@ export class BackfillService {
   }
 
   getProgress(): BackfillProgress {
-    return { ...this.progress };
+    return { 
+      ...this.progress,
+      // Add queue status for monitoring
+      queueDepth: this.processingQueue.length,
+      activeProcessing: this.activeProcessing,
+    } as any;
   }
 }
 
