@@ -123,6 +123,11 @@ export function isContentTypeSafe(contentType: string | undefined): boolean {
   
   const type = contentType.toLowerCase().split(';')[0].trim();
   
+  // Block HTML content to prevent XSS
+  if (type.includes('html')) {
+    return false;
+  }
+  
   // Allow common safe content types
   const safeTypes = [
     'application/json',
@@ -137,4 +142,108 @@ export function isContentTypeSafe(contentType: string | undefined): boolean {
   ];
   
   return safeTypes.some(safe => type.startsWith(safe));
+}
+
+/**
+ * Sanitizes response headers to prevent XSS attacks
+ * Removes potentially dangerous headers that could be exploited
+ * @param headers The headers object to sanitize
+ * @returns Sanitized headers object
+ */
+export function sanitizeResponseHeaders(headers: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  
+  // List of headers that are safe to forward
+  const safeHeaders = [
+    'content-type',
+    'content-length',
+    'content-encoding',
+    'cache-control',
+    'expires',
+    'etag',
+    'last-modified',
+    'accept-ranges',
+    'content-range',
+    'x-ratelimit-limit',
+    'x-ratelimit-remaining',
+    'x-ratelimit-reset',
+  ];
+  
+  for (const [key, value] of Object.entries(headers)) {
+    const lowerKey = key.toLowerCase();
+    
+    // Only include safe headers
+    if (safeHeaders.includes(lowerKey)) {
+      // Sanitize header values to remove potential script injection
+      if (typeof value === 'string') {
+        sanitized[key] = value.replace(/<script[^>]*>.*?<\/script>/gi, '')
+                              .replace(/javascript:/gi, '')
+                              .replace(/on\w+=/gi, '');
+      } else {
+        sanitized[key] = value;
+      }
+    }
+  }
+  
+  return sanitized;
+}
+
+/**
+ * Validates a DID (Decentralized Identifier) format
+ * @param did The DID to validate
+ * @returns true if the DID format is valid
+ */
+export function isValidDID(did: string): boolean {
+  if (!did || typeof did !== 'string') {
+    return false;
+  }
+  
+  // DID format: did:method:identifier
+  // Common methods: plc, web
+  const didRegex = /^did:[a-z0-9]+:[a-zA-Z0-9._:%-]+$/;
+  return didRegex.test(did) && did.length < 256;
+}
+
+/**
+ * Validates a CID (Content Identifier) format
+ * @param cid The CID to validate
+ * @returns true if the CID format is valid
+ */
+export function isValidCID(cid: string): boolean {
+  if (!cid || typeof cid !== 'string') {
+    return false;
+  }
+  
+  // CID is a base32 or base58 encoded string
+  // Typically starts with 'bafy' for base32 or 'Qm' for base58
+  const cidRegex = /^[a-zA-Z0-9]+$/;
+  return cidRegex.test(cid) && cid.length >= 10 && cid.length < 256;
+}
+
+/**
+ * Reconstructs a safe blob URL after validation to prevent SSRF
+ * @param pdsEndpoint The validated PDS endpoint
+ * @param did The DID (must be pre-validated)
+ * @param cid The CID (must be pre-validated)
+ * @returns The reconstructed safe URL or null if validation fails
+ */
+export function buildSafeBlobUrl(pdsEndpoint: string, did: string, cid: string): string | null {
+  // Validate all inputs
+  if (!isUrlSafeToFetch(pdsEndpoint) || !isValidDID(did) || !isValidCID(cid)) {
+    return null;
+  }
+  
+  try {
+    // Parse the PDS endpoint to ensure it's a valid URL
+    const parsedEndpoint = new URL(pdsEndpoint);
+    
+    // Reconstruct the URL using URL API to prevent injection
+    const blobUrl = new URL('/xrpc/com.atproto.sync.getBlob', parsedEndpoint);
+    blobUrl.searchParams.set('did', did);
+    blobUrl.searchParams.set('cid', cid);
+    
+    return blobUrl.toString();
+  } catch (error) {
+    return null;
+  }
 }

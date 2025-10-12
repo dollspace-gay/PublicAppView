@@ -20,7 +20,7 @@ import { schemaIntrospectionService } from "./services/schema-introspection";
 import { db } from "./db";
 import { sql, eq } from "drizzle-orm";
 import { csrfProtection } from "./middleware/csrf";
-import { isUrlSafeToFetch } from "./utils/security";
+import { isUrlSafeToFetch, isValidDID, isValidCID, buildSafeBlobUrl } from "./utils/security";
 import {
   authLimiter,
   oauthLimiter,
@@ -305,6 +305,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[BLOB_PROXY] Fetching blob: ${preset} ${did} ${cid}@${format}`);
 
+      // Validate DID and CID format to prevent injection attacks
+      if (!isValidDID(did)) {
+        console.error(`[BLOB_PROXY] Invalid DID format: ${did}`);
+        return res.status(400).type('text/plain').send('Invalid DID format');
+      }
+      
+      if (!isValidCID(cid)) {
+        console.error(`[BLOB_PROXY] Invalid CID format: ${cid}`);
+        return res.status(400).type('text/plain').send('Invalid CID format');
+      }
+
       // Resolve DID to PDS endpoint
       const pdsUrl = await didResolver.resolveDIDToPDS(did);
       
@@ -313,15 +324,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).type('text/plain').send("Could not resolve user's PDS");
       }
 
-      // Fetch blob from PDS
-      const blobUrl = `${pdsUrl}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`;
-      console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
-
-      // Validate URL to prevent SSRF attacks
-      if (!isUrlSafeToFetch(blobUrl)) {
-        console.error(`[BLOB_PROXY] Unsafe URL detected: ${blobUrl}`);
+      // Build safe URL to prevent SSRF attacks
+      const blobUrl = buildSafeBlobUrl(pdsUrl, did, cid);
+      
+      if (!blobUrl) {
+        console.error(`[BLOB_PROXY] Failed to build safe blob URL for PDS: ${pdsUrl}`);
         return res.status(400).type('text/plain').send('Invalid PDS endpoint');
       }
+      
+      console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
 
       const response = await fetch(blobUrl, {
         headers: {
@@ -2487,6 +2498,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Validate DID and CID format to prevent injection attacks
+      if (!isValidDID(did)) {
+        console.error(`[BLOB_FETCH] Invalid DID format: ${did}`);
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "Invalid DID format"
+        });
+      }
+      
+      if (!isValidCID(cid)) {
+        console.error(`[BLOB_FETCH] Invalid CID format: ${cid}`);
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "Invalid CID format"
+        });
+      }
+      
       // Resolve DID to PDS endpoint
       const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
       
@@ -2497,12 +2525,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Fetch blob from PDS
-      const blobUrl = `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`;
+      // Build safe URL to prevent SSRF attacks
+      const blobUrl = buildSafeBlobUrl(pdsEndpoint, did, cid);
       
-      // Validate URL to prevent SSRF attacks
-      if (!isUrlSafeToFetch(blobUrl)) {
-        console.error(`[BLOB_FETCH] Unsafe URL detected: ${blobUrl}`);
+      if (!blobUrl) {
+        console.error(`[BLOB_FETCH] Failed to build safe blob URL for PDS: ${pdsEndpoint}`);
         return res.status(400).json({
           error: "InvalidRequest",
           message: "Invalid PDS endpoint"
