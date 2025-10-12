@@ -284,86 +284,9 @@ export class PDSDataFetcher {
   }
 
   /**
-   * Fetch user data from public AppView API
-   * Since this IS an AppView, we fetch from the public Bluesky AppView for missing users
+   * Fetch user data from PDS
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
-    try {
-      // Fetch from public AppView instead of PDS
-      const appViewUrl = 'https://public.api.bsky.app';
-      const encodedDid = encodeURIComponent(did);
-      const response = await fetch(
-        `${appViewUrl}/xrpc/app.bsky.actor.getProfile?actor=${encodedDid}`,
-        {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
-        }
-      );
-
-      if (!response.ok) {
-        let errorDetails = '';
-        try {
-          const errorBody = await response.text();
-          errorDetails = errorBody.substring(0, 200);
-        } catch (e) {
-          // Ignore
-        }
-        
-        const errorMsg = `AppView profile fetch failed: ${response.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
-        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did}`);
-        
-        return {
-          success: false,
-          error: errorMsg
-        };
-      }
-
-      const profile = await response.json();
-      
-      // Extract CID from avatar/banner URLs if they exist
-      // AppView returns full URLs like https://cdn.bsky.app/img/avatar/plain/did:plc:.../cid@jpeg
-      const extractCidFromUrl = (url: string | undefined): string | null => {
-        if (!url) return null;
-        const match = url.match(/\/([a-zA-Z0-9]+)@/); // Extract CID before @
-        return match ? match[1] : null;
-      };
-      
-      // Update user with AppView data
-      await storage.updateUser(did, {
-        handle: profile.handle || did,
-        displayName: profile.displayName || null,
-        description: profile.description || null,
-        avatarUrl: extractCidFromUrl(profile.avatar),
-        bannerUrl: extractCidFromUrl(profile.banner),
-      });
-      
-      // Batch logging
-      this.updateCount++;
-      if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
-        console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
-      }
-      
-      // Flush pending operations
-      await eventProcessor.flushPendingUserOps(did);
-      await eventProcessor.flushPendingUserCreationOps(did);
-      
-      return {
-        success: true,
-        data: { did, handle: profile.handle, profile }
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
-  }
-
-  /**
-   * OLD: Fetch user data from PDS - DEPRECATED, kept for reference
-   * Now we fetch from AppView instead since this IS an AppView
-   */
-  private async fetchUserDataFromPDS_DEPRECATED(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
       const encodedDid = encodeURIComponent(did);
       const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
@@ -374,9 +297,46 @@ export class PDSDataFetcher {
       });
 
       if (!profileResponse.ok) {
+        let errorDetails = '';
+        let isRecordNotFound = false;
+        try {
+          const errorBody = await profileResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+          isRecordNotFound = errorBody.includes('RecordNotFound');
+        } catch (e) {
+          // Ignore
+        }
+        
+        // If RecordNotFound, the account exists but has no profile record
+        // This is valid - just create a minimal user record and move on
+        if (profileResponse.status === 400 && isRecordNotFound) {
+          const handle = await didResolver.resolveDIDToHandle(did);
+          
+          await storage.updateUser(did, {
+            handle: handle || did,
+            displayName: null,
+            description: null,
+            avatarUrl: null,
+            bannerUrl: null,
+          });
+          
+          console.warn(`[PDS_FETCHER] No profile record at PDS for ${did} - created minimal user record`);
+          
+          await eventProcessor.flushPendingUserOps(did);
+          await eventProcessor.flushPendingUserCreationOps(did);
+          
+          return {
+            success: true, // Treat as success to stop retrying
+            data: { did, handle: handle || did, profile: null }
+          };
+        }
+        
+        const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
+        
         return {
           success: false,
-          error: `PDS fetch failed: ${profileResponse.status}`
+          error: errorMsg
         };
       }
 
