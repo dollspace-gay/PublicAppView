@@ -87,14 +87,12 @@ async function importCar() {
     handle: DID,
     displayName: profile.displayName || 'Doll',
     description: profile.description || '',
-    avatarUrl: null,
-    bannerUrl: null,
-    followersCount: 0,
-    followingCount: 0,
-    postsCount: 0,
+    avatarUrl: extractBlobCid(profile.avatar),
+    bannerUrl: extractBlobCid(profile.banner),
+    profileRecord: profile || null,
     indexedAt: new Date()
   }).onConflictDoNothing();
-  console.log(`[CAR_IMPORT] ✓ Created user`);
+  console.log(`[CAR_IMPORT] ✓ Created user (avatar: ${extractBlobCid(profile.avatar) ? 'yes' : 'no'}, banner: ${extractBlobCid(profile.banner) ? 'yes' : 'no'})`);
   
   // Batch insert posts
   console.log(`[CAR_IMPORT] Creating ${records.posts.length} posts...`);

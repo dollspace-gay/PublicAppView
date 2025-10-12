@@ -10,6 +10,31 @@ import { eq } from 'drizzle-orm';
 const DID = 'did:plc:dzvxvsiy3maw4iarpvizsj67'; // dollspace.gay
 const didResolver = new IdResolver();
 
+/**
+ * Extract CID from various blob reference formats used in AT Protocol
+ */
+function extractBlobCid(blob: any): string | null {
+  if (!blob) return null;
+  
+  // Handle different blob formats
+  if (typeof blob === 'string') {
+    return blob === 'undefined' ? null : blob;
+  }
+  
+  // {ref: {$link: 'cid'}} format
+  if (blob.ref) {
+    const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
+    return (cid && cid !== 'undefined') ? cid : null;
+  }
+  
+  // {cid: 'cid'} format
+  if (blob.cid) {
+    return blob.cid !== 'undefined' ? blob.cid : null;
+  }
+  
+  return null;
+}
+
 async function importCar() {
   console.log(`[CAR_IMPORT] Starting import for ${DID}...`);
   
@@ -100,14 +125,21 @@ async function importCar() {
       did: DID,
       handle: handle,
       displayName: profile?.displayName || null,
-      avatarUrl: null,
+      avatarUrl: extractBlobCid(profile?.avatar),
+      bannerUrl: extractBlobCid(profile?.banner),
+      description: profile?.description || null,
+      profileRecord: profile || null,
       indexedAt: new Date()
     })
     .onConflictDoUpdate({
       target: users.did,
       set: {
         handle: handle,
-        displayName: profile?.displayName || null
+        displayName: profile?.displayName || null,
+        avatarUrl: extractBlobCid(profile?.avatar),
+        bannerUrl: extractBlobCid(profile?.banner),
+        description: profile?.description || null,
+        profileRecord: profile || null
       }
     });
   
