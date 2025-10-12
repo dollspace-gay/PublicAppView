@@ -251,33 +251,39 @@ export class EmbedResolver {
   private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.images#view',
-      images: (embed.images || []).map((img: any) => ({
-        thumb: this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail'),
-        fullsize: this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize'),
-        alt: img.alt || '',
-        aspectRatio: img.aspectRatio
-      }))
+      images: (embed.images || []).map((img: any) => {
+        const thumb = this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail');
+        const fullsize = this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize');
+        return {
+          thumb: thumb || undefined,
+          fullsize: fullsize || undefined,
+          alt: img.alt || '',
+          aspectRatio: img.aspectRatio
+        };
+      }).filter((img: any) => img.thumb && img.fullsize) // Only include images with valid URLs
     };
   }
 
   private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const thumbUrl = embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : '';
     return {
       $type: 'app.bsky.embed.external#view',
       external: {
         uri: embed.external?.uri || '',
         title: embed.external?.title || '',
         description: embed.external?.description || '',
-        thumb: embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : undefined
+        ...(thumbUrl && { thumb: thumbUrl })
       }
     };
   }
 
   private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const thumbnailUrl = embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : '';
     return {
       $type: 'app.bsky.embed.video#view',
       cid: embed.video?.ref?.$link || '',
       playlist: undefined, // Video playlist URLs not yet implemented
-      thumbnail: embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : undefined,
+      ...(thumbnailUrl && { thumbnail: thumbnailUrl }),
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };
