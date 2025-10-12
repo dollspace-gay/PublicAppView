@@ -337,6 +337,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).type('text/plain').send('Invalid PDS endpoint');
       }
       
+      // Additional validation: Ensure the constructed URL is safe to fetch from
+      // This validates the URL is not targeting internal/private networks
+      if (!isUrlSafeToFetch(blobUrl)) {
+        console.error(`[BLOB_PROXY] URL failed safety validation: ${blobUrl}`);
+        return res.status(400).type('text/plain').send('Invalid or unsafe blob URL');
+      }
+      
       console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
 
       const response = await fetch(blobUrl, {
@@ -2540,6 +2547,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({
           error: "InvalidRequest",
           message: "Invalid PDS endpoint"
+        });
+      }
+      
+      // Additional validation: Ensure the constructed URL is safe to fetch from
+      // This validates the URL is not targeting internal/private networks
+      if (!isUrlSafeToFetch(blobUrl)) {
+        console.error(`[BLOB_FETCH] URL failed safety validation: ${blobUrl}`);
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "Invalid or unsafe blob URL"
         });
       }
       

@@ -76,7 +76,13 @@ export async function setupVite(app: Express, server: Server) {
       }
       
       const page = await vite.transformIndexHtml(safePath, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      
+      // Set security headers to prevent XSS
+      res.status(200).set({ 
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: data: blob:; img-src 'self' https: http: data: blob:; connect-src 'self' https: http: wss: ws:;"
+      }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);
