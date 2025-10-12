@@ -2572,6 +2572,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get DID resolver status and cache statistics
+  app.get("/api/did-resolver/status", (_req, res) => {
+    const status = didResolver.getStatus();
+    res.json(status);
+  });
+
   // Get supported lexicons
   app.get("/api/lexicons", (_req, res) => {
     res.json(lexiconValidator.getSupportedLexicons());
