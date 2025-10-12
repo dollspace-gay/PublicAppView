@@ -1149,8 +1149,8 @@ export class EventProcessor {
       handle: handle || did, // Use resolved handle or fallback to DID
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
-      bannerUrl: record.banner?.ref?.$link,
+      avatarUrl: this.extractBlobCid(record.avatar),
+      bannerUrl: this.extractBlobCid(record.banner),
       profileRecord: record,
     };
 
@@ -1171,6 +1171,36 @@ export class EventProcessor {
         smartConsole.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
       }
     }
+  }
+
+  /**
+   * Extract CID from blob reference following official Bluesky pattern
+   * Handles multiple blob formats and returns null for invalid/undefined blobs
+   */
+  private extractBlobCid(blob: any): string | null {
+    if (!blob) return null;
+    
+    // Handle BlobRef instance (if using @atproto/lexicon)
+    if (blob && typeof blob === 'object' && blob.ref) {
+      return blob.ref.toString();
+    }
+    
+    // Handle raw JSON from parseRecordBytes() - official Bluesky pattern
+    if (blob && typeof blob === 'object' && blob['$type'] === 'blob') {
+      return blob['ref']?.['$link'] || null;
+    }
+    
+    // Handle direct CID string
+    if (typeof blob === 'string' && blob.length > 0) {
+      return blob;
+    }
+    
+    // Handle object with cid property
+    if (blob && typeof blob === 'object' && blob.cid) {
+      return blob.cid;
+    }
+    
+    return null;
   }
 
   private async processFollow(repo: string, op: any) {

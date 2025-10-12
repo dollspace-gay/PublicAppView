@@ -297,9 +297,14 @@ export class EmbedResolver {
     return undefined;
   }
 
-  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
-    if (!blob || !blob.ref) return '';
+  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
+    if (!blob || !blob.ref) return undefined;
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
+    
+    // Return undefined for invalid CIDs
+    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') {
+      return undefined;
+    }
     
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
@@ -311,15 +316,15 @@ export class EmbedResolver {
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return '';
+      return undefined;
     }
     
     return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL
-  private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
-    if (!cid) return '';
+  private directCidToCdnUrl(cid: string | null | undefined, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
+    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') return undefined;
     
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
@@ -328,7 +333,7 @@ export class EmbedResolver {
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return '';
+      return undefined;
     }
     
     return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;

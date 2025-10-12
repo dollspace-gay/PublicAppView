@@ -655,8 +655,11 @@ export class XRPCApi {
     return (json?.['cid'] ?? '') as string;
   }
 
-  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
-    if (!blobCid) return '';
+  private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
+    // Return undefined for null, undefined, empty string, or the literal string "undefined"
+    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '') {
+      return undefined;
+    }
     
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
@@ -668,7 +671,7 @@ export class XRPCApi {
     
     if (!endpoint) {
       console.error('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return '';
+      return undefined;
     }
     
     const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
@@ -677,7 +680,7 @@ export class XRPCApi {
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name
-  private directCidToCdnUrl(cid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
+  private directCidToCdnUrl(cid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
     return this.transformBlobToCdnUrl(cid, userDid, format);
   }
 
