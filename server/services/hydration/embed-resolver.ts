@@ -151,7 +151,12 @@ export class EmbedResolver {
         };
         if (author?.handle) authorView.handle = author.handle;
         if (author?.displayName) authorView.displayName = author.displayName;
-        if (author?.avatarUrl) authorView.avatar = author.avatarUrl;
+        if (author?.avatarUrl) {
+          // Transform avatar blob reference to CDN URL (like XRPC API does)
+          authorView.avatar = author.avatarUrl.startsWith('http') 
+            ? author.avatarUrl 
+            : this.blobToCdnUrl({ ref: author.avatarUrl }, author.did, 'avatar');
+        }
         
         // Construct full record value following app.bsky.feed.post schema
         const recordValue: any = {
