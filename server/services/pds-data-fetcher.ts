@@ -288,20 +288,33 @@ export class PDSDataFetcher {
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
+      // URL encode the DID to handle any special characters
+      const encodedDid = encodeURIComponent(did);
+      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
+      
       // Fetch the profile record directly from PDS using com.atproto.repo.getRecord
       // This is a PDS endpoint and doesn't require authentication
-      const profileResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${did}&collection=app.bsky.actor.profile&rkey=self`,
-        {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
-        }
-      );
+      const profileResponse = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
+      });
 
       if (!profileResponse.ok) {
+        // Get response body for better error diagnostics
+        let errorDetails = '';
+        try {
+          const errorBody = await profileResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+        } catch (e) {
+          // Ignore if we can't read the body
+        }
+        
+        const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
+        
         return {
           success: false,
-          error: `Profile fetch failed: ${profileResponse.status}`
+          error: errorMsg
         };
       }
 
@@ -420,9 +433,14 @@ export class PDSDataFetcher {
       const collection = uriParts[uriParts.length - 2];
       const rkey = uriParts[uriParts.length - 1];
 
+      // URL encode parameters
+      const encodedDid = encodeURIComponent(authorDid);
+      const encodedCollection = encodeURIComponent(collection);
+      const encodedRkey = encodeURIComponent(rkey);
+
       // Fetch the post record
       const recordResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${authorDid}&collection=${collection}&rkey=${rkey}`,
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=${encodedCollection}&rkey=${encodedRkey}`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
@@ -430,9 +448,20 @@ export class PDSDataFetcher {
       );
 
       if (!recordResponse.ok) {
+        let errorDetails = '';
+        try {
+          const errorBody = await recordResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+        } catch (e) {
+          // Ignore
+        }
+        
+        const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${postUri}`);
+        
         return {
           success: false,
-          error: `Record fetch failed: ${recordResponse.status}`
+          error: errorMsg
         };
       }
 
@@ -478,8 +507,13 @@ export class PDSDataFetcher {
     try {
       const { repo, collection, rkey } = this.parseAtUri(uri);
 
+      // URL encode parameters
+      const encodedRepo = encodeURIComponent(repo);
+      const encodedCollection = encodeURIComponent(collection);
+      const encodedRkey = encodeURIComponent(rkey);
+
       const recordResponse = await fetch(
-        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${repo}&collection=${collection}&rkey=${rkey}`,
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedRepo}&collection=${encodedCollection}&rkey=${encodedRkey}`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS),
@@ -487,7 +521,18 @@ export class PDSDataFetcher {
       );
 
       if (!recordResponse.ok) {
-        return { success: false, error: `Record fetch failed: ${recordResponse.status}` };
+        let errorDetails = '';
+        try {
+          const errorBody = await recordResponse.text();
+          errorDetails = errorBody.substring(0, 200);
+        } catch (e) {
+          // Ignore
+        }
+        
+        const errorMsg = `Record fetch failed: ${recordResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${uri}`);
+        
+        return { success: false, error: errorMsg };
       }
 
       const recordData = await recordResponse.json();
