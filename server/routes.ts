@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import { Readable } from "stream";
 import { firehoseClient } from "./services/firehose";
 import { metricsService } from "./services/metrics";
 import { lexiconValidator } from "./services/lexicon-validator";
@@ -298,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [cid, format] = cidWithFormat.split('@');
       
       if (!cid || !format) {
-        return res.status(400).json({ error: "Invalid CID format" });
+        return res.status(400).type('text/plain').send('Invalid CID format');
       }
 
       console.log(`[BLOB_PROXY] Fetching blob: ${preset} ${did} ${cid}@${format}`);
@@ -308,7 +309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!pdsUrl) {
         console.error(`[BLOB_PROXY] Could not resolve PDS for DID: ${did}`);
-        return res.status(404).json({ error: "Could not resolve user's PDS" });
+        return res.status(404).type('text/plain').send("Could not resolve user's PDS");
       }
 
       // Fetch blob from PDS
@@ -324,10 +325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!response.ok) {
         console.error(`[BLOB_PROXY] PDS returned ${response.status}: ${response.statusText}`);
-        return res.status(response.status).json({ 
-          error: "Blob not found",
-          message: `PDS returned ${response.status}` 
-        });
+        return res.status(response.status).type('text/plain').send(`Blob not found (PDS returned ${response.status})`);
       }
 
       // Get content type from PDS response or default to image/jpeg
@@ -341,7 +339,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Stream the response body
       if (response.body && typeof response.body.tee === 'function') {
         // Node.js 18+ has Readable.fromWeb for Web Streams
-        const { Readable } = require('stream');
         const nodeStream = Readable.fromWeb(response.body);
         nodeStream.pipe(res);
       } else {
@@ -352,10 +349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error('[BLOB_PROXY] Error:', error);
-      res.status(500).json({ 
-        error: "Internal server error",
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      res.status(500).type('text/plain').send(`Internal server error: ${errorMessage}`);
     }
   });
 
