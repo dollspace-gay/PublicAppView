@@ -254,36 +254,66 @@ export class EmbedResolver {
   private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
     return {
       $type: 'app.bsky.embed.images#view',
-      images: (embed.images || []).map((img: any) => ({
-        thumb: this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail'),
-        fullsize: this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize'),
-        alt: img.alt || '',
-        aspectRatio: img.aspectRatio
-      }))
+      images: (embed.images || [])
+        .map((img: any) => {
+          const thumbUrl = this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail');
+          const fullsizeUrl = this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize');
+          
+          // Skip images where we can't generate valid URLs (required by lexicon)
+          if (!thumbUrl || !fullsizeUrl) {
+            return null;
+          }
+          
+          return {
+            thumb: thumbUrl,
+            fullsize: fullsizeUrl,
+            alt: img.alt || '',
+            aspectRatio: img.aspectRatio
+          };
+        })
+        .filter(Boolean) // Remove null entries
     };
   }
 
   private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
+    const external: any = {
+      uri: embed.external?.uri || '',
+      title: embed.external?.title || '',
+      description: embed.external?.description || '',
+    };
+
+    // Conditionally add thumb field only if it exists and is valid
+    if (embed.external?.thumb) {
+      const thumbUrl = this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail');
+      if (thumbUrl) {
+        external.thumb = thumbUrl;
+      }
+    }
+
     return {
       $type: 'app.bsky.embed.external#view',
-      external: {
-        uri: embed.external?.uri || '',
-        title: embed.external?.title || '',
-        description: embed.external?.description || '',
-        thumb: embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : undefined
-      }
+      external
     };
   }
 
   private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
-    return {
+    const video: any = {
       $type: 'app.bsky.embed.video#view',
       cid: embed.video?.ref?.$link || '',
       playlist: undefined, // Video playlist URLs not yet implemented
-      thumbnail: embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : undefined,
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };
+
+    // Conditionally add thumbnail field only if it exists and is valid
+    if (embed.thumbnail) {
+      const thumbnailUrl = this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail');
+      if (thumbnailUrl) {
+        video.thumbnail = thumbnailUrl;
+      }
+    }
+
+    return video;
   }
 
   private resolveMediaEmbed(media: any, authorDid: string): any {
