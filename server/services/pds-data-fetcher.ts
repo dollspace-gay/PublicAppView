@@ -61,17 +61,41 @@ export class PDSDataFetcher {
   private sanitizeDID(did: string): string {
     const original = did;
     
-    // Remove any trailing/leading whitespace and colons
-    let cleaned = did.trim().replace(/[:]+$/, '').replace(/^[:]+/, '');
+    // Remove all whitespace (spaces, tabs, newlines, etc.)
+    let cleaned = did.replace(/\s+/g, '');
     
-    // If cleaning changed the DID, log it
+    // Remove any trailing non-alphanumeric characters except valid DID characters
+    // Valid DID characters are: a-z, A-Z, 0-9, :, -, ., _
+    cleaned = cleaned.replace(/[^a-zA-Z0-9:._-]+$/g, '');
+    
+    // Remove any leading non-alphanumeric characters
+    cleaned = cleaned.replace(/^[^a-zA-Z0-9:]+/g, '');
+    
+    // Remove trailing colons
+    cleaned = cleaned.replace(/:+$/g, '');
+    
+    // Remove any duplicate colons (e.g., did::plc: becomes did:plc:)
+    cleaned = cleaned.replace(/:+/g, ':');
+    
+    // If cleaning changed the DID, log it with character codes for debugging
     if (cleaned !== original) {
+      const originalBytes = Array.from(original).map(c => c.charCodeAt(0)).join(',');
+      const cleanedBytes = Array.from(cleaned).map(c => c.charCodeAt(0)).join(',');
       console.warn(`[PDS_FETCHER] Cleaned malformed DID: "${original}" → "${cleaned}"`);
+      console.warn(`[PDS_FETCHER] Character codes - Original: [${originalBytes}] Cleaned: [${cleanedBytes}]`);
     }
     
-    // Ensure it starts with 'did:'
+    // Ensure it starts with 'did:' and follows valid format
     if (!cleaned.startsWith('did:')) {
       console.warn(`[PDS_FETCHER] Invalid DID format (doesn't start with 'did:'): "${cleaned}"`);
+    }
+    
+    // Validate the DID matches expected pattern: did:method:identifier
+    // For did:plc: the identifier should be base32 lowercase (a-z, 2-7)
+    // For did:web: the identifier should be a domain
+    const didPattern = /^did:[a-z]+:[a-z0-9._:-]+$/i;
+    if (!didPattern.test(cleaned)) {
+      console.warn(`[PDS_FETCHER] DID doesn't match expected pattern: "${cleaned}"`);
     }
     
     return cleaned;
