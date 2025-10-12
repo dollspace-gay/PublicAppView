@@ -1518,21 +1518,23 @@ export class XRPCApi {
         const viewer: any = {
           knownFollowers: {
             count: knownFollowersResult.count,
-            followers: knownFollowersResult.followers.map((f) => {
-              const follower: any = {
-                did: f.did,
-                handle: f.handle || 'unknown.invalid',
-              };
-              // Only include displayName if it exists (AT Protocol requires string or omit, not null)
-              if (f.displayName) follower.displayName = f.displayName;
-              // Only include avatar if it exists (avatarUrl is a CID string from database)
-              if (f.avatarUrl) {
-                follower.avatar = f.avatarUrl.startsWith('http')
-                  ? f.avatarUrl
-                  : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar');
-              }
-              return follower;
-            }),
+            followers: knownFollowersResult.followers
+              .filter(f => f.handle) // Skip followers without valid handles
+              .map((f) => {
+                const follower: any = {
+                  did: f.did,
+                  handle: f.handle,
+                };
+                // Only include displayName if it exists (AT Protocol requires string or omit, not null)
+                if (f.displayName) follower.displayName = f.displayName;
+                // Only include avatar if it exists (avatarUrl is a CID string from database)
+                if (f.avatarUrl) {
+                  follower.avatar = f.avatarUrl.startsWith('http')
+                    ? f.avatarUrl
+                    : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar');
+                }
+                return follower;
+              }),
           },
         };
 
@@ -2362,13 +2364,20 @@ export class XRPCApi {
         return res.status(404).json({ error: 'Feed generator not found' });
       }
 
+      // Ensure creator profile is loaded
+      await lazyDataLoader.ensureUserProfile(generator.creatorDid);
       const creator = await storage.getUser(generator.creatorDid);
+      
+      if (!creator || !creator.handle) {
+        return res.status(500).json({ 
+          error: 'Feed generator creator profile not available',
+          message: 'Unable to load creator information'
+        });
+      }
 
       const creatorView: any = {
         did: generator.creatorDid,
-        handle:
-          creator?.handle ||
-          `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+        handle: creator.handle,
         ...this.maybeAvatar(creator?.avatarUrl, creator?.did),
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
@@ -2401,15 +2410,25 @@ export class XRPCApi {
 
       const generators = await storage.getFeedGenerators(params.feeds);
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const views = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
+          
+          // Skip generators from creators without valid handles
+          if (!creator || !creator.handle) {
+            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            return null;
+          }
 
           const creatorView: any = {
             did: generator.creatorDid,
-            handle:
-              creator?.handle ||
-              `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2431,7 +2450,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ feeds: views });
+      // Filter out null entries (generators from creators without valid handles)
+      const validViews = views.filter(view => view !== null);
+
+      res.json({ feeds: validViews });
     } catch (error) {
       this._handleError(res, error, 'getFeedGenerators');
     }
@@ -2450,15 +2472,25 @@ export class XRPCApi {
         params.cursor,
       );
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
+          
+          // Skip generators from creators without valid handles
+          if (!creator || !creator.handle) {
+            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            return null;
+          }
 
           const creatorView: any = {
             did: generator.creatorDid,
-            handle:
-              creator?.handle ||
-              `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2495,15 +2527,25 @@ export class XRPCApi {
         params.cursor,
       );
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
+          
+          // Skip generators from creators without valid handles
+          if (!creator || !creator.handle) {
+            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            return null;
+          }
 
           const creatorView: any = {
             did: generator.creatorDid,
-            handle:
-              creator?.handle ||
-              `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2525,7 +2567,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ cursor, feeds });
+      // Filter out null entries (generators from creators without valid handles)
+      const validFeeds = feeds.filter(feed => feed !== null);
+
+      res.json({ cursor, feeds: validFeeds });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedFeeds');
     }
@@ -2625,7 +2670,17 @@ export class XRPCApi {
         return res.status(404).json({ error: 'Starter pack not found' });
       }
 
+      // Ensure creator profile is loaded
+      await lazyDataLoader.ensureUserProfile(pack.creatorDid);
       const creator = await storage.getUser(pack.creatorDid);
+      
+      if (!creator || !creator.handle) {
+        return res.status(500).json({ 
+          error: 'Starter pack creator profile not available',
+          message: 'Unable to load creator information'
+        });
+      }
+      
       let list = null;
       if (pack.listUri) {
         list = await storage.getList(pack.listUri);
@@ -2633,8 +2688,7 @@ export class XRPCApi {
 
       const creatorView: any = {
         did: pack.creatorDid,
-        handle:
-          creator?.handle || `${pack.creatorDid.replace(/:/g, '-')}.invalid`,
+        handle: creator.handle,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
       if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
@@ -2676,9 +2730,22 @@ export class XRPCApi {
 
       const packs = await storage.getStarterPacks(params.uris);
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(packs.map(p => p.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const views = await Promise.all(
         packs.map(async (pack) => {
           const creator = await storage.getUser(pack.creatorDid);
+          
+          // Skip packs from creators without valid handles
+          if (!creator?.handle) {
+            console.warn(`[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} has no handle`);
+            return null;
+          }
+          
           let list = null;
           if (pack.listUri) {
             list = await storage.getList(pack.listUri);
@@ -2686,7 +2753,7 @@ export class XRPCApi {
 
           const creatorView: any = {
             did: pack.creatorDid,
-            handle: creator?.handle || `handle.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2721,7 +2788,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ starterPacks: views });
+      // Filter out null entries (packs from creators without valid handles)
+      const validViews = views.filter(view => view !== null);
+
+      res.json({ starterPacks: validViews });
     } catch (error) {
       this._handleError(res, error, 'getStarterPacks');
     }
@@ -3392,11 +3462,23 @@ export class XRPCApi {
       const authorDids = Array.from(
         new Set(notificationsList.map((n) => n.authorDid)),
       );
+      
+      // Ensure all author profiles are loaded
+      await Promise.all(
+        authorDids.map(authorDid => lazyDataLoader.ensureUserProfile(authorDid))
+      );
+      
       const authors = await storage.getUsers(authorDids);
       const authorMap = new Map(authors.map((a) => [a.did, a]));
 
       const items = await Promise.all(notificationsList.map(async (n) => {
         const author = authorMap.get(n.authorDid);
+        
+        // Skip notifications from authors without valid handles
+        if (!author || !author.handle) {
+          console.warn(`[XRPC] Skipping notification from ${n.authorDid} - no valid handle`);
+          return null;
+        }
         
         // Validate that the notification subject still exists
         let reasonSubject = n.reasonSubject;
@@ -3453,73 +3535,39 @@ export class XRPCApi {
           reason: n.reason,
           reasonSubject: reasonSubject, // Always a string now
           record: record || { $type: 'app.bsky.notification.defs#recordDeleted' },
-          author: author
-            ? {
-                $type: 'app.bsky.actor.defs#profileViewBasic',
-                did: author.did,
-                handle: author.handle ?? 'unknown.invalid',
-                displayName: author.displayName ?? author.handle ?? 'Unknown User',
-                pronouns: author.pronouns,
-                ...this.maybeAvatar(author.avatarUrl, author.did),
-                associated: {
-                  $type: 'app.bsky.actor.defs#profileAssociated',
-                  lists: 0,
-                  feedgens: 0,
-                  starterPacks: 0,
-                  labeler: false,
-                  chat: undefined,
-                  activitySubscription: undefined,
-                },
-                viewer: {
-                  $type: 'app.bsky.actor.defs#viewerState',
-                  muted: false,
-                  mutedByList: undefined,
-                  blockedBy: false,
-                  blocking: undefined,
-                  blockingByList: undefined,
-                  following: undefined,
-                  followedBy: undefined,
-                  knownFollowers: undefined,
-                  activitySubscription: undefined,
-                },
-                labels: [],
-                createdAt: author.createdAt?.toISOString(),
-                verification: undefined,
-                status: undefined,
-              }
-            : { 
-                $type: 'app.bsky.actor.defs#profileViewBasic',
-                did: n.authorDid, 
-                handle: 'unknown.invalid',
-                displayName: 'Unknown User', // Use proper fallback
-                pronouns: undefined,
-                avatar: undefined,
-                associated: {
-                  $type: 'app.bsky.actor.defs#profileAssociated',
-                  lists: 0,
-                  feedgens: 0,
-                  starterPacks: 0,
-                  labeler: false,
-                  chat: undefined,
-                  activitySubscription: undefined,
-                },
-                viewer: {
-                  $type: 'app.bsky.actor.defs#viewerState',
-                  muted: false,
-                  mutedByList: undefined,
-                  blockedBy: false,
-                  blocking: undefined,
-                  blockingByList: undefined,
-                  following: undefined,
-                  followedBy: undefined,
-                  knownFollowers: undefined,
-                  activitySubscription: undefined,
-                },
-                labels: [],
-                createdAt: undefined,
-                verification: undefined,
-                status: undefined,
-              },
+          author: {
+            $type: 'app.bsky.actor.defs#profileViewBasic',
+            did: author.did,
+            handle: author.handle,
+            displayName: author.displayName ?? author.handle,
+            pronouns: author.pronouns,
+            ...this.maybeAvatar(author.avatarUrl, author.did),
+            associated: {
+              $type: 'app.bsky.actor.defs#profileAssociated',
+              lists: 0,
+              feedgens: 0,
+              starterPacks: 0,
+              labeler: false,
+              chat: undefined,
+              activitySubscription: undefined,
+            },
+            viewer: {
+              $type: 'app.bsky.actor.defs#viewerState',
+              muted: false,
+              mutedByList: undefined,
+              blockedBy: false,
+              blocking: undefined,
+              blockingByList: undefined,
+              following: undefined,
+              followedBy: undefined,
+              knownFollowers: undefined,
+              activitySubscription: undefined,
+            },
+            labels: [],
+            createdAt: author.createdAt?.toISOString(),
+            verification: undefined,
+            status: undefined,
+          },
         };
         return view;
       }));
