@@ -59,7 +59,7 @@
     "cookie-parser": "^1.4.7",
     "csurf": "^1.11.0",
     "date-fns": "^3.6.0",
-    "drizzle-orm": "^0.39.1",
+    "drizzle-orm": "^0.44.5",
     "drizzle-zod": "^0.7.0",
     "elliptic": "^6.5.5",
     "embla-carousel-react": "^8.6.0",
