@@ -53,18 +53,21 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const search = useSearch();
 
-  // Handle auth token from URL
+  // Handle auth token from URL (SECURITY: minimize token exposure in URL)
   useEffect(() => {
     const params = new URLSearchParams(search);
     const token = params.get("token");
 
     if (token) {
       console.log("[AUTH] Token found in URL, setting auth token...");
-      setAuthToken(token);
-      // Invalidate session query to re-fetch with new token
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
-      // Clean the token from the URL for security
+      
+      // CRITICAL: Clear the URL IMMEDIATELY before any async operations
+      // This minimizes the window where the token is visible in browser history
       window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Store token and invalidate session after URL is cleared
+      setAuthToken(token);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
     }
   }, [search, queryClient]);
 

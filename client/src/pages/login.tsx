@@ -28,12 +28,16 @@ export default function LoginPage() {
     }
     
     if (token) {
+      // CRITICAL: Clear URL IMMEDIATELY before any other operations
+      // This minimizes the window where the token is visible in browser history
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Store token and redirect after URL is cleared
       localStorage.setItem("dashboard_token", token);
       toast({
         title: "Login Successful",
         description: "Welcome! Redirecting...",
       });
-      window.history.replaceState({}, document.title, window.location.pathname);
       window.location.href = '/';
       return;
     }

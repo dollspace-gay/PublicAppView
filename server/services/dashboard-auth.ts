@@ -6,7 +6,8 @@
  */
 
 import jwt from "jsonwebtoken";
-import { randomBytes, createHash } from "crypto";
+import { randomBytes } from "crypto";
+import bcrypt from "bcrypt";
 import type { Request, Response, NextFunction } from "express";
 
 if (!process.env.SESSION_SECRET) {
@@ -32,17 +33,37 @@ export interface DashboardSessionPayload {
 
 export class DashboardAuthService {
   /**
-   * Verify dashboard password
+   * Verify dashboard password using bcrypt (with backwards compatibility for plain passwords)
+   * 
+   * SECURITY: This method supports two modes:
+   * 1. Bcrypt hash (recommended): DASHBOARD_PASSWORD starts with $2a$, $2b$, or $2y$
+   * 2. Plain password (legacy, INSECURE): For backwards compatibility only
+   * 
+   * Migration guide:
+   * 1. Generate bcrypt hash: node -e "const bcrypt = require('bcrypt'); bcrypt.hash('your-password', 10, (e,h) => console.log(h));"
+   * 2. Update DASHBOARD_PASSWORD in .env with the hash
+   * 3. Restart the server
    */
-  verifyPassword(password: string): boolean {
+  async verifyPassword(password: string): Promise<boolean> {
     if (!DASHBOARD_PASSWORD) {
       return false;
     }
     
-    const hash = createHash("sha256").update(password).digest("hex");
-    const expectedHash = createHash("sha256").update(DASHBOARD_PASSWORD).digest("hex");
-    
-    return hash === expectedHash;
+    try {
+      // Check if DASHBOARD_PASSWORD is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+      if (DASHBOARD_PASSWORD.startsWith('$2')) {
+        // Use bcrypt comparison for hashed passwords
+        return await bcrypt.compare(password, DASHBOARD_PASSWORD);
+      }
+      
+      // LEGACY MODE: Plain password comparison (NOT RECOMMENDED - for backwards compatibility only)
+      console.warn('[DashboardAuth] SECURITY WARNING: Using plain password comparison. ' +
+                   'Please upgrade to bcrypt hash. See dashboard-auth.ts for migration guide.');
+      return password === DASHBOARD_PASSWORD;
+    } catch (error) {
+      console.error('[DashboardAuth] Password verification error:', error);
+      return false;
+    }
   }
 
   /**

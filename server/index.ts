@@ -88,23 +88,27 @@ app.use(express.urlencoded({
   limit: '10mb' // Same limit for URL-encoded data
 }));
 
-// CORS configuration - Secure for CSRF protection
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Build allow list of trusted origins
-  const allowedOrigins = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(',') 
+// Initialize CORS allowed origins list ONCE at startup (not per-request to avoid memory leak)
+const ALLOWED_ORIGINS = (() => {
+  const origins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : [];
   
   // Add APPVIEW_HOSTNAME if configured (for the web UI)
   if (process.env.APPVIEW_HOSTNAME) {
-    allowedOrigins.push(`https://${process.env.APPVIEW_HOSTNAME}`);
-    allowedOrigins.push(`http://${process.env.APPVIEW_HOSTNAME}`);
+    origins.push(`https://${process.env.APPVIEW_HOSTNAME}`);
+    origins.push(`http://${process.env.APPVIEW_HOSTNAME}`);
   }
   
+  return origins;
+})();
+
+// CORS configuration - Secure for CSRF protection
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
   // For same-origin or explicitly allowed origins, enable credentials
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else if (!origin) {
