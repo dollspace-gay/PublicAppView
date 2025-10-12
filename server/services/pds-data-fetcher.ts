@@ -161,10 +161,7 @@ export class PDSDataFetcher {
       });
     }
 
-    // Only log when the queue is getting large (every 100 entries)
-    if (this.incompleteEntries.size % 100 === 0) {
-      console.log(`[PDS_FETCHER] Queue size: ${this.incompleteEntries.size} incomplete entries`);
-    }
+    // Queue size tracking removed to reduce log spam
   }
 
   /**
