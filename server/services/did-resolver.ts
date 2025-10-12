@@ -17,6 +17,156 @@ interface DIDDocument {
   }>;
 }
 
+interface CacheEntry<T> {
+  value: T;
+  timestamp: number;
+}
+
+interface QueuedRequest<T> {
+  operation: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: any) => void;
+}
+
+/**
+ * Simple LRU Cache implementation
+ */
+class LRUCache<K, V> {
+  private cache: Map<K, CacheEntry<V>>;
+  private maxSize: number;
+  private ttl: number;
+
+  constructor(maxSize: number, ttlMs: number) {
+    this.cache = new Map();
+    this.maxSize = maxSize;
+    this.ttl = ttlMs;
+  }
+
+  get(key: K): V | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+
+    // Check if expired
+    if (Date.now() - entry.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: K, value: V): void {
+    // Remove if exists (to update position)
+    this.cache.delete(key);
+
+    // Evict oldest if at capacity
+    if (this.cache.size >= this.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      value,
+      timestamp: Date.now(),
+    });
+  }
+
+  has(key: K): boolean {
+    return this.get(key) !== null;
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  size(): number {
+    return this.cache.size;
+  }
+
+  getStats(): { size: number; maxSize: number; ttl: number } {
+    return {
+      size: this.cache.size,
+      maxSize: this.maxSize,
+      ttl: this.ttl,
+    };
+  }
+}
+
+/**
+ * Request Queue with concurrency limiting
+ */
+class RequestQueue {
+  private queue: QueuedRequest<any>[] = [];
+  private activeCount = 0;
+  private maxConcurrent: number;
+  private queuedCount = 0;
+  private completedCount = 0;
+  private failedCount = 0;
+
+  constructor(maxConcurrent: number) {
+    this.maxConcurrent = maxConcurrent;
+  }
+
+  async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue.push({ operation, resolve, reject });
+      this.queuedCount++;
+      this.processQueue();
+    });
+  }
+
+  private async processQueue(): Promise<void> {
+    if (this.activeCount >= this.maxConcurrent || this.queue.length === 0) {
+      return;
+    }
+
+    const request = this.queue.shift();
+    if (!request) return;
+
+    this.activeCount++;
+    this.queuedCount--;
+
+    try {
+      const result = await request.operation();
+      this.completedCount++;
+      request.resolve(result);
+    } catch (error) {
+      this.failedCount++;
+      request.reject(error);
+    } finally {
+      this.activeCount--;
+      this.processQueue(); // Process next item
+    }
+  }
+
+  getStats(): { 
+    queued: number; 
+    active: number; 
+    completed: number;
+    failed: number;
+    maxConcurrent: number;
+  } {
+    return {
+      queued: this.queue.length,
+      active: this.activeCount,
+      completed: this.completedCount,
+      failed: this.failedCount,
+      maxConcurrent: this.maxConcurrent,
+    };
+  }
+
+  setMaxConcurrent(max: number): void {
+    this.maxConcurrent = max;
+    // Process queue in case we increased concurrency
+    while (this.activeCount < this.maxConcurrent && this.queue.length > 0) {
+      this.processQueue();
+    }
+  }
+}
+
 export class DIDResolver {
   private plcDirectory = "https://plc.directory";
   private maxRetries = 3;
@@ -29,6 +179,24 @@ export class DIDResolver {
   private circuitOpen = false;
   private resolutionCount = 0;
   private readonly BATCH_LOG_SIZE = 5000;
+  
+  // Caching
+  private didDocumentCache: LRUCache<string, DIDDocument>;
+  private handleCache: LRUCache<string, string>;
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  
+  // Request queue for rate limiting
+  private requestQueue: RequestQueue;
+  
+  constructor() {
+    // Cache up to 100k DID documents with 24 hour TTL
+    this.didDocumentCache = new LRUCache(100000, 24 * 60 * 60 * 1000);
+    // Cache up to 100k handle mappings with 24 hour TTL
+    this.handleCache = new LRUCache(100000, 24 * 60 * 60 * 1000);
+    // Limit to 15 concurrent requests to plc.directory
+    this.requestQueue = new RequestQueue(15);
+  }
 
   /**
    * Configure resolver settings
@@ -39,12 +207,25 @@ export class DIDResolver {
     retryDelay?: number;
     circuitBreakerThreshold?: number;
     circuitBreakerTimeout?: number;
+    maxConcurrentRequests?: number;
+    cacheTTL?: number;
+    cacheSize?: number;
   }) {
     if (options.maxRetries !== undefined) this.maxRetries = options.maxRetries;
     if (options.baseTimeout !== undefined) this.baseTimeout = options.baseTimeout;
     if (options.retryDelay !== undefined) this.retryDelay = options.retryDelay;
     if (options.circuitBreakerThreshold !== undefined) this.circuitBreakerThreshold = options.circuitBreakerThreshold;
     if (options.circuitBreakerTimeout !== undefined) this.circuitBreakerTimeout = options.circuitBreakerTimeout;
+    if (options.maxConcurrentRequests !== undefined) this.requestQueue.setMaxConcurrent(options.maxConcurrentRequests);
+    
+    // Recreate caches if size/TTL changed
+    if (options.cacheSize !== undefined || options.cacheTTL !== undefined) {
+      const size = options.cacheSize || 100000;
+      const ttl = options.cacheTTL || 24 * 60 * 60 * 1000;
+      this.didDocumentCache = new LRUCache(size, ttl);
+      this.handleCache = new LRUCache(size, ttl);
+      smartConsole.log(`[DID_RESOLVER] Cache recreated with size: ${size}, TTL: ${ttl}ms`);
+    }
   }
 
   /**
@@ -212,15 +393,33 @@ export class DIDResolver {
    * Resolve a DID to its DID document
    */
   async resolveDID(did: string): Promise<DIDDocument | null> {
+    // Check cache first
+    const cached = this.didDocumentCache.get(did);
+    if (cached) {
+      this.cacheHits++;
+      return cached;
+    }
+    
+    this.cacheMisses++;
+    
     try {
+      let didDoc: DIDDocument | null = null;
+      
       if (did.startsWith('did:plc:')) {
-        return await this.resolvePLCDID(did);
+        didDoc = await this.resolvePLCDID(did);
       } else if (did.startsWith('did:web:')) {
-        return await this.resolveWebDID(did);
+        didDoc = await this.resolveWebDID(did);
       } else {
         smartConsole.error(`[DID_RESOLVER] Unsupported DID method: ${did}`);
         return null;
       }
+      
+      // Cache successful resolutions
+      if (didDoc) {
+        this.didDocumentCache.set(did, didDoc);
+      }
+      
+      return didDoc;
     } catch (error) {
       smartConsole.error(`[DID_RESOLVER] Error resolving DID ${did}:`, error);
       return null;
@@ -235,15 +434,17 @@ export class DIDResolver {
     }
 
     try {
-      const result = await this.retryWithBackoff(async () => {
-        const plcUrl = `${this.plcDirectory}/${did}`;
-        const response = await fetch(plcUrl, {
-          headers: { 
-            'Accept': 'application/did+ld+json, application/json',
-            'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
-          },
-          signal: AbortSignal.timeout(this.baseTimeout),
-        });
+      // Queue the request to limit concurrency
+      const result = await this.requestQueue.enqueue(async () => {
+        return await this.retryWithBackoff(async () => {
+          const plcUrl = `${this.plcDirectory}/${did}`;
+          const response = await fetch(plcUrl, {
+            headers: { 
+              'Accept': 'application/did+ld+json, application/json',
+              'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
+            },
+            signal: AbortSignal.timeout(this.baseTimeout),
+          });
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -280,7 +481,8 @@ export class DIDResolver {
           smartConsole.warn(`[DID_RESOLVER] DID mismatch from PLC for ${did}: document contains ${data.id}`);
         }
         
-        return data;
+          return data;
+        });
       });
       
       // Record success
@@ -569,13 +771,40 @@ export class DIDResolver {
     lastFailureTime: number;
     maxRetries: number;
     baseTimeout: number;
+    cache: {
+      didDocuments: { size: number; maxSize: number; ttl: number };
+      handles: { size: number; maxSize: number; ttl: number };
+      hitRate: string;
+      hits: number;
+      misses: number;
+    };
+    queue: {
+      queued: number;
+      active: number;
+      completed: number;
+      failed: number;
+      maxConcurrent: number;
+    };
   } {
+    const totalRequests = this.cacheHits + this.cacheMisses;
+    const hitRate = totalRequests > 0 
+      ? (this.cacheHits / totalRequests * 100).toFixed(2) + '%'
+      : '0%';
+    
     return {
       circuitOpen: this.circuitOpen,
       failureCount: this.failureCount,
       lastFailureTime: this.lastFailureTime,
       maxRetries: this.maxRetries,
       baseTimeout: this.baseTimeout,
+      cache: {
+        didDocuments: this.didDocumentCache.getStats(),
+        handles: this.handleCache.getStats(),
+        hitRate,
+        hits: this.cacheHits,
+        misses: this.cacheMisses,
+      },
+      queue: this.requestQueue.getStats(),
     };
   }
 
@@ -588,11 +817,55 @@ export class DIDResolver {
     this.lastFailureTime = 0;
     smartConsole.log('[DID_RESOLVER] Circuit breaker manually reset');
   }
+  
+  /**
+   * Clear all caches
+   */
+  clearCaches(): void {
+    this.didDocumentCache.clear();
+    this.handleCache.clear();
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    smartConsole.log('[DID_RESOLVER] Caches cleared');
+  }
+  
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): {
+    didDocuments: { size: number; maxSize: number; ttl: number };
+    handles: { size: number; maxSize: number; ttl: number };
+    hitRate: string;
+    hits: number;
+    misses: number;
+  } {
+    const totalRequests = this.cacheHits + this.cacheMisses;
+    const hitRate = totalRequests > 0 
+      ? (this.cacheHits / totalRequests * 100).toFixed(2) + '%'
+      : '0%';
+    
+    return {
+      didDocuments: this.didDocumentCache.getStats(),
+      handles: this.handleCache.getStats(),
+      hitRate,
+      hits: this.cacheHits,
+      misses: this.cacheMisses,
+    };
+  }
 
   /**
    * Resolve DID to handle
    */
   async resolveDIDToHandle(did: string): Promise<string | null> {
+    // Check handle cache first
+    const cachedHandle = this.handleCache.get(did);
+    if (cachedHandle) {
+      this.cacheHits++;
+      return cachedHandle;
+    }
+    
+    this.cacheMisses++;
+    
     try {
       const didDoc = await this.resolveDID(did);
       if (!didDoc) {
@@ -605,11 +878,15 @@ export class DIDResolver {
         smartConsole.warn(`[DID_RESOLVER] No handle found in DID document for ${did}`);
         return null;
       }
+      
+      // Cache the handle mapping
+      this.handleCache.set(did, handle);
 
       // Batch logging: only log every 5000 resolutions
       this.resolutionCount++;
       if (this.resolutionCount % this.BATCH_LOG_SIZE === 0) {
-        smartConsole.log(`[DID_RESOLVER] Resolved ${this.BATCH_LOG_SIZE} DIDs (total: ${this.resolutionCount})`);
+        const cacheHitRate = this.cacheHits / (this.cacheHits + this.cacheMisses) * 100;
+        smartConsole.log(`[DID_RESOLVER] Resolved ${this.BATCH_LOG_SIZE} DIDs (total: ${this.resolutionCount}, cache hit rate: ${cacheHitRate.toFixed(1)}%)`);
       }
       
       return handle;
