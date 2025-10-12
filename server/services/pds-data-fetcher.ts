@@ -9,6 +9,8 @@ import { didResolver } from "./did-resolver";
 import { pdsClient } from "./pds-client";
 import { storage } from "../storage";
 import { eventProcessor } from "./event-processor";
+import { CID } from 'multiformats/cid';
+import * as Digest from 'multiformats/hashes/digest';
 
 interface PDSDataFetchResult {
   success: boolean;
@@ -204,9 +206,10 @@ export class PDSDataFetcher {
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
-      // Try to get the user's profile and handle
+      // Fetch the profile record directly from PDS using com.atproto.repo.getRecord
+      // This is a PDS endpoint and doesn't require authentication
       const profileResponse = await fetch(
-        `${pdsEndpoint}/xrpc/app.bsky.actor.getProfile?actor=${did}`,
+        `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${did}&collection=app.bsky.actor.profile&rkey=self`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
@@ -220,38 +223,84 @@ export class PDSDataFetcher {
         };
       }
 
-      const profile = await profileResponse.json();
+      const response = await profileResponse.json();
+      const profile = response.value; // The actual profile record is in .value
       
-      if (profile.did && profile.handle) {
-        // Extract avatar and banner CIDs from URLs (if they're from a Bluesky/AT Protocol CDN)
-        // URLs look like: https://cdn.bsky.app/img/avatar/plain/did:plc:.../bafkreixyz@jpeg
-        const extractCidFromUrl = (url: string | undefined): string | null => {
-          if (!url) return null;
-          try {
-            // Match pattern: .../did:xxx/CID@format
-            const match = url.match(/\/([^\/]+)@[^@]+$/);
-            if (match && match[1] && (match[1].startsWith('bafkrei') || match[1].startsWith('bafybei') || match[1].startsWith('bafy'))) {
-              return match[1];
-            }
-          } catch (e) {
-            // Ignore
+      if (profile) {
+        // Resolve handle from DID
+        const handle = await didResolver.resolveDIDToHandle(did);
+        
+        // Extract avatar and banner CIDs from blob references (same logic as event processor)
+        const extractBlobCid = (blob: any): string | null => {
+          if (!blob) return null;
+          
+          if (typeof blob === 'string') {
+            return blob === 'undefined' ? null : blob;
           }
+          
+          if (blob.ref) {
+            if (typeof blob.ref === 'string') {
+              return blob.ref !== 'undefined' ? blob.ref : null;
+            }
+            
+            if (blob.ref.$link) {
+              return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
+            }
+            
+            // Binary CID object from PDS
+            if (blob.ref.code !== undefined && blob.ref.multihash) {
+              try {
+                if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
+                  const cidString = blob.ref.toString();
+                  return cidString !== 'undefined' ? cidString : null;
+                }
+                
+                const mh = blob.ref.multihash;
+                const digest = mh.digest;
+                
+                let digestBytes: Uint8Array;
+                if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+                  const size = mh.size || Object.keys(digest).length;
+                  digestBytes = new Uint8Array(size);
+                  for (let i = 0; i < size; i++) {
+                    digestBytes[i] = digest[i];
+                  }
+                } else if (ArrayBuffer.isView(digest)) {
+                  digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+                } else {
+                  return null;
+                }
+                
+                const multihashDigest = Digest.create(mh.code, digestBytes);
+                const cidObj = CID.create(blob.ref.version || 1, blob.ref.code, multihashDigest);
+                return cidObj.toString();
+              } catch (error) {
+                console.error('[PDS_FETCHER] Error converting binary CID:', error);
+                return null;
+              }
+            }
+          }
+          
+          if (blob.cid) {
+            return blob.cid !== 'undefined' ? blob.cid : null;
+          }
+          
           return null;
         };
         
-        const avatarCid = extractCidFromUrl(profile.avatar);
-        const bannerCid = extractCidFromUrl(profile.banner);
+        const avatarCid = extractBlobCid(profile.avatar);
+        const bannerCid = extractBlobCid(profile.banner);
         
         // Update user with full profile data
         await storage.updateUser(did, {
-          handle: profile.handle,
+          handle: handle || did,
           displayName: profile.displayName || null,
           description: profile.description || null,
           avatarUrl: avatarCid,
           bannerUrl: bannerCid,
         });
         
-        console.log(`[PDS_FETCHER] Updated user ${did} - handle: ${profile.handle}, avatar: ${avatarCid ? 'YES' : 'NO'}, banner: ${bannerCid ? 'YES' : 'NO'}`);
+        console.log(`[PDS_FETCHER] Updated user ${did} - handle: ${handle || did}, avatar: ${avatarCid ? 'YES' : 'NO'}, banner: ${bannerCid ? 'YES' : 'NO'}`);
         
         // Flush any pending operations for this user
         await eventProcessor.flushPendingUserOps(did);
@@ -259,12 +308,12 @@ export class PDSDataFetcher {
         
         return {
           success: true,
-          data: { did, handle: profile.handle, profile }
+          data: { did, handle: handle || did, profile }
         };
       } else {
         return {
           success: false,
-          error: 'Profile response missing required fields'
+          error: 'No profile record found'
         };
       }
     } catch (error) {
