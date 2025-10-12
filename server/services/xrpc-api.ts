@@ -656,7 +656,8 @@ export class XRPCApi {
   }
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string {
-    if (!blobCid) return '';
+    // Check for falsy values and the literal string "undefined"
+    if (!blobCid || blobCid === 'undefined') return '';
     
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
