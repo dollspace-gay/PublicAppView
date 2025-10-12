@@ -341,51 +341,64 @@ export class DIDResolver {
 
   private async resolveHandleViaHTTPS(handle: string): Promise<string | null> {
     try {
-      return await this.retryWithBackoff(async () => {
-        const response = await fetch(`https://${handle}/.well-known/atproto-did`, {
-          headers: { 
-            'Accept': 'text/plain',
-            'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
-          },
-          signal: AbortSignal.timeout(this.baseTimeout),
-        });
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            smartConsole.warn(`[DID_RESOLVER] Handle not found: ${handle}`);
-            return null;
-          }
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const contentType = response.headers.get('content-type') || '';
-        const responseText = await response.text();
-        const did = responseText.trim();
-        
-        // Check if response looks like HTML (common error case)
-        if (did.startsWith('<') || did.startsWith('{') || contentType.includes('html') || contentType.includes('json')) {
-          smartConsole.warn(`[DID_RESOLVER] Unexpected content type for ${handle}: ${contentType}`);
-          smartConsole.warn(`[DID_RESOLVER] Response preview: ${did.substring(0, 200)}`);
-          throw new Error(`Invalid response format: expected plain text DID, got ${contentType || 'unknown content type'}`);
-        }
-        
-        // Validate DID format (must start with did: and have a method)
-        if (!did.startsWith('did:')) {
-          smartConsole.warn(`[DID_RESOLVER] Invalid DID format for ${handle}. Expected format: did:<method>:<identifier>`);
-          smartConsole.warn(`[DID_RESOLVER] Received: "${did.substring(0, 100)}"`);
-          throw new Error(`Invalid DID format in response: "${did.substring(0, 50)}"`);
-        }
-        
-        // Validate it's a supported DID method
-        if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
-          smartConsole.warn(`[DID_RESOLVER] Unsupported DID method for ${handle}: ${did}`);
-          // Don't throw - still return it as it might be valid
-        }
-
-        return did;
+      const response = await fetch(`https://${handle}/.well-known/atproto-did`, {
+        headers: { 
+          'Accept': 'text/plain',
+          'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
+        },
+        signal: AbortSignal.timeout(this.baseTimeout),
       });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // 404 is expected for domains without AT Protocol configuration
+          // Don't log warnings for this common case
+          return null;
+        }
+        // Only log warnings for unexpected status codes (not 404)
+        smartConsole.warn(`[DID_RESOLVER] HTTP ${response.status} for ${handle}/.well-known/atproto-did`);
+        return null;
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      const responseText = await response.text();
+      const did = responseText.trim();
+      
+      // Check if response looks like HTML or JSON (common error case for misconfigured domains)
+      // This happens when the domain has a website but no AT Protocol configuration
+      if (did.startsWith('<') || did.startsWith('{') || contentType.includes('html') || contentType.includes('json')) {
+        // Don't log warnings for every occurrence - this is a common configuration issue
+        // that won't be fixed by retrying. Only log once at debug level.
+        if (Math.random() < 0.01) { // Log 1% of occurrences to avoid spam
+          smartConsole.warn(`[DID_RESOLVER] Domain ${handle} returns ${contentType} instead of AT Protocol DID (likely has website but no AT Protocol config)`);
+        }
+        return null;
+      }
+      
+      // Validate DID format (must start with did: and have a method)
+      if (!did.startsWith('did:')) {
+        // Invalid format - don't log warning, just return null
+        // This is a configuration issue, not a transient error
+        return null;
+      }
+      
+      // Validate it's a supported DID method
+      if (!did.startsWith('did:plc:') && !did.startsWith('did:web:')) {
+        smartConsole.warn(`[DID_RESOLVER] Unsupported DID method for ${handle}: ${did}`);
+        // Don't throw - still return it as it might be valid
+      }
+
+      return did;
     } catch (error) {
-      smartConsole.warn(`[DID_RESOLVER] Error resolving handle via HTTPS ${handle}:`, error);
+      // Only log errors for network issues, not configuration problems
+      if (error instanceof Error) {
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+          smartConsole.warn(`[DID_RESOLVER] Timeout resolving ${handle}/.well-known/atproto-did`);
+        } else if (error.message.includes('fetch') || error.message.includes('network')) {
+          smartConsole.warn(`[DID_RESOLVER] Network error for ${handle}:`, error.message);
+        }
+        // Don't log other errors - they're likely configuration issues
+      }
       return null;
     }
   }
