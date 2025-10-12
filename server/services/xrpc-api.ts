@@ -570,7 +570,7 @@ export class XRPCApi {
       return payload.did;
     } catch (error) {
       // Token verification failed (malformed, expired, etc.)
-      console.error(`[AUTH] Token verification failed for ${req.path}:`, error instanceof Error ? error.message : error);
+      console.error('[AUTH] Token verification failed for path:', { path: req.path }, error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -3393,7 +3393,7 @@ export class XRPCApi {
               if (post.facets) record.facets = post.facets;
             }
           } catch (error) {
-            console.warn(`[NOTIFICATIONS] Failed to fetch record for ${reasonSubject}:`, error);
+            console.warn('[NOTIFICATIONS] Failed to fetch record for subject:', { reasonSubject }, error);
             // If we can't fetch the record, filter out this notification
             return null;
           }

@@ -20,6 +20,7 @@ import rateLimit from 'express-rate-limit';
  * - RATE_LIMIT_SEARCH_MAX=60 (default: 60 per minute)
  * - RATE_LIMIT_ADMIN_MAX=30 (default: 30 per 5 minutes)
  * - RATE_LIMIT_DELETE_MAX=5 (default: 5 per hour)
+ * - RATE_LIMIT_VITE_MAX=100 (default: 100 per minute - dev server)
  */
 
 // Check if rate limiting is enabled (default: true)
@@ -117,6 +118,17 @@ export const deletionLimiter = RATE_LIMIT_ENABLED ? rateLimit({
   max: parseLimit(process.env.RATE_LIMIT_DELETE_MAX, 5),
   message: {
     error: 'Too many deletion requests, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+}) : noopLimiter;
+
+// Vite dev server - Moderate rate limiting for file system operations
+export const viteLimiter = RATE_LIMIT_ENABLED ? rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: parseLimit(process.env.RATE_LIMIT_VITE_MAX, 100),
+  message: {
+    error: 'Too many development server requests, please slow down'
   },
   standardHeaders: true,
   legacyHeaders: false,

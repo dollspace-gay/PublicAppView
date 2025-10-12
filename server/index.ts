@@ -9,6 +9,9 @@ import { spawn } from "child_process";
 
 const app = express();
 
+// Disable X-Powered-By header to prevent information disclosure
+app.disable('x-powered-by');
+
 // Trust proxy for proper IP detection behind reverse proxies (Replit, Cloudflare, etc.)
 app.set('trust proxy', 1);
 
@@ -105,8 +108,17 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   } else if (!origin) {
-    // Server-to-server (no Origin header) - allow but no credentials
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Server-to-server (no Origin header) - Only allow for read-only endpoints
+    // Restrict wildcard to GET requests only for security
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } else {
+      // For state-changing operations without origin, reject to prevent CSRF
+      return res.status(403).json({ 
+        error: 'Forbidden',
+        message: 'Origin header required for state-changing operations' 
+      });
+    }
   } else {
     // Cross-origin from untrusted source - allow read-only without credentials
     res.setHeader('Access-Control-Allow-Origin', origin);
