@@ -656,12 +656,16 @@ export class XRPCApi {
   }
 
   private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | null {
-    // Return null for null, undefined, empty string, or the literal string "undefined"
-    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '' || blobCid === 'undefined@jpeg') {
-      return null;
-    }
+    // Handle null/undefined (matches official pattern)
+    if (!blobCid) return null;
     
-    // Additional safety check - ensure blobCid is a valid string
+    // Handle empty string (what cidFromBlobJson returns when no CID found)
+    if (blobCid.trim() === '') return null;
+    
+    // Handle literal string values
+    if (blobCid === 'undefined' || blobCid === 'null') return null;
+    
+    // Additional safety checks
     if (typeof blobCid !== 'string' || blobCid.includes('undefined') || blobCid.includes('null')) {
       console.warn(`[CDN_TRANSFORM] Invalid blobCid: ${blobCid}`);
       return null;
@@ -702,14 +706,16 @@ export class XRPCApi {
 
   /**
    * Helper function to conditionally add avatar field to profile objects
-   * Only adds the avatar field if we have a valid URL
+   * Only adds the avatar field if we have a valid URL (matches official Bluesky pattern)
    */
   private addAvatarIfDefined(obj: any, avatarUrl: string | null | undefined, userDid: string) {
     if (avatarUrl) {
       const avatarCdn = avatarUrl.startsWith('http') 
         ? avatarUrl 
         : this.transformBlobToCdnUrl(avatarUrl, userDid, 'avatar');
-      this.addIfDefined(obj, 'avatar', avatarCdn);
+      if (avatarCdn) {
+        obj.avatar = avatarCdn;
+      }
     }
   }
 
@@ -1024,7 +1030,7 @@ export class XRPCApi {
       if (post.facets) record.facets = post.facets;
       if (reply) record.reply = reply;
 
-      return {
+      const postView = {
         $type: 'app.bsky.feed.defs#postView',
         uri: post.uri,
         cid: post.cid,
@@ -1034,7 +1040,6 @@ export class XRPCApi {
           handle: authorHandle,
           displayName: author?.displayName ?? authorHandle,
           pronouns: author?.pronouns,
-          avatar: author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined,
           associated: {
             $type: 'app.bsky.actor.defs#profileAssociated',
             lists: authorCounts.get(post.authorDid)?.lists || 0,
@@ -1069,6 +1074,11 @@ export class XRPCApi {
           pinned: viewerState.pinned || false,
         } : {},
       };
+      
+      // Add avatar conditionally (matches official Bluesky pattern)
+      this.addAvatarIfDefined(postView.author, author?.avatarUrl, author.did);
+      
+      return postView;
     });
   }
 
@@ -1247,10 +1257,12 @@ export class XRPCApi {
                   did: reposter.did,
                   handle: reposter.handle,
                   displayName: reposter.displayName,
-                  avatar: reposter.avatarUrl ? this.transformBlobToCdnUrl(reposter.avatarUrl, reposter.did, 'avatar') : undefined,
                 },
                 indexedAt: repost.indexedAt.toISOString(),
               };
+              
+              // Add avatar conditionally (matches official Bluesky pattern)
+              this.addAvatarIfDefined(reason.by, reposter.avatarUrl, reposter.did);
             }
           }
 
@@ -1519,7 +1531,6 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
           ...(user.bannerUrl && { banner: this.transformBlobToCdnUrl(user.bannerUrl, user.did, 'banner') }),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
@@ -1543,6 +1554,10 @@ export class XRPCApi {
             activitySubscription: undefined, // TODO: Implement activity subscription when activity subscription functionality is added
           },
         };
+        
+        // Add avatar conditionally (matches official Bluesky pattern)
+        this.addAvatarIfDefined(profileView, user.avatarUrl, user.did);
+        
         if (pinnedPostUri && pinnedPostCid) {
           profileView.pinnedPost = { uri: pinnedPostUri, cid: pinnedPostCid };
         }

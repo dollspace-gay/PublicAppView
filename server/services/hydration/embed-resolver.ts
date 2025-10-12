@@ -334,12 +334,16 @@ export class EmbedResolver {
     if (!blob || !blob.ref) return null;
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
-    // Return null for invalid CIDs
-    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') {
-      return null;
-    }
+    // Handle null/undefined (matches official pattern)
+    if (!cid) return null;
     
-    // Additional safety check - ensure cid is a valid string
+    // Handle empty string (what cidFromBlobJson returns when no CID found)
+    if (cid.trim() === '') return null;
+    
+    // Handle literal string values
+    if (cid === 'undefined' || cid === 'null') return null;
+    
+    // Additional safety checks
     if (typeof cid !== 'string' || cid.includes('undefined') || cid.includes('null')) {
       console.warn(`[EMBED_RESOLVER] Invalid CID: ${cid}`);
       return null;
@@ -363,9 +367,16 @@ export class EmbedResolver {
   
   // Transform a plain CID string (as stored in database) to CDN URL
   private directCidToCdnUrl(cid: string | null | undefined, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | null {
-    if (!cid || cid === 'undefined' || cid === 'null' || cid.trim() === '') return null;
+    // Handle null/undefined (matches official pattern)
+    if (!cid) return null;
     
-    // Additional safety check - ensure cid is a valid string
+    // Handle empty string (what cidFromBlobJson returns when no CID found)
+    if (cid.trim() === '') return null;
+    
+    // Handle literal string values
+    if (cid === 'undefined' || cid === 'null') return null;
+    
+    // Additional safety checks
     if (typeof cid !== 'string' || cid.includes('undefined') || cid.includes('null')) {
       console.warn(`[EMBED_RESOLVER] Invalid CID: ${cid}`);
       return null;

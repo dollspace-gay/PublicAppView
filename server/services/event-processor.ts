@@ -1187,20 +1187,11 @@ export class EventProcessor {
     
     // Handle raw JSON from parseRecordBytes() - official Bluesky pattern
     if (blob && typeof blob === 'object' && blob['$type'] === 'blob') {
-      return blob['ref']?.['$link'] || null;
+      return (blob['ref']?.['$link'] ?? '') as string;
     }
     
-    // Handle direct CID string
-    if (typeof blob === 'string' && blob.length > 0) {
-      return blob;
-    }
-    
-    // Handle object with cid property
-    if (blob && typeof blob === 'object' && blob.cid) {
-      return blob.cid;
-    }
-    
-    return null;
+    // Handle direct CID string or object with cid property
+    return (blob['cid'] ?? '') as string;
   }
 
   private async processFollow(repo: string, op: any) {
