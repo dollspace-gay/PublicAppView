@@ -37,7 +37,7 @@ export function createDbPool(poolSize: number, label: string = "pool"): DbConnec
       connectionString: databaseUrl,
       max: poolSize,
       idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 60000,
+      connectionTimeoutMillis: 120000, // 2 minutes - increased for backfill scenarios
     });
     
     return drizzle(neonPool, { schema });
@@ -46,7 +46,7 @@ export function createDbPool(poolSize: number, label: string = "pool"): DbConnec
       connectionString: databaseUrl,
       max: poolSize,
       idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 60000,
+      connectionTimeoutMillis: 120000, // 2 minutes - increased for backfill scenarios
     });
     
     return drizzlePg(pgPool, { schema });

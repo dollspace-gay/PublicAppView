@@ -160,7 +160,9 @@ export class EventProcessor {
   // Concurrent user creation limiting to prevent connection pool exhaustion
   private pendingUserCreations = new Map<string, Promise<boolean>>(); // did -> pending promise
   private activeUserCreations = 0;
-  private readonly MAX_CONCURRENT_USER_CREATIONS = 100; // Limit concurrent user creations
+  // Limit concurrent user creations to avoid overwhelming DB pool
+  // Set to 2x pool size to allow some queuing while preventing timeout
+  private readonly MAX_CONCURRENT_USER_CREATIONS = parseInt(process.env.MAX_CONCURRENT_USER_CREATIONS || '10');
 
   constructor(storageInstance: IStorage = storage) {
     this.storage = storageInstance;
@@ -668,21 +670,11 @@ export class EventProcessor {
         
         try {
           // User doesn't exist - we need to create them
-          // CRITICAL: We use a short timeout for DID resolution to avoid holding DB connections
+          // CRITICAL: We skip DID resolution during initial creation to avoid holding DB connections
           // for extended periods, which would exhaust the connection pool
+          // The user will be marked for profile fetching to get the proper handle later
           
-          // Try to resolve handle with a short timeout
-          let handle: string | null = null;
-          try {
-            // Use a promise with a timeout wrapper to prevent long waits
-            handle = await Promise.race([
-              didResolver.resolveDIDToHandle(did),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)) // 5 second timeout
-            ]);
-          } catch (error) {
-            // DID resolution failed, but we can still create the user with DID as handle
-            smartConsole.warn(`[EVENT_PROCESSOR] DID resolution failed for ${did}, using DID as handle`);
-          }
+          let handle: string = did; // Use DID as temporary handle
           
           // Create user with resolved handle or DID as fallback
           // This keeps the DB operation fast
