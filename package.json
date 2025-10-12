@@ -60,7 +60,7 @@
     "csurf": "^1.11.0",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.39.1",
-    "drizzle-zod": "^0.7.0",
+    "drizzle-zod": "^0.8.3",
     "elliptic": "^6.5.5",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
