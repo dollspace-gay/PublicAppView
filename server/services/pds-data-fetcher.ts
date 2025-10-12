@@ -59,23 +59,25 @@ export class PDSDataFetcher {
    * Sanitize and validate DID format
    */
   private sanitizeDID(did: string): string {
+    if (!did) return '';
+    
     const original = did;
     
     // Remove all whitespace (spaces, tabs, newlines, etc.)
     let cleaned = did.replace(/\s+/g, '');
     
-    // Remove any trailing non-alphanumeric characters except valid DID characters
-    // Valid DID characters are: a-z, A-Z, 0-9, :, -, ., _
-    cleaned = cleaned.replace(/[^a-zA-Z0-9:._-]+$/g, '');
-    
-    // Remove any leading non-alphanumeric characters
-    cleaned = cleaned.replace(/^[^a-zA-Z0-9:]+/g, '');
-    
-    // Remove trailing colons
-    cleaned = cleaned.replace(/:+$/g, '');
-    
     // Remove any duplicate colons (e.g., did::plc: becomes did:plc:)
     cleaned = cleaned.replace(/:+/g, ':');
+    
+    // Remove trailing colons, commas, and other punctuation
+    cleaned = cleaned.replace(/[:;,._-]+$/g, '');
+    
+    // Remove leading colons, commas, and other punctuation  
+    cleaned = cleaned.replace(/^[:;,._-]+/g, '');
+    
+    // Remove any trailing non-alphanumeric characters (except in the identifier itself)
+    // This catches things like invisible characters, control characters, etc.
+    cleaned = cleaned.replace(/[^a-zA-Z0-9]+$/g, '');
     
     // If cleaning changed the DID, log it with character codes for debugging
     if (cleaned !== original) {
@@ -123,7 +125,8 @@ export class PDSDataFetcher {
   ) {
     // Sanitize DID before storing
     const cleanDid = this.sanitizeDID(did);
-    const key = `${type}:${cleanDid}:${uri || ''}`;
+    // Build key without trailing colons when uri is empty
+    const key = uri ? `${type}:${cleanDid}:${uri}` : `${type}:${cleanDid}`;
     const existing = this.incompleteEntries.get(key);
     
     if (existing) {
@@ -180,7 +183,8 @@ export class PDSDataFetcher {
       try {
         // Skip if too many retries
         if (entry.retryCount >= this.MAX_RETRY_ATTEMPTS) {
-          console.warn(`[PDS_FETCHER] Max retries exceeded for ${key}, removing`);
+          const identifier = entry.uri || this.sanitizeDID(entry.did);
+          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier}, removing`);
           this.incompleteEntries.delete(key);
           continue;
         }
@@ -202,13 +206,13 @@ export class PDSDataFetcher {
           }
         } else {
           // Show cleaner error message with just the DID/URI
-          const identifier = entry.uri || entry.did;
+          const identifier = entry.uri || this.sanitizeDID(entry.did);
           console.warn(`[PDS_FETCHER] Failed to fetch ${entry.type} ${identifier}: ${result.error}`);
         }
         
         processed++;
       } catch (error) {
-        const identifier = entry.uri || entry.did;
+        const identifier = entry.uri || this.sanitizeDID(entry.did);
         console.error(`[PDS_FETCHER] Error processing ${entry.type} ${identifier}:`, error);
       }
     }
