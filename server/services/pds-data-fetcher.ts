@@ -184,7 +184,7 @@ export class PDSDataFetcher {
         // Skip if too many retries
         if (entry.retryCount >= this.MAX_RETRY_ATTEMPTS) {
           const identifier = entry.uri || this.sanitizeDID(entry.did);
-          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier}, removing`);
+          console.warn(`[PDS_FETCHER] Max retries exceeded for ${entry.type} ${identifier} - removing`);
           this.incompleteEntries.delete(key);
           continue;
         }
