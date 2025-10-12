@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { authService, validateAndRefreshSession } from "../services/auth";
 import { pdsClient } from "../services/pds-client";
+import { isContentTypeSafe } from "../utils/security";
 
 /**
  * A catch-all middleware to proxy authenticated XRPC requests
@@ -71,6 +72,13 @@ export const xrpcProxyMiddleware = async (
           req.headers
       );
 
+      // Validate content type to prevent XSS attacks
+      const contentType = pdsResponse.headers['content-type'];
+      if (!isContentTypeSafe(contentType)) {
+        console.error(`[XRPC_PROXY] Unsafe content-type from PDS: ${contentType}`);
+        return res.status(500).json({ error: "UnsafeResponse", message: "PDS returned unsafe content type." });
+      }
+
       res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
 
     } else {
@@ -98,6 +106,13 @@ export const xrpcProxyMiddleware = async (
           req.body,
           req.headers
       );
+
+      // Validate content type to prevent XSS attacks
+      const contentType = pdsResponse.headers['content-type'];
+      if (!isContentTypeSafe(contentType)) {
+        console.error(`[XRPC_PROXY] Unsafe content-type from PDS: ${contentType}`);
+        return res.status(500).json({ error: "UnsafeResponse", message: "PDS returned unsafe content type." });
+      }
 
       res.status(pdsResponse.status).set(pdsResponse.headers).send(pdsResponse.body);
     }
