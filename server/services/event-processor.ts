@@ -138,6 +138,7 @@ export class EventProcessor {
   private totalPendingUserCreationOps = 0;
   private userCreationCount = 0; // Counter for batch logging
   private readonly USER_BATCH_LOG_SIZE = 5000; // Log every 5000 user creations
+  private skipPdsFetching = false; // Flag to disable PDS fetching during bulk operations
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
@@ -169,6 +170,14 @@ export class EventProcessor {
     this.startTTLSweeper();
     // Clear cache periodically to respect setting updates
     setInterval(() => this.dataCollectionCache.clear(), 5 * 60 * 1000); // Clear every 5 minutes
+  }
+
+  /**
+   * Enable/disable PDS fetching for incomplete data
+   * Should be disabled during bulk CAR file imports
+   */
+  setSkipPdsFetching(skip: boolean) {
+    this.skipPdsFetching = skip;
   }
   
   /**
@@ -685,7 +694,10 @@ export class EventProcessor {
             });
             
             // Mark user for profile fetching to get proper handle and avatar/banner data
-            pdsDataFetcher.markIncomplete('user', did);
+            // Skip during bulk operations to avoid overwhelming the system
+            if (!this.skipPdsFetching) {
+              pdsDataFetcher.markIncomplete('user', did);
+            }
             
             // Batch logging: only log every 5000 user creations
             this.userCreationCount++;
@@ -704,7 +716,10 @@ export class EventProcessor {
         }
       } else if (!user.avatarUrl && !user.displayName) {
         // User exists but has no profile data - mark for fetching
-        pdsDataFetcher.markIncomplete('user', did);
+        // Skip during bulk operations to avoid overwhelming the system
+        if (!this.skipPdsFetching) {
+          pdsDataFetcher.markIncomplete('user', did);
+        }
       }
       
       // If we reach here, the user *should* exist, either from before or from creation.
