@@ -232,54 +232,21 @@ export class PDSDataFetcher {
   }
 
   /**
-   * Fetch user data from PDS
+   * Fetch user data from PDS using describeRepo (public endpoint)
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
+      // Use com.atproto.repo.describeRepo - public endpoint that gives us the handle
       const encodedDid = encodeURIComponent(did);
-      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
+      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.describeRepo?repo=${encodedDid}`;
       
-      const profileResponse = await fetch(url, {
+      const repoResponse = await fetch(url, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
       });
 
-      if (!profileResponse.ok) {
-        let errorDetails = '';
-        let isRecordNotFound = false;
-        try {
-          const errorBody = await profileResponse.text();
-          errorDetails = errorBody.substring(0, 200);
-          isRecordNotFound = errorBody.includes('RecordNotFound');
-        } catch (e) {
-          // Ignore
-        }
-        
-        // If RecordNotFound, the account exists but has no profile record
-        // This is valid - just create a minimal user record and move on
-        if (profileResponse.status === 400 && isRecordNotFound) {
-          const handle = await didResolver.resolveDIDToHandle(did);
-          
-          await storage.updateUser(did, {
-            handle: handle || did,
-            displayName: null,
-            description: null,
-            avatarUrl: null,
-            bannerUrl: null,
-          });
-          
-          console.warn(`[PDS_FETCHER] No profile record at PDS for ${did} - created minimal user record`);
-          
-          await eventProcessor.flushPendingUserOps(did);
-          await eventProcessor.flushPendingUserCreationOps(did);
-          
-          return {
-            success: true, // Treat as success to stop retrying
-            data: { did, handle: handle || did, profile: null }
-          };
-        }
-        
-        const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+      if (!repoResponse.ok) {
+        const errorMsg = `Repo describe failed: ${repoResponse.status}`;
         console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
         
         return {
@@ -288,103 +255,106 @@ export class PDSDataFetcher {
         };
       }
 
-      const response = await profileResponse.json();
-      const profile = response.value;
+      const repoData = await repoResponse.json();
+      const handle = repoData.handle || did;
       
-      if (profile) {
-        // Resolve handle from DID
-        const handle = await didResolver.resolveDIDToHandle(did);
+      // Now try to get the profile record if it exists
+      const profileUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
+      const profileResponse = await fetch(profileUrl, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
+      });
+
+      let profile = null;
+      if (profileResponse.ok) {
+        const response = await profileResponse.json();
+        profile = response.value;
+      }
+      
+      // Extract avatar and banner CIDs from blob references (same logic as event processor)
+      const extractBlobCid = (blob: any): string | null => {
+        if (!blob) return null;
         
-        // Extract avatar and banner CIDs from blob references (same logic as event processor)
-        const extractBlobCid = (blob: any): string | null => {
-          if (!blob) return null;
-          
-          if (typeof blob === 'string') {
-            return blob === 'undefined' ? null : blob;
-          }
-          
-          if (blob.ref) {
-            if (typeof blob.ref === 'string') {
-              return blob.ref !== 'undefined' ? blob.ref : null;
-            }
-            
-            if (blob.ref.$link) {
-              return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
-            }
-            
-            // Binary CID object from PDS
-            if (blob.ref.code !== undefined && blob.ref.multihash) {
-              try {
-                if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
-                  const cidString = blob.ref.toString();
-                  return cidString !== 'undefined' ? cidString : null;
-                }
-                
-                const mh = blob.ref.multihash;
-                const digest = mh.digest;
-                
-                let digestBytes: Uint8Array;
-                if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
-                  const size = mh.size || Object.keys(digest).length;
-                  digestBytes = new Uint8Array(size);
-                  for (let i = 0; i < size; i++) {
-                    digestBytes[i] = digest[i];
-                  }
-                } else if (ArrayBuffer.isView(digest)) {
-                  digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
-                } else {
-                  return null;
-                }
-                
-                const multihashDigest = Digest.create(mh.code, digestBytes);
-                const cidObj = CID.create(blob.ref.version || 1, blob.ref.code, multihashDigest);
-                return cidObj.toString();
-              } catch (error) {
-                console.error('[PDS_FETCHER] Error converting binary CID:', error);
-                return null;
-              }
-            }
-          }
-          
-          if (blob.cid) {
-            return blob.cid !== 'undefined' ? blob.cid : null;
-          }
-          
-          return null;
-        };
-        
-        const avatarCid = extractBlobCid(profile.avatar);
-        const bannerCid = extractBlobCid(profile.banner);
-        
-        // Update user with full profile data
-        await storage.updateUser(did, {
-          handle: handle || did,
-          displayName: profile.displayName || null,
-          description: profile.description || null,
-          avatarUrl: avatarCid,
-          bannerUrl: bannerCid,
-        });
-        
-        // Batch logging: only log every 5000 updates
-        this.updateCount++;
-        if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
-          console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
+        if (typeof blob === 'string') {
+          return blob === 'undefined' ? null : blob;
         }
         
-        // Flush any pending operations for this user
-        await eventProcessor.flushPendingUserOps(did);
-        await eventProcessor.flushPendingUserCreationOps(did);
+        if (blob.ref) {
+          if (typeof blob.ref === 'string') {
+            return blob.ref !== 'undefined' ? blob.ref : null;
+          }
+          
+          if (blob.ref.$link) {
+            return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
+          }
+          
+          // Binary CID object from PDS
+          if (blob.ref.code !== undefined && blob.ref.multihash) {
+            try {
+              if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
+                const cidString = blob.ref.toString();
+                return cidString !== 'undefined' ? cidString : null;
+              }
+              
+              const mh = blob.ref.multihash;
+              const digest = mh.digest;
+              
+              let digestBytes: Uint8Array;
+              if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+                const size = mh.size || Object.keys(digest).length;
+                digestBytes = new Uint8Array(size);
+                for (let i = 0; i < size; i++) {
+                  digestBytes[i] = digest[i];
+                }
+              } else if (ArrayBuffer.isView(digest)) {
+                digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+              } else {
+                return null;
+              }
+              
+              const multihashDigest = Digest.create(mh.code, digestBytes);
+              const cidObj = CID.create(blob.ref.version || 1, blob.ref.code, multihashDigest);
+              return cidObj.toString();
+            } catch (error) {
+              console.error('[PDS_FETCHER] Error converting binary CID:', error);
+              return null;
+            }
+          }
+        }
         
-        return {
-          success: true,
-          data: { did, handle: handle || did, profile }
-        };
-      } else {
-        return {
-          success: false,
-          error: 'No profile record found'
-        };
+        if (blob.cid) {
+          return blob.cid !== 'undefined' ? blob.cid : null;
+        }
+        
+        return null;
+      };
+      
+      const avatarCid = profile ? extractBlobCid(profile.avatar) : null;
+      const bannerCid = profile ? extractBlobCid(profile.banner) : null;
+      
+      // Update user with profile data (or minimal data if no profile)
+      await storage.updateUser(did, {
+        handle: handle,
+        displayName: profile?.displayName || null,
+        description: profile?.description || null,
+        avatarUrl: avatarCid,
+        bannerUrl: bannerCid,
+      });
+      
+      // Batch logging: only log every 5000 updates
+      this.updateCount++;
+      if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
+        console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
       }
+      
+      // Flush any pending operations for this user
+      await eventProcessor.flushPendingUserOps(did);
+      await eventProcessor.flushPendingUserCreationOps(did);
+      
+      return {
+        success: true,
+        data: { did, handle, profile }
+      };
     } catch (error) {
       return {
         success: false,
