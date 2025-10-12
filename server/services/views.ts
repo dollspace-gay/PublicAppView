@@ -88,17 +88,22 @@ export class Views {
     return this.post(uri, state);
   }
 
-  private reasonPin(authorDid: string, state: HydrationState): any {
+  private reasonPin(authorDid: string, state: HydrationState): any | undefined {
     // Get the author's profile information for pinned posts
     const authorProfile = state.profileViewers?.get(authorDid);
     
+    // Return undefined if author doesn't have a valid handle
+    if (!authorProfile || !authorProfile.handle) {
+      return undefined;
+    }
+    
     return {
       $type: 'app.bsky.feed.defs#reasonPin',
-      by: authorProfile ? {
+      by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
-        handle: authorProfile.handle ?? 'handle.invalid',
-        displayName: authorProfile.displayName ?? authorProfile.handle ?? 'Unknown User',
+        handle: authorProfile.handle,
+        displayName: authorProfile.displayName ?? authorProfile.handle,
         pronouns: authorProfile.pronouns,
         avatar: authorProfile.avatarUrl,
         associated: {
@@ -126,38 +131,6 @@ export class Views {
         createdAt: authorProfile.createdAt?.toISOString(),
         verification: undefined,
         status: undefined,
-      } : {
-        $type: 'app.bsky.actor.defs#profileViewBasic',
-        did: authorDid,
-        handle: 'handle.invalid',
-        displayName: 'Unknown User',
-        pronouns: undefined,
-        avatar: undefined,
-        associated: {
-          $type: 'app.bsky.actor.defs#profileAssociated',
-          lists: 0,
-          feedgens: 0,
-          starterPacks: 0,
-          labeler: false,
-          chat: undefined,
-          activitySubscription: undefined,
-        },
-        viewer: {
-          $type: 'app.bsky.actor.defs#viewerState',
-          muted: false,
-          mutedByList: undefined,
-          blockedBy: false,
-          blocking: undefined,
-          blockingByList: undefined,
-          following: undefined,
-          followedBy: undefined,
-          knownFollowers: undefined,
-          activitySubscription: undefined,
-        },
-        labels: [],
-        createdAt: undefined,
-        verification: undefined,
-        status: undefined,
       },
       indexedAt: new Date().toISOString(),
     };
@@ -166,15 +139,15 @@ export class Views {
   private reasonRepost(uri: string, repost: any, state: HydrationState): any | undefined {
     // Get the reposter's profile information
     const reposterProfile = state.profileViewers?.get(repost.userDid);
-    if (!reposterProfile) return undefined;
+    if (!reposterProfile || !reposterProfile.handle) return undefined;
     
     return {
       $type: 'app.bsky.feed.defs#reasonRepost',
       by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: repost.userDid,
-        handle: reposterProfile.handle ?? 'handle.invalid',
-        displayName: reposterProfile.displayName ?? reposterProfile.handle ?? 'Unknown User',
+        handle: reposterProfile.handle,
+        displayName: reposterProfile.displayName ?? reposterProfile.handle,
         pronouns: reposterProfile.pronouns,
         avatar: reposterProfile.avatarUrl,
         associated: {
