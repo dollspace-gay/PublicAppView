@@ -284,6 +284,60 @@ export class PDSDataFetcher {
   }
 
   /**
+   * Fetch user data from AppView (fallback when PDS doesn't have the record)
+   */
+  private async fetchUserDataFromAppView(did: string): Promise<PDSDataFetchResult> {
+    try {
+      const appViewUrl = 'https://public.api.bsky.app';
+      const response = await fetch(
+        `${appViewUrl}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`,
+        {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
+        }
+      );
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `AppView fetch failed: ${response.status}`
+        };
+      }
+
+      const profile = await response.json();
+      
+      // Extract data from AppView format
+      await storage.updateUser(did, {
+        handle: profile.handle || did,
+        displayName: profile.displayName || null,
+        description: profile.description || null,
+        avatarUrl: profile.avatar ? profile.avatar.split('/').pop() : null, // Extract CID from URL
+        bannerUrl: profile.banner ? profile.banner.split('/').pop() : null,
+      });
+      
+      // Batch logging
+      this.updateCount++;
+      if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
+        console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
+      }
+      
+      // Flush pending operations
+      await eventProcessor.flushPendingUserOps(did);
+      await eventProcessor.flushPendingUserCreationOps(did);
+      
+      return {
+        success: true,
+        data: { did, handle: profile.handle, profile }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Fetch user data from PDS
    */
   private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
