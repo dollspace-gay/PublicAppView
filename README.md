@@ -252,6 +252,7 @@ docker exec -it publicappview-app-1 sh
 - `PORT`: Server port (default: `5000`)
 - `NODE_ENV`: Environment mode (`development` or `production`)
 - `BACKFILL_DAYS`: Historical backfill in days (0=disabled, >0=backfill X days, default: `0`)
+  - See [BACKFILL_OPTIMIZATION.md](./BACKFILL_OPTIMIZATION.md) for resource throttling configuration
 - `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
 - `DB_POOL_SIZE`: Database connection pool size (default: `32`)
 - `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)
