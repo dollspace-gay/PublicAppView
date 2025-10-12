@@ -42,8 +42,13 @@ export class PDSDataFetcher {
   private readonly MAX_RETRY_ATTEMPTS = 3;
   private readonly RETRY_DELAY_MS = 30000; // 30 seconds
   private readonly FETCH_TIMEOUT_MS = 10000; // 10 seconds
+  private readonly BATCH_LOG_SIZE = 5000; // Log every 5000 operations
   private incompleteEntries = new Map<string, IncompleteEntry>();
   private isProcessing = false;
+  private fetchCount = 0;
+  private updateCount = 0;
+  private successCount = 0;
+  private postCount = 0;
 
   constructor() {
     // Start periodic processing of incomplete entries
@@ -142,7 +147,11 @@ export class PDSDataFetcher {
         if (result.success) {
           success++;
           this.incompleteEntries.delete(key);
-          console.log(`[PDS_FETCHER] Successfully fetched data for ${key}`);
+          // Batch logging: only log every 5000 successful fetches
+          this.successCount++;
+          if (this.successCount % this.BATCH_LOG_SIZE === 0) {
+            console.log(`[PDS_FETCHER] ${this.BATCH_LOG_SIZE} successful fetches (total: ${this.successCount})`);
+          }
         } else {
           console.warn(`[PDS_FETCHER] Failed to fetch data for ${key}: ${result.error}`);
         }
@@ -171,7 +180,11 @@ export class PDSDataFetcher {
         };
       }
 
-      console.log(`[PDS_FETCHER] Fetching data for ${entry.type} ${entry.did} from ${pdsEndpoint}`);
+      // Batch logging: only log every 5000 fetches
+      this.fetchCount++;
+      if (this.fetchCount % this.BATCH_LOG_SIZE === 0) {
+        console.log(`[PDS_FETCHER] Fetched data for ${this.BATCH_LOG_SIZE} entries (total: ${this.fetchCount})`);
+      }
 
       switch (entry.type) {
         case 'user':
@@ -303,7 +316,11 @@ export class PDSDataFetcher {
           bannerUrl: bannerCid,
         });
         
-        console.log(`[PDS_FETCHER] Updated user ${did} - handle: ${handle || did}, avatar: ${avatarCid ? 'YES' : 'NO'}, banner: ${bannerCid ? 'YES' : 'NO'}`);
+        // Batch logging: only log every 5000 updates
+        this.updateCount++;
+        if (this.updateCount % this.BATCH_LOG_SIZE === 0) {
+          console.log(`[PDS_FETCHER] Updated ${this.BATCH_LOG_SIZE} users (total: ${this.updateCount})`);
+        }
         
         // Flush any pending operations for this user
         await eventProcessor.flushPendingUserOps(did);
@@ -364,7 +381,11 @@ export class PDSDataFetcher {
           recordData.value
         );
         
-        console.log(`[PDS_FETCHER] Fetched and processed post ${postUri}`);
+        // Batch logging: only log every 5000 posts
+        this.postCount++;
+        if (this.postCount % this.BATCH_LOG_SIZE === 0) {
+          console.log(`[PDS_FETCHER] Fetched and processed ${this.BATCH_LOG_SIZE} posts (total: ${this.postCount})`);
+        }
         
         return {
           success: true,
