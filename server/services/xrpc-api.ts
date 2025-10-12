@@ -8,6 +8,7 @@ import { pdsClient } from "./pds-client";
 import { labelService } from "./label";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
+import { lazyDataLoader } from "./lazy-data-loader";
 import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
@@ -1063,11 +1064,28 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
 
+      // Extract access token for PDS requests
+      const token = authService.extractToken(req);
+      
+      // Lazy load: Ensure user's follows are in the database
+      if (token) {
+        await lazyDataLoader.ensureUserFollows(userDid, token);
+      }
+
       // Debug: Check user's follows and total posts in database
       const followList = await storage.getFollows(userDid);
       const totalPosts = await storage.getStats();
       
       console.log(`[TIMELINE_DEBUG] User ${userDid} has ${followList.length} follows, ${totalPosts.totalPosts} total posts in DB`);
+
+      // Lazy load: Ensure we have recent posts for followed users
+      if (followList.length > 0) {
+        const followedDids = followList.map(f => f.followingDid);
+        // Don't await - let it run in background after we return response
+        lazyDataLoader.ensureRecentPostsForUsers(followedDids, userDid).catch(error => {
+          console.error('[TIMELINE] Background post fetch failed:', error);
+        });
+      }
 
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
       
@@ -1112,6 +1130,10 @@ export class XRPCApi {
       if (!authorDid) return;
 
       const viewerDid = await this.getAuthenticatedDid(req);
+
+      // Lazy load: Ensure author's profile and posts exist
+      await lazyDataLoader.ensureUserProfile(authorDid);
+      await lazyDataLoader.ensureRecentPostsForUsers([authorDid], viewerDid || authorDid);
 
       // Get the author's profile to check for pinned posts
       const author = await storage.getUser(authorDid);
@@ -1347,6 +1369,8 @@ export class XRPCApi {
     const dids = await Promise.all(
       actors.map(async (actor) => {
         if (actor.startsWith('did:')) {
+          // Lazy load: Ensure profile exists
+          await lazyDataLoader.ensureUserProfile(actor);
           return actor;
         }
         
@@ -1355,6 +1379,8 @@ export class XRPCApi {
         // Check cache first
         const cached = this.handleResolutionCache.get(handle);
         if (cached && !this.isHandleResolutionCacheExpired(cached)) {
+          // Lazy load: Ensure profile exists
+          await lazyDataLoader.ensureUserProfile(cached.did);
           return cached.did;
         }
         
@@ -1365,8 +1391,25 @@ export class XRPCApi {
             did: user.did,
             timestamp: Date.now()
           });
+          // Lazy load: Ensure profile exists
+          await lazyDataLoader.ensureUserProfile(user.did);
           return user.did;
         }
+        
+        // User not in database - try to resolve from network and fetch profile
+        const { didResolver } = await import("./did-resolver");
+        const did = await didResolver.resolveHandle(handle);
+        if (did) {
+          // Cache the result
+          this.handleResolutionCache.set(handle, {
+            did,
+            timestamp: Date.now()
+          });
+          // Lazy load: Ensure profile exists
+          await lazyDataLoader.ensureUserProfile(did);
+          return did;
+        }
+        
         return undefined;
       }),
     );
