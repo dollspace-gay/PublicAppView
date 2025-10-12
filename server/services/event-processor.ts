@@ -1145,12 +1145,17 @@ export class EventProcessor {
     
     const existingUser = await this.storage.getUser(did);
 
+    // Debug avatar structure
+    console.log(`[AVATAR_DEBUG] Processing profile for ${did}`);
+    console.log(`[AVATAR_DEBUG] record.avatar structure:`, JSON.stringify(record.avatar, null, 2));
+    console.log(`[AVATAR_DEBUG] record.banner structure:`, JSON.stringify(record.banner, null, 2));
+
     const profileData = {
       handle: handle || did, // Use resolved handle or fallback to DID
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
-      bannerUrl: record.banner?.ref?.$link,
+      avatarUrl: record.avatar?.ref?.$link || record.avatar?.cid || null,
+      bannerUrl: record.banner?.ref?.$link || record.banner?.cid || null,
       profileRecord: record,
     };
 
