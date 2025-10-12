@@ -239,7 +239,7 @@ export class DIDResolver {
         const plcUrl = `${this.plcDirectory}/${did}`;
         const response = await fetch(plcUrl, {
           headers: { 
-            'Accept': 'application/json',
+            'Accept': 'application/did+ld+json, application/json',
             'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
           },
           signal: AbortSignal.timeout(this.baseTimeout),
@@ -257,7 +257,8 @@ export class DIDResolver {
         }
 
         const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        // Accept both application/json and application/did+ld+json (official DID document media type)
+        if (!contentType.includes('application/json') && !contentType.includes('application/did+ld+json')) {
           smartConsole.warn(`[DID_RESOLVER] Unexpected content type from PLC directory for ${did}: ${contentType}`);
         }
 
@@ -322,7 +323,7 @@ export class DIDResolver {
         
         const response = await fetch(didDocUrl, {
           headers: { 
-            'Accept': 'application/json',
+            'Accept': 'application/did+ld+json, application/json',
             'User-Agent': 'AT-Protocol-DID-Resolver/1.0'
           },
           signal: AbortSignal.timeout(this.baseTimeout),
@@ -337,7 +338,8 @@ export class DIDResolver {
         }
 
         const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        // Accept both application/json and application/did+ld+json (official DID document media type)
+        if (!contentType.includes('application/json') && !contentType.includes('application/did+ld+json')) {
           smartConsole.warn(`[DID_RESOLVER] Unexpected content type for Web DID ${did}: ${contentType}`);
         }
 
