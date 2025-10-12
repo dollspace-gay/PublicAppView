@@ -262,50 +262,113 @@ export class RepoBackfillService {
       const blockstore = new MemoryBlockstore(blocks);
       const repo = await ReadableRepo.load(blockstore, roots[0]);
       
-      // Walk through all records in the MST - this gives us CIDs!
+      // PHASE 1: Extract all unique DIDs that will be referenced
+      console.log(`[REPO_BACKFILL] Phase 1: Extracting all referenced users...`);
+      const referencedDids = new Set<string>();
+      referencedDids.add(did); // Add the repo owner
+      
+      // First pass: collect all DIDs without processing records
+      for await (const { collection, record } of repo.walkRecords()) {
+        try {
+          // Check cutoff date if configured
+          if (this.cutoffDate && (record as any).createdAt) {
+            const recordDate = new Date((record as any).createdAt);
+            if (recordDate < this.cutoffDate) {
+              continue;
+            }
+          }
+
+          // Extract DIDs based on record type
+          if (collection === 'app.bsky.feed.like' || collection === 'app.bsky.feed.repost' || 
+              collection === 'app.bsky.feed.post' || collection === 'app.bsky.bookmark') {
+            // Extract subject URI DIDs
+            if (record.subject?.uri) {
+              const subjectDid = this.extractDidFromUri(record.subject.uri);
+              if (subjectDid) referencedDids.add(subjectDid);
+            }
+            // Extract parent/root DIDs from replies
+            if (record.reply?.parent?.uri) {
+              const parentDid = this.extractDidFromUri(record.reply.parent.uri);
+              if (parentDid) referencedDids.add(parentDid);
+            }
+            if (record.reply?.root?.uri) {
+              const rootDid = this.extractDidFromUri(record.reply.root.uri);
+              if (rootDid) referencedDids.add(rootDid);
+            }
+          } else if (collection === 'app.bsky.graph.follow' || collection === 'app.bsky.graph.block') {
+            // Extract subject DID
+            if (record.subject) {
+              referencedDids.add(record.subject);
+            }
+          } else if (collection === 'app.bsky.graph.listitem') {
+            // Extract subject DID
+            if (record.subject) {
+              referencedDids.add(record.subject);
+            }
+          }
+        } catch (error: any) {
+          // Ignore errors during DID extraction
+        }
+      }
+
+      console.log(`[REPO_BACKFILL] Found ${referencedDids.size} unique users to pre-create`);
+
+      // PHASE 2: Batch create all users upfront
+      console.log(`[REPO_BACKFILL] Phase 2: Pre-creating users in batches...`);
+      await this.batchCreateUsers(Array.from(referencedDids));
+
+      // PHASE 3: Process all records (users already exist)
+      console.log(`[REPO_BACKFILL] Phase 3: Processing records...`);
+      
+      // Disable PDS fetching during bulk import to prevent connection overload
+      repoEventProcessor.setSkipPdsFetching(true);
+      
       let recordsProcessed = 0;
       let recordsSkipped = 0;
       const collectionsFound = new Set<string>();
       const collectionCounts = new Map<string, number>();
 
-      console.log(`[REPO_BACKFILL] Walking MST to extract records with CIDs...`);
+      try {
+        // Second pass: process records
+        for await (const { collection, rkey, cid, record } of repo.walkRecords()) {
+          try {
+            collectionsFound.add(collection);
+            collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
 
-      // Use walkRecords() to traverse the MST and get records with their CIDs
-      for await (const { collection, rkey, cid, record } of repo.walkRecords()) {
-        try {
-          collectionsFound.add(collection);
-          collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
+            // Check cutoff date if configured
+            if (this.cutoffDate && (record as any).createdAt) {
+              const recordDate = new Date((record as any).createdAt);
+              if (recordDate < this.cutoffDate) {
+                recordsSkipped++;
+                continue;
+              }
+            }
 
-          // Check cutoff date if configured
-          if (this.cutoffDate && (record as any).createdAt) {
-            const recordDate = new Date((record as any).createdAt);
-            if (recordDate < this.cutoffDate) {
-              recordsSkipped++;
-              continue;
+            // Process the record with its actual CID from the MST
+            const path = `${collection}/${rkey}`;
+            await this.processRecord(did, path, record, cid);
+            recordsProcessed++;
+
+            // Log progress every 100 records
+            if (recordsProcessed % 100 === 0) {
+              console.log(`[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`);
+            }
+
+          } catch (error: any) {
+            // Skip unparseable records
+            if (error?.code !== '23505') { // Ignore duplicates
+              console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
             }
           }
-
-          // Process the record with its actual CID from the MST
-          const path = `${collection}/${rkey}`;
-          await this.processRecord(did, path, record, cid);
-          recordsProcessed++;
-
-          // Log progress every 100 records
-          if (recordsProcessed % 100 === 0) {
-            console.log(`[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`);
-          }
-
-        } catch (error: any) {
-          // Skip unparseable records
-          if (error?.code !== '23505') { // Ignore duplicates
-            console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
-          }
         }
-      }
 
-      console.log(`[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`);
-      for (const [collection, count] of Array.from(collectionCounts.entries())) {
-        console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
+        console.log(`[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`);
+        for (const [collection, count] of Array.from(collectionCounts.entries())) {
+          console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
+        }
+      } finally {
+        // Always re-enable PDS fetching, even if there was an error
+        repoEventProcessor.setSkipPdsFetching(false);
       }
 
       // Update progress
@@ -330,6 +393,61 @@ export class RepoBackfillService {
         console.debug(`[REPO_BACKFILL] Repo not found or invalid: ${did}`);
       }
     }
+  }
+
+  /**
+   * Extract DID from an AT-URI (at://did:plc:xxx/...)
+   */
+  private extractDidFromUri(uri: string): string | null {
+    if (!uri || !uri.startsWith('at://')) return null;
+    const parts = uri.slice(5).split('/'); // Remove 'at://' and split
+    return parts[0] || null;
+  }
+
+  /**
+   * Batch create users to avoid overwhelming the system
+   */
+  private async batchCreateUsers(dids: string[]): Promise<void> {
+    const BATCH_SIZE = 50; // Process 50 users at a time
+    let created = 0;
+    let existing = 0;
+
+    for (let i = 0; i < dids.length; i += BATCH_SIZE) {
+      const batch = dids.slice(i, i + BATCH_SIZE);
+      
+      // Process batch in parallel
+      const results = await Promise.allSettled(
+        batch.map(async (userDid) => {
+          try {
+            // Check if user already exists
+            const user = await repoBackfillStorage.getUser(userDid);
+            if (user) {
+              existing++;
+              return;
+            }
+
+            // Create minimal user record (using DID as temporary handle)
+            await repoBackfillStorage.createUser({
+              did: userDid,
+              handle: userDid, // Will be updated by PDS fetcher
+            });
+            created++;
+          } catch (error: any) {
+            // Ignore duplicate key errors (user was created by another process)
+            if (error?.code !== '23505') {
+              console.error(`[REPO_BACKFILL] Error creating user ${userDid}:`, error.message);
+            }
+          }
+        })
+      );
+
+      // Log progress every few batches
+      if ((i / BATCH_SIZE) % 10 === 0) {
+        console.log(`[REPO_BACKFILL] Pre-created users: ${created} created, ${existing} existing (${i + batch.length}/${dids.length})`);
+      }
+    }
+
+    console.log(`[REPO_BACKFILL] User pre-creation complete: ${created} created, ${existing} already existed`);
   }
 
   private async processRecord(did: string, path: string, record: any, cid: any): Promise<void> {
