@@ -9,6 +9,7 @@ import { labelService } from "./label";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
 import { lazyDataLoader } from "./lazy-data-loader";
+import { isUrlSafeToFetch } from "../utils/security";
 import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
@@ -485,7 +486,16 @@ export class XRPCApi {
       );
 
       if (pdsService && pdsService.serviceEndpoint) {
-        return pdsService.serviceEndpoint;
+        const endpoint = pdsService.serviceEndpoint;
+        
+        // SECURITY: Validate PDS endpoint to prevent SSRF attacks
+        // Malicious DID documents could point to internal services
+        if (!isUrlSafeToFetch(endpoint)) {
+          console.error(`[XRPC] SECURITY: Blocked unsafe PDS endpoint for ${userDid}: ${endpoint}`);
+          return null;
+        }
+        
+        return endpoint;
       }
 
       // Fallback: try to construct PDS URL from handle if available

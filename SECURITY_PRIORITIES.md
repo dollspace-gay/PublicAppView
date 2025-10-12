@@ -11,9 +11,9 @@
    - Tokens exposed in browser history, logs, referrer headers
    - **Fix**: Use HTTP-only cookies or POST body for token transmission
 
-3. **Insecure password hashing** (`server/services/dashboard-auth.ts:42`)
-   - SHA256 used for passwords (fast, brute-forceable)
-   - **Fix**: Migrate to bcrypt, scrypt, or Argon2
+3. ~~**Insecure password hashing**~~ ✅ **NOT APPLICABLE - Legacy code**
+   - `dashboard-auth.ts` is unused - all auth uses OAuth
+   - **Action**: Mark as deprecated or delete file
 
 ### Injection Vulnerabilities
 4. **XSS/SQL Injection risk** (`manual-import.ts:105`)
@@ -78,9 +78,10 @@
 ## 📋 Recommended Action Plan
 
 ### Week 1: Critical Security Fixes
-1. Fix authentication vulnerabilities (items 1-3)
+1. ✅ **COMPLETED**: Fix authentication vulnerabilities (items 1-2)
 2. Address injection risks (items 4-5)
 3. Encrypt stored credentials (item 6)
+4. ✅ **COMPLETED**: Fix critical bugs (items 9-10, 12)
 
 ### Week 2: Data Integrity & Critical Bugs
 1. Implement proper error handling (item 7)

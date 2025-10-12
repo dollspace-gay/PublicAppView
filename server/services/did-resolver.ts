@@ -523,8 +523,10 @@ export class DIDResolver {
         }
         
         // Verify the DID in the document matches what we requested
+        // SECURITY: This is critical - DID mismatch could indicate impersonation attack
         if (data.id !== did) {
-          smartConsole.warn(`[DID_RESOLVER] DID mismatch from PLC for ${did}: document contains ${data.id}`);
+          smartConsole.error(`[DID_RESOLVER] SECURITY: DID mismatch from PLC for ${did}: document contains ${data.id}`);
+          throw new Error(`DID document ID mismatch: expected ${did}, got ${data.id}. Possible impersonation attempt.`);
         }
         
           return data;
@@ -605,9 +607,10 @@ export class DIDResolver {
         }
         
         // Verify the DID in the document matches what we requested
+        // SECURITY: This is critical - DID mismatch could indicate impersonation attack
         if (data.id !== did) {
-          smartConsole.warn(`[DID_RESOLVER] DID mismatch for ${did}: document contains ${data.id}`);
-          // Don't throw - some implementations might use different formats
+          smartConsole.error(`[DID_RESOLVER] SECURITY: DID mismatch for did:web ${did}: document contains ${data.id}`);
+          throw new Error(`DID document ID mismatch: expected ${did}, got ${data.id}. Possible impersonation attempt.`);
         }
         
         return data;
