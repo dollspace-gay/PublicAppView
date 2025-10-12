@@ -17,6 +17,33 @@ function sanitizeRequiredText(text: string | undefined | null): string {
   return text.replace(/\u0000/g, '');
 }
 
+/**
+ * Extract CID from various blob reference formats used in AT Protocol
+ * Handles: {ref: {$link: 'cid'}}, {cid: 'cid'}, or direct CID string
+ */
+function extractBlobCid(blob: any): string | null {
+  if (!blob) return null;
+  
+  // Handle different blob formats
+  if (typeof blob === 'string') {
+    // Direct CID string
+    return blob === 'undefined' ? null : blob;
+  }
+  
+  // {ref: {$link: 'cid'}} format
+  if (blob.ref) {
+    const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
+    return (cid && cid !== 'undefined') ? cid : null;
+  }
+  
+  // {cid: 'cid'} format
+  if (blob.cid) {
+    return blob.cid !== 'undefined' ? blob.cid : null;
+  }
+  
+  return null;
+}
+
 interface PendingOp {
   type: 'like' | 'repost';
   payload: InsertLike | InsertRepost;
@@ -1287,7 +1314,7 @@ export class EventProcessor {
       name: sanitizeRequiredText(record.name),
       purpose: record.purpose,
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
+      avatarUrl: record.avatar?.ref?.$link || record.avatar?.cid || null,
       createdAt: this.safeDate(record.createdAt),
     };
 
@@ -1383,7 +1410,7 @@ export class EventProcessor {
       did: record.did,
       displayName: sanitizeRequiredText(record.displayName),
       description: sanitizeText(record.description),
-      avatarUrl: record.avatar?.ref?.$link,
+      avatarUrl: record.avatar?.ref?.$link || record.avatar?.cid || null,
       createdAt: this.safeDate(record.createdAt),
     };
 

@@ -301,6 +301,9 @@ export class EmbedResolver {
     if (!blob || !blob.ref) return '';
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
+    // Check for the string "undefined" which can happen with improper data extraction
+    if (!cid || cid === 'undefined') return '';
+    
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
     // PUBLIC_URL is our publicUrl (base URL of the application)
@@ -319,7 +322,8 @@ export class EmbedResolver {
   
   // Transform a plain CID string (as stored in database) to CDN URL
   private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
-    if (!cid) return '';
+    // Check for falsy values and the literal string "undefined"
+    if (!cid || cid === 'undefined') return '';
     
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
