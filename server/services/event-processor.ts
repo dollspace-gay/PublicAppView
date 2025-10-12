@@ -891,14 +891,21 @@ export class EventProcessor {
     await this.storage.createPost(post);
     
     // Create post aggregation record
-    await this.storage.createPostAggregation({
-      postUri: uri,
-      likeCount: 0,
-      repostCount: 0,
-      replyCount: 0,
-      bookmarkCount: 0,
-      quoteCount: 0,
-    });
+    try {
+      await this.storage.createPostAggregation({
+        postUri: uri,
+        likeCount: 0,
+        repostCount: 0,
+        replyCount: 0,
+        bookmarkCount: 0,
+        quoteCount: 0,
+      });
+    } catch (error: any) {
+      // Ignore duplicate key errors (23505) - aggregation already exists
+      if (error?.code !== '23505') {
+        throw error;
+      }
+    }
     
     // If this is a reply, increment the parent post's reply count and create thread context
     if (record.reply?.parent.uri) {
