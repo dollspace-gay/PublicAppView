@@ -20,6 +20,7 @@ import { schemaIntrospectionService } from "./services/schema-introspection";
 import { db } from "./db";
 import { sql, eq } from "drizzle-orm";
 import { csrfProtection } from "./middleware/csrf";
+import { isUrlSafeToFetch } from "./utils/security";
 import {
   authLimiter,
   oauthLimiter,
@@ -315,6 +316,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch blob from PDS
       const blobUrl = `${pdsUrl}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`;
       console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
+
+      // Validate URL to prevent SSRF attacks
+      if (!isUrlSafeToFetch(blobUrl)) {
+        console.error(`[BLOB_PROXY] Unsafe URL detected: ${blobUrl}`);
+        return res.status(400).type('text/plain').send('Invalid PDS endpoint');
+      }
 
       const response = await fetch(blobUrl, {
         headers: {
@@ -2492,6 +2499,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch blob from PDS
       const blobUrl = `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cid)}`;
+      
+      // Validate URL to prevent SSRF attacks
+      if (!isUrlSafeToFetch(blobUrl)) {
+        console.error(`[BLOB_FETCH] Unsafe URL detected: ${blobUrl}`);
+        return res.status(400).json({
+          error: "InvalidRequest",
+          message: "Invalid PDS endpoint"
+        });
+      }
       
       const response = await fetch(blobUrl, {
         headers: {

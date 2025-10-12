@@ -5,6 +5,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
+import { sanitizeUrlPath } from "./utils/security";
 
 const viteLogger = createLogger();
 
@@ -41,7 +42,8 @@ export async function setupVite(app: Express, server: Server) {
 
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
-    const url = req.originalUrl;
+    // Sanitize URL to prevent XSS attacks
+    const url = sanitizeUrlPath(req.originalUrl);
 
     try {
       const clientTemplate = path.resolve(

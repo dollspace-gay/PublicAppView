@@ -5,6 +5,7 @@
  */
 
 import { smartConsole } from './console-wrapper';
+import { isUrlSafeToFetch } from '../utils/security';
 
 interface DIDDocument {
   id: string;
@@ -622,6 +623,12 @@ export class DIDResolver {
       return null;
     }
 
+    // Validate URL to prevent SSRF attacks
+    if (!isUrlSafeToFetch(endpoint)) {
+      smartConsole.warn(`[DID_RESOLVER] PDS endpoint failed security validation for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+
     return endpoint;
   }
 
@@ -714,7 +721,26 @@ export class DIDResolver {
       return null;
     }
 
-    return feedService.serviceEndpoint;
+    const endpoint = feedService.serviceEndpoint;
+    
+    // Validate endpoint format and security
+    if (!endpoint || typeof endpoint !== 'string') {
+      smartConsole.warn(`[DID_RESOLVER] Invalid Feed Generator endpoint format for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+    
+    if (!endpoint.startsWith('https://') && !endpoint.startsWith('http://')) {
+      smartConsole.warn(`[DID_RESOLVER] Feed Generator endpoint must be HTTP(S) URL for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+
+    // Validate URL to prevent SSRF attacks
+    if (!isUrlSafeToFetch(endpoint)) {
+      smartConsole.warn(`[DID_RESOLVER] Feed Generator endpoint failed security validation for ${didDoc.id}: ${endpoint}`);
+      return null;
+    }
+
+    return endpoint;
   }
 
   /**
