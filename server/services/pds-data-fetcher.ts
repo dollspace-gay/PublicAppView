@@ -284,13 +284,16 @@ export class PDSDataFetcher {
   }
 
   /**
-   * Fetch user data from AppView (fallback when PDS doesn't have the record)
+   * Fetch user data from public AppView API
+   * Since this IS an AppView, we fetch from the public Bluesky AppView for missing users
    */
-  private async fetchUserDataFromAppView(did: string): Promise<PDSDataFetchResult> {
+  private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
+      // Fetch from public AppView instead of PDS
       const appViewUrl = 'https://public.api.bsky.app';
+      const encodedDid = encodeURIComponent(did);
       const response = await fetch(
-        `${appViewUrl}/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`,
+        `${appViewUrl}/xrpc/app.bsky.actor.getProfile?actor=${encodedDid}`,
         {
           headers: { 'Accept': 'application/json' },
           signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
@@ -298,21 +301,40 @@ export class PDSDataFetcher {
       );
 
       if (!response.ok) {
+        let errorDetails = '';
+        try {
+          const errorBody = await response.text();
+          errorDetails = errorBody.substring(0, 200);
+        } catch (e) {
+          // Ignore
+        }
+        
+        const errorMsg = `AppView profile fetch failed: ${response.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
+        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did}`);
+        
         return {
           success: false,
-          error: `AppView fetch failed: ${response.status}`
+          error: errorMsg
         };
       }
 
       const profile = await response.json();
       
-      // Extract data from AppView format
+      // Extract CID from avatar/banner URLs if they exist
+      // AppView returns full URLs like https://cdn.bsky.app/img/avatar/plain/did:plc:.../cid@jpeg
+      const extractCidFromUrl = (url: string | undefined): string | null => {
+        if (!url) return null;
+        const match = url.match(/\/([a-zA-Z0-9]+)@/); // Extract CID before @
+        return match ? match[1] : null;
+      };
+      
+      // Update user with AppView data
       await storage.updateUser(did, {
         handle: profile.handle || did,
         displayName: profile.displayName || null,
         description: profile.description || null,
-        avatarUrl: profile.avatar ? profile.avatar.split('/').pop() : null, // Extract CID from URL
-        bannerUrl: profile.banner ? profile.banner.split('/').pop() : null,
+        avatarUrl: extractCidFromUrl(profile.avatar),
+        bannerUrl: extractCidFromUrl(profile.banner),
       });
       
       // Batch logging
@@ -338,51 +360,28 @@ export class PDSDataFetcher {
   }
 
   /**
-   * Fetch user data from PDS
+   * OLD: Fetch user data from PDS - DEPRECATED, kept for reference
+   * Now we fetch from AppView instead since this IS an AppView
    */
-  private async fetchUserData(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
+  private async fetchUserDataFromPDS_DEPRECATED(did: string, pdsEndpoint: string): Promise<PDSDataFetchResult> {
     try {
-      // URL encode the DID to handle any special characters
       const encodedDid = encodeURIComponent(did);
       const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodedDid}&collection=app.bsky.actor.profile&rkey=self`;
       
-      // Fetch the profile record directly from PDS using com.atproto.repo.getRecord
-      // This is a PDS endpoint and doesn't require authentication
       const profileResponse = await fetch(url, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(this.FETCH_TIMEOUT_MS)
       });
 
       if (!profileResponse.ok) {
-        // Get response body for better error diagnostics
-        let errorDetails = '';
-        let isRecordNotFound = false;
-        try {
-          const errorBody = await profileResponse.text();
-          errorDetails = errorBody.substring(0, 200);
-          isRecordNotFound = errorBody.includes('RecordNotFound');
-        } catch (e) {
-          // Ignore if we can't read the body
-        }
-        
-        // If record not found at PDS, try the AppView as fallback
-        // This handles cases where the profile exists but isn't at this PDS endpoint
-        if (profileResponse.status === 400 && isRecordNotFound) {
-          console.warn(`[PDS_FETCHER] Profile not found at PDS for ${did}, trying AppView fallback...`);
-          return await this.fetchUserDataFromAppView(did);
-        }
-        
-        const errorMsg = `Profile fetch failed: ${profileResponse.status}${errorDetails ? ` - ${errorDetails}` : ''}`;
-        console.warn(`[PDS_FETCHER] ${errorMsg} for ${did} at ${pdsEndpoint}`);
-        
         return {
           success: false,
-          error: errorMsg
+          error: `PDS fetch failed: ${profileResponse.status}`
         };
       }
 
       const response = await profileResponse.json();
-      const profile = response.value; // The actual profile record is in .value
+      const profile = response.value;
       
       if (profile) {
         // Resolve handle from DID
