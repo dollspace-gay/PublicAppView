@@ -28,6 +28,11 @@ export class HealthServer {
     private getStatus: () => HealthStatus
   ) {
     this.startTime = new Date();
+    // NOTE: Health check endpoint intentionally uses HTTP (not HTTPS) because:
+    // 1. It's an internal monitoring endpoint typically accessed from localhost/private network
+    // 2. Health checks don't require encryption (no sensitive data transmitted)
+    // 3. Load balancers and orchestrators (Kubernetes, Docker) expect simple HTTP endpoints
+    // 4. Using HTTP avoids certificate management complexity for internal monitoring
     this.server = http.createServer(this.handleRequest.bind(this));
   }
 

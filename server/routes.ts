@@ -34,6 +34,11 @@ import {
 import { xrpcProxyMiddleware } from "./middleware/xrpc-proxy";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // NOTE: Using HTTP server here is intentional for local development and deployment.
+  // In production, this server should be behind a reverse proxy (nginx, Cloudflare, etc.)
+  // that handles HTTPS/TLS termination. The reverse proxy forwards decrypted traffic
+  // to this HTTP server on localhost/internal network.
+  // See: https://expressjs.com/en/guide/behind-proxies.html
   const httpServer = createServer(app);
 
   // API request tracking middleware with per-endpoint performance tracking
@@ -1113,7 +1118,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (storageError) {
         // PDS delete succeeded but local delete failed - log for manual reconciliation
         console.error(
-          `[API] INCONSISTENCY: PDS delete succeeded but local delete failed for ${uri}:`,
+          '[API] INCONSISTENCY: PDS delete succeeded but local delete failed for URI:',
+          { uri },
           storageError
         );
         return res.status(500).json({ 
@@ -1250,7 +1256,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (storageError) {
         // PDS delete succeeded but local delete failed - log for manual reconciliation
         console.error(
-          `[API] INCONSISTENCY: PDS delete succeeded but local delete failed for ${uri}:`,
+          '[API] INCONSISTENCY: PDS delete succeeded but local delete failed for URI:',
+          { uri },
           storageError
         );
         return res.status(500).json({ 

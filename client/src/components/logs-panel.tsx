@@ -62,7 +62,9 @@ export function LogsPanel() {
     const logText = logs
       .map(log => {
         const timestamp = new Date(log.timestamp).toLocaleString();
-        return `[${timestamp}][${log.level}] ${log.message}`;
+        // Sanitize log message to prevent any potential XSS in downloaded file
+        const sanitizedMessage = log.message.replace(/[<>]/g, '');
+        return `[${timestamp}][${log.level}] ${sanitizedMessage}`;
       })
       .join("\n");
     
@@ -70,10 +72,12 @@ export function LogsPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `appview-logs-${new Date().toISOString()}.txt`;
-    document.body.appendChild(a);
+    // Use fixed filename pattern to prevent injection via timestamp
+    const safeTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    a.download = `appview-logs-${safeTimestamp}.txt`;
+    // Trigger download without appending to DOM to avoid potential XSS
+    a.style.display = 'none';
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 

@@ -6,6 +6,7 @@ import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 import { sanitizeUrlPath } from "./utils/security";
+import { viteLimiter } from "./middleware/rate-limit";
 
 const viteLogger = createLogger();
 
@@ -41,6 +42,8 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+  // Apply rate limiting to prevent DoS attacks via file system operations
+  app.use("*", viteLimiter);
   app.use("*", async (req, res, next) => {
     try {
       const clientTemplate = path.resolve(
