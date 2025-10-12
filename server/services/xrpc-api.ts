@@ -2624,15 +2624,25 @@ export class XRPCApi {
         cursor = suggestedResults.cursor;
       }
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
+          
+          // Skip generators from creators without valid handles
+          if (!creator || !creator.handle) {
+            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            return null;
+          }
 
           const creatorView: any = {
             did: generator.creatorDid,
-            handle:
-              creator?.handle ||
-              `${generator.creatorDid.replace(/:/g, '-')}.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2654,7 +2664,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ cursor, feeds });
+      // Filter out null entries (generators from creators without valid handles)
+      const validFeeds = feeds.filter(feed => feed !== null);
+
+      res.json({ cursor, feeds: validFeeds });
     } catch (error) {
       this._handleError(res, error, 'getPopularFeedGenerators');
     }
@@ -2812,15 +2825,25 @@ export class XRPCApi {
       // Flatten array of arrays
       const services = allServices.flat();
 
+      // Ensure all creator profiles are loaded
+      const creatorDids = [...new Set(services.map(s => s.creatorDid))];
+      await Promise.all(
+        creatorDids.map(did => lazyDataLoader.ensureUserProfile(did))
+      );
+
       const views = await Promise.all(
         services.map(async (service) => {
           const creator = await storage.getUser(service.creatorDid);
+          
+          // Skip services from creators without valid handles
+          if (!creator || !creator.handle) {
+            console.warn(`[XRPC] Skipping labeler service ${service.uri} - creator ${service.creatorDid} has no handle`);
+            return null;
+          }
 
           const creatorView: any = {
             did: service.creatorDid,
-            handle:
-              creator?.handle ||
-              `${service.creatorDid.replace(/:/g, '-')}.invalid`,
+            handle: creator.handle,
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
@@ -2858,7 +2881,10 @@ export class XRPCApi {
         }),
       );
 
-      res.json({ views });
+      // Filter out null entries (services from creators without valid handles)
+      const validViews = views.filter(view => view !== null);
+
+      res.json({ views: validViews });
     } catch (error) {
       this._handleError(res, error, 'getServices');
     }
