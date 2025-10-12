@@ -1440,12 +1440,21 @@ export class XRPCApi {
         const viewer: any = {
           knownFollowers: {
             count: knownFollowersResult.count,
-            followers: knownFollowersResult.followers.map((f) => ({
-              did: f.did,
-              handle: f.handle,
-              displayName: f.displayName,
-              avatar: f.avatarUrl ? this.transformBlobToCdnUrl(f.avatarUrl, f.did, 'avatar') : undefined,
-            })),
+            followers: knownFollowersResult.followers.map((f) => {
+              const follower: any = {
+                did: f.did,
+                handle: f.handle || 'handle.invalid',
+              };
+              // Only include displayName if it exists (AT Protocol requires string or omit, not null)
+              if (f.displayName) follower.displayName = f.displayName;
+              // Only include avatar if it exists
+              if (f.avatarUrl) {
+                follower.avatar = f.avatarUrl.startsWith('http')
+                  ? f.avatarUrl
+                  : this.transformBlobToCdnUrl(f.avatarUrl, f.did, 'avatar');
+              }
+              return follower;
+            }),
           },
         };
 
