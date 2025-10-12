@@ -58,8 +58,7 @@ export class RepoBackfillService {
     isRunning: false,
   };
   
-  private readonly BATCH_SIZE = 100; // Process this many repos before saving progress
-  private readonly CONCURRENT_FETCHES = 5; // Parallel repo fetches
+  private readonly CONCURRENT_FETCHES = 50; // Parallel repo fetches (increased for powerful production machines)
   private readonly backfillDays: number;
   private cutoffDate: Date | null = null;
   private readonly pdsHost: string;
@@ -150,37 +149,30 @@ export class RepoBackfillService {
   }
 
   private async runRepoBackfill(): Promise<void> {
-    let cursor: string | undefined = undefined;
-    let hasMore = true;
+    try {
+      // Fetch ALL repos from the network at once (no batching)
+      console.log('[REPO_BACKFILL] Fetching all repos from the network...');
+      const response = await this.agent.com.atproto.sync.listRepos({
+        limit: 10000, // Large limit to get all repos at once
+      });
 
-    while (hasMore && this.isRunning) {
-      try {
-        // List repos from the network
-        const response = await this.agent.com.atproto.sync.listRepos({
-          limit: this.BATCH_SIZE,
-          cursor,
-        });
+      const repos = response.data.repos;
+      console.log(`[REPO_BACKFILL] Fetched ${repos.length} repos, processing all at once...`);
 
-        const repos = response.data.repos;
-        console.log(`[REPO_BACKFILL] Fetched ${repos.length} repos (cursor: ${cursor || 'start'})`);
+      // Process all repos in parallel batches
+      const batches: string[][] = [];
+      for (let i = 0; i < repos.length; i += this.CONCURRENT_FETCHES) {
+        batches.push(repos.slice(i, i + this.CONCURRENT_FETCHES).map(r => r.did));
+      }
 
-        // Process repos in parallel batches
-        const batches: string[][] = [];
-        for (let i = 0; i < repos.length; i += this.CONCURRENT_FETCHES) {
-          batches.push(repos.slice(i, i + this.CONCURRENT_FETCHES).map(r => r.did));
-        }
+      console.log(`[REPO_BACKFILL] Processing ${batches.length} batches with ${this.CONCURRENT_FETCHES} concurrent fetches per batch...`);
 
-        for (const batch of batches) {
-          await Promise.allSettled(
-            batch.map(did => this.fetchAndProcessRepo(did))
-          );
-        }
+      for (const batch of batches) {
+        await Promise.allSettled(
+          batch.map(did => this.fetchAndProcessRepo(did))
+        );
 
-        // Update cursor
-        cursor = response.data.cursor;
-        hasMore = !!cursor && repos.length > 0;
-
-        // Log progress
+        // Log progress after each batch
         const elapsed = Date.now() - this.progress.startTime.getTime();
         const rate = this.progress.totalRecordsProcessed / (elapsed / 1000);
         console.log(
@@ -188,12 +180,11 @@ export class RepoBackfillService {
           `${this.progress.totalRecordsProcessed} records processed, ` +
           `${this.progress.totalRecordsSkipped} skipped (${rate.toFixed(0)} rec/s)`
         );
-
-      } catch (error: any) {
-        console.error("[REPO_BACKFILL] Error listing repos:", error);
-        logCollector.error("Repo backfill list error", { error });
-        break;
       }
+
+    } catch (error: any) {
+      console.error("[REPO_BACKFILL] Error listing repos:", error);
+      logCollector.error("Repo backfill list error", { error });
     }
 
     this.isRunning = false;
