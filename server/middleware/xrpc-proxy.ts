@@ -96,8 +96,20 @@ export const xrpcProxyMiddleware = async (
         }
       }
       
-      // For other content types, send as-is but with sanitized headers
-      res.status(pdsResponse.status).set(sanitizedHeaders).send(pdsResponse.body);
+      // For other content types, ensure we set the content type explicitly and send safely
+      // This prevents Express from interpreting the response as HTML
+      const safeHeaders = {
+        ...sanitizedHeaders,
+        'Content-Type': contentType || 'application/octet-stream',
+        'X-Content-Type-Options': 'nosniff'
+      };
+      
+      // For binary/non-JSON content, send as buffer to prevent interpretation as HTML
+      const bodyBuffer = typeof pdsResponse.body === 'string' 
+        ? Buffer.from(pdsResponse.body, 'utf-8') 
+        : Buffer.from(pdsResponse.body);
+      
+      res.status(pdsResponse.status).set(safeHeaders).send(bodyBuffer);
 
     } else {
       // AT Protocol access token from third-party client - use it directly
@@ -149,8 +161,20 @@ export const xrpcProxyMiddleware = async (
         }
       }
       
-      // For other content types, send as-is but with sanitized headers
-      res.status(pdsResponse.status).set(sanitizedHeaders).send(pdsResponse.body);
+      // For other content types, ensure we set the content type explicitly and send safely
+      // This prevents Express from interpreting the response as HTML
+      const safeHeaders = {
+        ...sanitizedHeaders,
+        'Content-Type': contentType || 'application/octet-stream',
+        'X-Content-Type-Options': 'nosniff'
+      };
+      
+      // For binary/non-JSON content, send as buffer to prevent interpretation as HTML
+      const bodyBuffer = typeof pdsResponse.body === 'string' 
+        ? Buffer.from(pdsResponse.body, 'utf-8') 
+        : Buffer.from(pdsResponse.body);
+      
+      res.status(pdsResponse.status).set(safeHeaders).send(bodyBuffer);
     }
 
   } catch (error) {
