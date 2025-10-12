@@ -1138,6 +1138,7 @@ export class XRPCApi {
   async getAuthorFeed(req: Request, res: Response) {
     try {
       const params = getAuthorFeedSchema.parse(req.query);
+      console.log(`[GET_AUTHOR_FEED] Actor: ${params.actor}, Filter: ${params.filter}, Limit: ${params.limit}`);
 
       const authorDid = await this._resolveActor(res, params.actor);
       if (!authorDid) return;

@@ -680,6 +680,7 @@ export class DatabaseStorage implements IStorage {
         ).or(eq(feedItems.type, 'repost'))
       );
     } else if (feedType === 'posts_with_media') {
+      console.log(`[STORAGE] Filtering for posts_with_media for actor: ${actorDid}`);
       builder = builder
         .where(eq(feedItems.type, 'post'))
         .where(sql`${posts.embed} IS NOT NULL 
