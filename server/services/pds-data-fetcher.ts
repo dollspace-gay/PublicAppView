@@ -56,6 +56,28 @@ export class PDSDataFetcher {
   }
 
   /**
+   * Sanitize and validate DID format
+   */
+  private sanitizeDID(did: string): string {
+    const original = did;
+    
+    // Remove any trailing/leading whitespace and colons
+    let cleaned = did.trim().replace(/[:]+$/, '').replace(/^[:]+/, '');
+    
+    // If cleaning changed the DID, log it
+    if (cleaned !== original) {
+      console.warn(`[PDS_FETCHER] Cleaned malformed DID: "${original}" → "${cleaned}"`);
+    }
+    
+    // Ensure it starts with 'did:'
+    if (!cleaned.startsWith('did:')) {
+      console.warn(`[PDS_FETCHER] Invalid DID format (doesn't start with 'did:'): "${cleaned}"`);
+    }
+    
+    return cleaned;
+  }
+
+  /**
    * Mark an entry as incomplete and needing data fetch
    */
   markIncomplete(
@@ -75,7 +97,9 @@ export class PDSDataFetcher {
     uri?: string,
     missingData?: any,
   ) {
-    const key = `${type}:${did}:${uri || ''}`;
+    // Sanitize DID before storing
+    const cleanDid = this.sanitizeDID(did);
+    const key = `${type}:${cleanDid}:${uri || ''}`;
     const existing = this.incompleteEntries.get(key);
     
     if (existing) {
@@ -85,7 +109,7 @@ export class PDSDataFetcher {
     } else {
       this.incompleteEntries.set(key, {
         type,
-        did,
+        did: cleanDid,
         uri,
         missingData,
         retryCount: 0,
@@ -153,12 +177,15 @@ export class PDSDataFetcher {
             console.log(`[PDS_FETCHER] ${this.BATCH_LOG_SIZE} successful fetches (total: ${this.successCount})`);
           }
         } else {
-          console.warn(`[PDS_FETCHER] Failed to fetch data for ${key}: ${result.error}`);
+          // Show cleaner error message with just the DID/URI
+          const identifier = entry.uri || entry.did;
+          console.warn(`[PDS_FETCHER] Failed to fetch ${entry.type} ${identifier}: ${result.error}`);
         }
         
         processed++;
       } catch (error) {
-        console.error(`[PDS_FETCHER] Error processing ${key}:`, error);
+        const identifier = entry.uri || entry.did;
+        console.error(`[PDS_FETCHER] Error processing ${entry.type} ${identifier}:`, error);
       }
     }
 
@@ -171,12 +198,23 @@ export class PDSDataFetcher {
    */
   private async fetchMissingData(entry: IncompleteEntry): Promise<PDSDataFetchResult> {
     try {
+      // Sanitize the DID before using it
+      const cleanDid = this.sanitizeDID(entry.did);
+      
+      // Validate DID format
+      if (!cleanDid.startsWith('did:plc:') && !cleanDid.startsWith('did:web:')) {
+        return {
+          success: false,
+          error: `Invalid DID format: ${cleanDid}`
+        };
+      }
+      
       // Resolve DID to PDS endpoint
-      const pdsEndpoint = await didResolver.resolveDIDToPDS(entry.did);
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(cleanDid);
       if (!pdsEndpoint) {
         return {
           success: false,
-          error: `Could not resolve PDS endpoint for DID: ${entry.did}`
+          error: `Could not resolve PDS endpoint for DID: ${cleanDid}`
         };
       }
 
@@ -188,9 +226,9 @@ export class PDSDataFetcher {
 
       switch (entry.type) {
         case 'user':
-          return await this.fetchUserData(entry.did, pdsEndpoint);
+          return await this.fetchUserData(cleanDid, pdsEndpoint);
         case 'post':
-          return await this.fetchPostData(entry.did, entry.uri!, pdsEndpoint);
+          return await this.fetchPostData(cleanDid, entry.uri!, pdsEndpoint);
         case 'list':
         case 'listitem':
         case 'feedgen':
@@ -202,7 +240,7 @@ export class PDSDataFetcher {
         case 'repost':
         case 'follow':
           // Ensure the actor exists first; referenced subject fetch is handled via 'post'/'record' marks
-          return await this.fetchUserData(entry.did, pdsEndpoint);
+          return await this.fetchUserData(cleanDid, pdsEndpoint);
         default:
           return {
             success: false,
