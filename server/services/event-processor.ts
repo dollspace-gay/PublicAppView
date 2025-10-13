@@ -683,16 +683,16 @@ export class EventProcessor {
           // for extended periods, which would exhaust the connection pool
           // The user will be marked for profile fetching to get the proper handle later
           
-          // Extract handle from DID by using a sanitized version (e.g., did:plc:abc123 -> abc123.invalid)
-          // This creates a temporary but valid-looking handle until we can fetch the real one
-          let handle: string = did.replace('did:plc:', '').replace('did:web:', 'web.') + '.invalid';
+          // Use 'handle.invalid' as a temporary fallback (matches Bluesky's approach)
+          // This will be updated when the profile is fetched with the actual handle
+          const INVALID_HANDLE = 'handle.invalid';
           
-          // Create user with temporary handle - will be updated when profile is fetched
+          // Create user with fallback handle - will be updated when profile is fetched
           // This keeps the DB operation fast
           try {
             await this.storage.createUser({
               did,
-              handle: handle, // Use temporary handle, not the DID itself
+              handle: INVALID_HANDLE, // Use standard fallback handle
             });
             
             // Mark user for profile fetching to get proper handle and avatar/banner data
@@ -1315,7 +1315,7 @@ export class EventProcessor {
     const existingUser = await this.storage.getUser(did);
 
     const profileData = {
-      handle: handle || (did.replace('did:plc:', '').replace('did:web:', 'web.') + '.invalid'), // Use resolved handle or temporary valid handle
+      handle: handle || 'handle.invalid', // Use resolved handle or standard fallback
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: extractBlobCid(record.avatar),
