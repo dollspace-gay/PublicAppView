@@ -12,7 +12,7 @@ import os
 import signal
 import sys
 import time
-from typing import Optional
+from typing import Optional, Any
 
 import redis
 from atproto import (
@@ -22,6 +22,22 @@ from atproto import (
     models,
     parse_subscribe_repos_message,
 )
+
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles bytes, CIDs, and other non-serializable objects."""
+    def default(self, obj):
+        # Handle bytes objects
+        if isinstance(obj, bytes):
+            return obj.hex()  # Convert bytes to hex string
+        # Handle CID objects (they have a string representation)
+        if hasattr(obj, '__str__') and not isinstance(obj, (dict, list, tuple)):
+            return str(obj)
+        # Fallback to default behavior
+        try:
+            return super().default(obj)
+        except TypeError:
+            return repr(obj)
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -106,11 +122,12 @@ class FirehoseConsumer:
         """Push event to Redis stream."""
         try:
             # Use XADD with MAXLEN to prevent infinite stream growth
+            # Use SafeJSONEncoder to handle bytes and CIDs
             self.redis_client.xadd(
                 self.stream_key,
                 {
                     "type": event_type,
-                    "data": json.dumps(data),
+                    "data": json.dumps(data, cls=SafeJSONEncoder),
                     "seq": str(seq) if seq else "",
                 },
                 maxlen=self.max_stream_len,
@@ -134,9 +151,8 @@ class FirehoseConsumer:
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
-        # First thing - print to confirm handler is called
-        print(f"HANDLER CALLED! Message type: {type(message)}", flush=True)
-        logger.info(f"🔥 HANDLER CALLED! Message type: {type(message)}")
+        # Handler is being called - remove debug prints
+        logger.debug(f"Handler called")
         
         try:
             logger.debug(f"Received message")
