@@ -683,14 +683,16 @@ export class EventProcessor {
           // for extended periods, which would exhaust the connection pool
           // The user will be marked for profile fetching to get the proper handle later
           
-          let handle: string = did; // Use DID as temporary handle
+          // Extract handle from DID by using a sanitized version (e.g., did:plc:abc123 -> abc123.invalid)
+          // This creates a temporary but valid-looking handle until we can fetch the real one
+          let handle: string = did.replace('did:plc:', '').replace('did:web:', 'web.') + '.invalid';
           
-          // Create user with resolved handle or DID as fallback
+          // Create user with temporary handle - will be updated when profile is fetched
           // This keeps the DB operation fast
           try {
             await this.storage.createUser({
               did,
-              handle: handle || did, // Use DID as fallback handle
+              handle: handle, // Use temporary handle, not the DID itself
             });
             
             // Mark user for profile fetching to get proper handle and avatar/banner data
@@ -1313,7 +1315,7 @@ export class EventProcessor {
     const existingUser = await this.storage.getUser(did);
 
     const profileData = {
-      handle: handle || did, // Use resolved handle or fallback to DID
+      handle: handle || (did.replace('did:plc:', '').replace('did:web:', 'web.') + '.invalid'), // Use resolved handle or temporary valid handle
       displayName: sanitizeText(record.displayName),
       description: sanitizeText(record.description),
       avatarUrl: extractBlobCid(record.avatar),

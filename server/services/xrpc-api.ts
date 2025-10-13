@@ -760,8 +760,10 @@ export class XRPCApi {
       const hydratedEmbed = state.embeds.get(post.uri);
 
       // Author must have a valid handle at this point
-      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
-        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
+      // Filter out DIDs (did:plc:xxx or did:web:xxx) and temporary handles (xxx.invalid) which are not valid handles
+      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '' || 
+          author.handle.startsWith('did:') || author.handle.endsWith('.invalid')) {
+        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle (got: ${author?.handle || 'undefined'})`);
         return null;
       }
       
@@ -981,8 +983,10 @@ export class XRPCApi {
 
       // Ensure author handle is always present and valid
       // Author must have a valid handle at this point
-      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
-        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
+      // Filter out DIDs (did:plc:xxx or did:web:xxx) and temporary handles (xxx.invalid) which are not valid handles
+      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '' || 
+          author.handle.startsWith('did:') || author.handle.endsWith('.invalid')) {
+        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle (got: ${author?.handle || 'undefined'})`);
         return null;
       }
       
