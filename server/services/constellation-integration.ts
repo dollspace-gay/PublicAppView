@@ -177,7 +177,12 @@ class ConstellationIntegration {
       return count;
     } catch (error) {
       this.apiErrors++;
-      console.error('[CONSTELLATION] Error fetching count:', error);
+      // Only log timeout errors at debug level (expected when API is slow)
+      if (error instanceof Error && error.message.includes('timeout')) {
+        // Silently fail on timeout - enrichAggregations will fall back to local counts
+      } else {
+        console.error('[CONSTELLATION] Error fetching count:', error);
+      }
       throw error;
     }
   }
@@ -327,7 +332,7 @@ const config: ConstellationConfig = {
   enabled: process.env.CONSTELLATION_ENABLED === 'true',
   url: process.env.CONSTELLATION_URL || 'https://constellation.microcosm.blue',
   cacheTTL: parseInt(process.env.CONSTELLATION_CACHE_TTL || '60', 10),
-  timeout: 5000,
+  timeout: parseInt(process.env.CONSTELLATION_TIMEOUT || '10000', 10), // 10s default timeout
 };
 
 export const constellationIntegration = new ConstellationIntegration(config);
