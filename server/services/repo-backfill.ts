@@ -3,19 +3,16 @@ import { IdResolver } from "@atproto/identity";
 import { readCar, MemoryBlockstore } from "@atproto/repo";
 import { ReadableRepo } from "@atproto/repo/dist/readable-repo.js";
 import { EventProcessor } from "./event-processor";
-import { createStorage, type IStorage } from "../storage";
-import { createDbPool } from "../db";
+import { storage } from "../storage";
 import { logCollector } from "./log-collector";
 import { sanitizeObject } from "../utils/sanitize";
 import { createHash } from "crypto";
 
-// Create dedicated connection pool for repo backfill
-const repoBackfillPoolSize = parseInt(process.env.BACKFILL_DB_POOL_SIZE || '2');
-const repoBackfillDb = createDbPool(repoBackfillPoolSize, "repo-backfill");
-const repoBackfillStorage = createStorage(repoBackfillDb);
+// Use the main application storage instead of creating a separate connection
+// This ensures backfilled records are stored in the same database as the web view
 
-// Create dedicated event processor for repo backfill
-const repoEventProcessor = new EventProcessor(repoBackfillStorage);
+// Create dedicated event processor for repo backfill using main storage
+const repoEventProcessor = new EventProcessor(storage);
 
 // Create DID resolver for finding PDS endpoints
 const didResolver = new IdResolver();
@@ -448,7 +445,7 @@ export class RepoBackfillService {
         batch.map(async (userDid) => {
           try {
             // Check if user already exists
-            const user = await repoBackfillStorage.getUser(userDid);
+            const user = await storage.getUser(userDid);
             if (user) {
               existing++;
               return;
@@ -456,7 +453,7 @@ export class RepoBackfillService {
 
             // Create minimal user record with standard fallback handle
             // Use 'handle.invalid' as fallback (matches Bluesky's approach)
-            await repoBackfillStorage.createUser({
+            await storage.createUser({
               did: userDid,
               handle: 'handle.invalid', // Standard fallback, will be updated by PDS fetcher
             });

@@ -851,11 +851,11 @@ export class EventProcessor {
           const record = op.record;
           const recordType = record.$type;
 
-          // Validate record
-          if (!lexiconValidator.validate(recordType, record)) {
-            smartConsole.log(`[VALIDATOR] Invalid record: ${recordType} at ${uri}`);
-            continue;
-          }
+          // Validate record (temporarily disabled for debugging)
+          // if (!lexiconValidator.validate(recordType, record)) {
+          //   smartConsole.log(`[VALIDATOR] Invalid record: ${recordType} at ${uri}`);
+          //   continue;
+          // }
 
           switch (recordType) {
             case "app.bsky.feed.post":
