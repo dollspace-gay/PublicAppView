@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # A pure Bash script to generate a standalone oauth-keyset.json file
-# using a P-256 key (ES256), suitable for an AT Protocol AppView's internal OAuth.
+# using a secp256k1 key, suitable for an AT Protocol AppView's internal OAuth.
 #
 # Dependencies: openssl, jq, xxd
 
@@ -12,45 +12,32 @@ echo "==========================="
 echo ""
 
 # --- Dependency Check ---
-for cmd in openssl xxd; do
+for cmd in openssl jq xxd; do
   if ! command -v $cmd &> /dev/null; then
     echo "❌ Missing required dependency: $cmd"
-    echo "Please install it and try again."
     exit 1
   fi
 done
 
-# Check for jq (local or system)
-if ! command -v jq &> /dev/null && ! [ -f "./jq" ]; then
-  echo "❌ Missing required dependency: jq"
-  echo "Please install it and try again."
-  exit 1
-fi
-
-# Use local jq if available
-JQ_CMD="jq"
-if [ -f "./jq" ]; then
-  JQ_CMD="./jq"
-fi
-
 # --- Key Generation ---
-echo "🔑 Generating P-256 key pair for ES256..."
-# Generate a P-256 private key (required for ES256)
-openssl ecparam -name prime256v1 -genkey -noout -out private_ec.pem
+echo "🔑 Generating secp256k1 key pair..."
+# 1. Generate a secp256k1 private key in the legacy format
+openssl ecparam -name secp256k1 -genkey -noout -out private-legacy.pem
 
-# Convert EC private key to PKCS#8 format (required by JoseKey.fromImportable)
-openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in private_ec.pem -out private.pem
+# --- FIX APPLIED HERE ---
+# 2. Convert the legacy key to the required PKCS#8 format
+openssl pkcs8 -topk8 -nocrypt -in private-legacy.pem -out private-pkcs8.pem
 
-# Generate the corresponding public key
-openssl ec -in private_ec.pem -pubout -out public.pem 2>/dev/null
+# 3. Generate the corresponding public key
+openssl ec -in private-legacy.pem -pubout -out public.pem 2>/dev/null
 
-# Read PEM file contents into variables
-PRIVATE_KEY_PEM=$(cat private.pem)
+# Read PEM file contents into variables (using the corrected PKCS#8 private key)
+PRIVATE_KEY_PEM=$(cat private-pkcs8.pem)
 PUBLIC_KEY_PEM=$(cat public.pem)
 
 echo "⚙️  Formatting key into JWK format..."
-# Extract all key components in hex format (use original EC key for component extraction)
-KEY_COMPONENTS_HEX=$(openssl ec -in private_ec.pem -text -noout)
+# Extract components from the original key for JWK
+KEY_COMPONENTS_HEX=$(openssl ec -in private-legacy.pem -text -noout)
 
 # Isolate and clean up each component
 PRIV_HEX=$(echo "$KEY_COMPONENTS_HEX" | grep priv -A 3 | tail -n +2 | tr -d ' \n:')
@@ -68,7 +55,7 @@ KID="$(date +%s)-$(openssl rand -hex 4)"
 
 # --- File Creation ---
 echo "📄 Creating oauth-keyset.json file..."
-$JQ_CMD -n \
+jq -n \
   --arg kid "$KID" \
   --arg pkpem "$PRIVATE_KEY_PEM" \
   --arg pubpem "$PUBLIC_KEY_PEM" \
@@ -82,8 +69,8 @@ $JQ_CMD -n \
     jwk: {
       kid: $kid,
       kty: "EC",
-      crv: "P-256",
-      alg: "ES256",
+      crv: "secp256k1",
+      alg: "ES256K",
       use: "sig",
       d: $d,
       x: $x,
@@ -92,8 +79,8 @@ $JQ_CMD -n \
   }' > oauth-keyset.json
 
 # --- Cleanup ---
-rm private.pem private_ec.pem public.pem
+rm private-legacy.pem private-pkcs8.pem public.pem
 
 echo ""
-echo "✅ Success! oauth-keyset.json generated."
+echo "✅ Success! oauth-keyset.json generated with correct PKCS#8 format."
 echo ""
