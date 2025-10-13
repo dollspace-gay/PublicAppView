@@ -332,10 +332,12 @@ export class EmbedResolver {
     // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
     // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
     // PUBLIC_URL is our publicUrl (base URL of the application)
+    // Fallback to Bluesky CDN (https://cdn.bsky.app/img) if no custom endpoint is configured
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
                      (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
+                     'https://cdn.bsky.app/img';
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
@@ -353,7 +355,8 @@ export class EmbedResolver {
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
                      (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
+                     'https://cdn.bsky.app/img';
     
     if (!endpoint) {
       console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');

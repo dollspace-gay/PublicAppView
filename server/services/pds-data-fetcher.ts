@@ -59,7 +59,8 @@ export class PDSDataFetcher {
     const endpoint = process.env.IMG_URI_ENDPOINT || 
                      (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
                      (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
+                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
+                     'https://cdn.bsky.app/img';
     
     if (!endpoint) return undefined;
     
