@@ -112,8 +112,11 @@ class FirehoseConsumer:
     async def push_to_redis(self, event_type: str, data: dict, seq: Optional[int] = None) -> None:
         """Push event to Redis stream."""
         try:
+            if self.event_count == 0:
+                logger.info(f"📤 Pushing first event to Redis stream '{self.stream_key}'")
+            
             # Use XADD with MAXLEN to prevent infinite stream growth
-            await self.redis.xadd(
+            result = await self.redis.xadd(
                 self.stream_key,
                 {
                     "type": event_type,
@@ -123,6 +126,9 @@ class FirehoseConsumer:
                 maxlen=self.max_stream_len,
                 approximate=True,
             )
+            
+            if self.event_count == 0:
+                logger.info(f"✅ First event pushed successfully! Stream entry ID: {result}")
             
             self.event_count += 1
             
@@ -142,6 +148,9 @@ class FirehoseConsumer:
     async def handle_message(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
         try:
+            if self.event_count == 0:
+                logger.info("📥 Received first message from firehose!")
+            
             logger.debug(f"Received message, parsing...")
             commit = parse_subscribe_repos_message(message)
             logger.debug(f"Parsed commit type: {type(commit).__name__}")
@@ -226,8 +235,15 @@ class FirehoseConsumer:
         except Exception as e:
             logger.error(f"Error handling message: {e}")
     
-    def _sync_callback(self, message: firehose_models.MessageFrame) -> None:
-        """Synchronous callback that schedules async message handling."""
+    def _sync_callback(self, message: firehose_models.MessageFrame) -> bool:
+        """Synchronous callback that schedules async message handling.
+        
+        Returns:
+            bool: True to continue receiving messages, False to stop.
+        """
+        if not self.running:
+            return False
+            
         try:
             # Create a future in the event loop
             future = asyncio.run_coroutine_threadsafe(
@@ -236,8 +252,10 @@ class FirehoseConsumer:
             )
             # Wait for it with a timeout to prevent blocking
             future.result(timeout=10)
+            return True  # Continue receiving messages
         except Exception as e:
             logger.error(f"Error in callback: {e}", exc_info=True)
+            return self.running  # Continue if still running, otherwise stop
     
     async def run(self) -> None:
         """Main run loop."""
@@ -261,9 +279,12 @@ class FirehoseConsumer:
                 
                 logger.info("Connected to firehose successfully")
                 logger.info("Starting message processing...")
+                logger.info("⏳ Waiting for messages from firehose...")
                 
                 # Run the blocking start() in a thread pool
                 await asyncio.to_thread(self.client.start, self._sync_callback)
+                
+                logger.warning("Client stopped receiving messages (this is unusual)")
                     
             except Exception as e:
                 logger.error(f"Firehose error: {e}", exc_info=True)
