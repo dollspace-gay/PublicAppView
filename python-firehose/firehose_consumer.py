@@ -73,6 +73,7 @@ class FirehoseConsumer:
         self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
         self.current_cursor: Optional[int] = None
+        self.is_connected = False
         
         # Metrics
         self.event_count = 0
@@ -82,6 +83,13 @@ class FirehoseConsumer:
         # Cursor persistence
         self.last_cursor_save = 0
         self.cursor_save_interval = 5  # seconds
+        
+        # Recent events buffer for dashboard (keep last 50)
+        self.recent_events = []
+        
+        # Status heartbeat
+        self.last_status_update = 0
+        self.status_update_interval = 5  # seconds
         
     def connect_redis(self) -> None:
         """Connect to Redis."""
@@ -117,6 +125,49 @@ class FirehoseConsumer:
                 self.redis_client.set(self.cursor_key, str(cursor))
             except Exception as e:
                 logger.error(f"Error saving cursor: {e}")
+    
+    def update_status(self) -> None:
+        """Update firehose status in Redis for dashboard visibility."""
+        now = time.time()
+        if now - self.last_status_update > self.status_update_interval:
+            self.last_status_update = now
+            try:
+                status = {
+                    "connected": self.is_connected,
+                    "url": self.relay_url,
+                    "currentCursor": str(self.current_cursor) if self.current_cursor else None,
+                }
+                # Store with 10 second TTL (will be refreshed by heartbeat)
+                self.redis_client.setex(
+                    "firehose:status",
+                    10,
+                    json.dumps(status)
+                )
+            except Exception as e:
+                logger.error(f"Error updating status: {e}")
+    
+    def broadcast_event(self, event: dict) -> None:
+        """Broadcast event to Redis pub/sub for real-time dashboard updates."""
+        try:
+            # Add to recent events buffer (keep last 50)
+            self.recent_events.insert(0, event)
+            if len(self.recent_events) > 50:
+                self.recent_events.pop()
+            
+            # Store recent events in Redis (with 10 second TTL)
+            self.redis_client.setex(
+                "firehose:recent_events",
+                10,
+                json.dumps(self.recent_events)
+            )
+            
+            # Publish to Redis pub/sub for real-time streaming
+            self.redis_client.publish(
+                "firehose:events:broadcast",
+                json.dumps(event)
+            )
+        except Exception as e:
+            logger.error(f"Error broadcasting event: {e}")
     
     def push_to_redis(self, event_type: str, data: dict, seq: Optional[int] = None) -> None:
         """Push event to Redis stream."""
@@ -251,6 +302,21 @@ class FirehoseConsumer:
                 logger.debug(f"Pushing commit with {len(data['ops'])} ops")
                 self.push_to_redis("commit", data, seq)
                 self.last_event_time = time.time()
+                
+                # Broadcast event to dashboard (only first op for UI)
+                if data["ops"]:
+                    first_op = data["ops"][0]
+                    lexicon = first_op["path"].split('/')[0]
+                    self.broadcast_event({
+                        "type": "#commit",
+                        "lexicon": lexicon,
+                        "did": commit.repo,
+                        "action": first_op["action"],
+                        "timestamp": time.strftime("%H:%M:%S"),
+                    })
+                
+                # Update status heartbeat
+                self.update_status()
             
             # Handle Identity messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
@@ -263,6 +329,18 @@ class FirehoseConsumer:
                 if seq:
                     self.save_cursor(seq)
                 self.last_event_time = time.time()
+                
+                # Broadcast event to dashboard
+                self.broadcast_event({
+                    "type": "#identity",
+                    "lexicon": "com.atproto.identity",
+                    "did": commit.did,
+                    "action": f"→ {data['handle']}" if data['handle'] != commit.did else "update",
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+                
+                # Update status heartbeat
+                self.update_status()
             
             # Handle Account messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Account):
@@ -275,6 +353,18 @@ class FirehoseConsumer:
                 if seq:
                     self.save_cursor(seq)
                 self.last_event_time = time.time()
+                
+                # Broadcast event to dashboard
+                self.broadcast_event({
+                    "type": "#account",
+                    "lexicon": "com.atproto.account",
+                    "did": commit.did,
+                    "action": "active" if data['active'] else "inactive",
+                    "timestamp": time.strftime("%H:%M:%S"),
+                })
+                
+                # Update status heartbeat
+                self.update_status()
             
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
@@ -298,17 +388,31 @@ class FirehoseConsumer:
         logger.info("Firehose client created")
         logger.info("Starting to listen for events...")
         
+        # Mark as connected and update status
+        self.is_connected = True
+        self.update_status()
+        
         # Start the client (this blocks until stopped)
         try:
             self.client.start(self.on_message_handler)
         except Exception as e:
             logger.error(f"Error in client.start(): {e}", exc_info=True)
+            self.is_connected = False
+            self.update_status()
             raise
     
     def stop(self) -> None:
         """Gracefully stop the consumer."""
         logger.info("Stopping firehose consumer...")
         self.running = False
+        self.is_connected = False
+        
+        # Update status to disconnected
+        if self.redis_client:
+            try:
+                self.update_status()
+            except:
+                pass
         
         # Stop client
         if self.client:
@@ -339,6 +443,12 @@ def main():
     """Main entry point."""
     # Configuration from environment
     relay_url = os.getenv("RELAY_URL", "wss://bsky.network")
+    
+    # Ensure relay URL includes the full path if not already present
+    if relay_url and not relay_url.endswith("/xrpc/com.atproto.sync.subscribeRepos"):
+        # Strip trailing slash if present
+        relay_url = relay_url.rstrip('/')
+    
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     stream_key = os.getenv("REDIS_STREAM_KEY", "firehose:events")
     cursor_key = os.getenv("REDIS_CURSOR_KEY", "firehose:python_cursor")
