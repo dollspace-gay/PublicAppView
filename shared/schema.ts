@@ -39,6 +39,7 @@ export const posts = pgTable("posts", {
   parentUri: varchar("parent_uri", { length: 512 }),
   rootUri: varchar("root_uri", { length: 512 }),
   embed: jsonb("embed"),
+  facets: jsonb("facets"), // Rich text facets (links, mentions, hashtags)
   violatesThreadGate: boolean("violates_thread_gate").default(false).notNull(),
   violatesEmbeddingRules: boolean("violates_embedding_rules").default(false).notNull(),
   hasThreadGate: boolean("has_thread_gate").default(false).notNull(),

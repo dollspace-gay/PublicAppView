@@ -759,13 +759,16 @@ export class XRPCApi {
       const authorLabels = state.labels.get(post.authorDid) || [];
       const hydratedEmbed = state.embeds.get(post.uri);
 
-      // Author must have a valid handle at this point
-      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
-        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
-        return null;
-      }
+      // Handle must always be a valid handle string
+      // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
+      const INVALID_HANDLE = 'handle.invalid';
+      let authorHandle = author?.handle;
       
-      const authorHandle = author.handle;
+      // Fallback to handle.invalid if handle is missing, empty, or is a DID
+      if (!authorHandle || typeof authorHandle !== 'string' || authorHandle.trim() === '' || authorHandle.startsWith('did:')) {
+        console.warn(`[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`);
+        authorHandle = INVALID_HANDLE;
+      }
 
       const record: any = {
         $type: 'app.bsky.feed.post',
@@ -855,7 +858,7 @@ export class XRPCApi {
       return postView;
     });
 
-    // Filter out null entries (posts from authors without valid handles)
+    // Filter out any null entries (e.g., from missing authors or other edge cases)
     return serializedPosts.filter(post => post !== null);
   }
 
@@ -979,14 +982,16 @@ export class XRPCApi {
       const aggregation = aggregations.get(post.uri);
       const viewerState = viewerStates.get(post.uri);
 
-      // Ensure author handle is always present and valid
-      // Author must have a valid handle at this point
-      if (!author?.handle || typeof author.handle !== 'string' || author.handle.trim() === '') {
-        console.warn(`[XRPC] Skipping post ${post.uri} - invalid author handle`);
-        return null;
-      }
+      // Handle must always be a valid handle string
+      // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
+      const INVALID_HANDLE = 'handle.invalid';
+      let authorHandle = author?.handle;
       
-      const authorHandle = author.handle;
+      // Fallback to handle.invalid if handle is missing, empty, or is a DID
+      if (!authorHandle || typeof authorHandle !== 'string' || authorHandle.trim() === '' || authorHandle.startsWith('did:')) {
+        console.warn(`[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`);
+        authorHandle = INVALID_HANDLE;
+      }
 
       let reply = undefined;
       if (post.parentUri) {
@@ -1165,7 +1170,7 @@ export class XRPCApi {
 
       const serializedPosts = await this.serializePosts(rankedPosts, userDid);
 
-      // Filter out any null entries
+      // Filter out any null entries (defensive - shouldn't happen with handle.invalid fallback)
       const validPosts = serializedPosts.filter(post => post !== null);
       
       res.json({
