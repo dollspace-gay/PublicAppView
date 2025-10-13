@@ -1,6 +1,7 @@
 import { db } from '../../db';
 import { posts, users, postAggregations } from '../../../shared/schema';
 import { eq, inArray } from 'drizzle-orm';
+import { VideoUriBuilder } from './video-uri-builder';
 
 export interface ResolvedEmbed {
   $type: string;
@@ -10,6 +11,11 @@ export interface ResolvedEmbed {
 export class EmbedResolver {
   private readonly MAX_DEPTH = 3;
   private cache = new Map<string, ResolvedEmbed | null>();
+  private videoUriBuilder: VideoUriBuilder;
+
+  constructor() {
+    this.videoUriBuilder = new VideoUriBuilder();
+  }
 
   /**
    * Resolve embeds recursively up to MAX_DEPTH levels
@@ -284,12 +290,19 @@ export class EmbedResolver {
   }
 
   private resolveVideoEmbed(embed: any, authorDid: string): ResolvedEmbed {
-    const thumbnailUrl = embed.thumbnail ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail') : '';
+    const cid = embed.video?.ref?.$link || embed.video?.ref || '';
+    
+    // Generate playlist and thumbnail URLs using VideoUriBuilder
+    const playlist = this.videoUriBuilder.playlist({ did: authorDid, cid });
+    const thumbnail = embed.thumbnail 
+      ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail')
+      : this.videoUriBuilder.thumbnail({ did: authorDid, cid });
+    
     return {
       $type: 'app.bsky.embed.video#view',
-      cid: embed.video?.ref?.$link || '',
-      playlist: undefined, // Video playlist URLs not yet implemented
-      ...(thumbnailUrl && { thumbnail: thumbnailUrl }),
+      cid,
+      playlist, // Required field - must be a valid URL
+      thumbnail,
       alt: embed.alt || '',
       aspectRatio: embed.aspectRatio
     };
