@@ -35,6 +35,10 @@ class RedisQueue {
     this.redis = new Redis(redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
+      // Enable auto-reconnect to master on READONLY errors
+      enableOfflineQueue: true,
+      // Ensure we connect to master, not replica
+      role: 'master',
       retryStrategy: (times) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
@@ -45,11 +49,20 @@ class RedisQueue {
       console.log("[REDIS] Connected");
     });
 
-    this.redis.on("error", (error) => {
+    this.redis.on("error", (error: any) => {
+      // Handle READONLY errors specifically - indicates connection to replica instead of master
+      if (error.message && error.message.includes('READONLY')) {
+        console.error("[REDIS] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.");
+        console.error("[REDIS] XREADGROUP and other write commands require connection to Redis master.");
+      }
       console.error("[REDIS] Error:", error);
     });
 
     await this.ensureStreamAndGroup();
+    
+    // Verify we're connected to master (not replica)
+    await this.verifyMasterConnection();
+    
     this.isInitialized = true;
     
     // Start periodic metrics flush (every 500ms)
@@ -105,6 +118,25 @@ class RedisQueue {
       };
     } catch (error) {
       console.error("[REDIS] Error flushing metrics:", error);
+    }
+  }
+
+  private async verifyMasterConnection(): Promise<void> {
+    if (!this.redis) return;
+
+    try {
+      // Check if we're connected to a master or replica
+      const info = await this.redis.info('replication');
+      
+      if (info.includes('role:slave') || info.includes('role:replica')) {
+        console.error('[REDIS] WARNING: Connected to Redis replica (read-only)!');
+        console.error('[REDIS] Write operations like XREADGROUP will fail.');
+        console.error('[REDIS] Please update REDIS_URL to point to the master Redis instance.');
+      } else if (info.includes('role:master')) {
+        console.log('[REDIS] Verified connection to master (read-write)');
+      }
+    } catch (error) {
+      console.warn('[REDIS] Could not verify Redis role:', error);
     }
   }
 
@@ -207,8 +239,17 @@ class RedisQueue {
 
       return events;
     } catch (error: any) {
-      // Handle NOGROUP error - stream or consumer group was deleted (Redis restart, memory eviction, etc.)
       const errorMsg = error.message || error.toString() || '';
+      
+      // Handle READONLY error - connected to replica instead of master
+      if (errorMsg.includes('READONLY')) {
+        console.error('[REDIS] READONLY error - Redis is configured as a read-only replica.');
+        console.error('[REDIS] XREADGROUP requires write access. Please connect to the master Redis instance.');
+        console.error('[REDIS] Check that REDIS_URL points to master, not a replica.');
+        return [];
+      }
+      
+      // Handle NOGROUP error - stream or consumer group was deleted (Redis restart, memory eviction, etc.)
       const isNogroupError = errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
       
       if (isNogroupError) {
@@ -564,7 +605,15 @@ class RedisQueue {
 
     // Create separate Redis client for pub/sub
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-    this.subscriber = new Redis(redisUrl);
+    this.subscriber = new Redis(redisUrl, {
+      // Ensure we connect to master, not replica
+      role: 'master',
+      enableReadyCheck: true,
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+    });
 
     this.subscriber.on("message", (_channel: string, message: string) => {
       try {

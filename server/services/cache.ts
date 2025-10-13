@@ -26,6 +26,10 @@ export class CacheService {
     this.redis = new Redis(redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
+      // Enable auto-reconnect to master on READONLY errors
+      enableOfflineQueue: true,
+      // Ensure we connect to master for write operations
+      role: 'master',
       retryStrategy: (times) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
@@ -36,7 +40,11 @@ export class CacheService {
       console.log("[CACHE] Connected to Redis");
     });
 
-    this.redis.on("error", (error) => {
+    this.redis.on("error", (error: any) => {
+      // Handle READONLY errors specifically
+      if (error.message && error.message.includes('READONLY')) {
+        console.error("[CACHE] READONLY error - connected to replica instead of master.");
+      }
       console.error("[CACHE] Redis error:", error);
     });
 

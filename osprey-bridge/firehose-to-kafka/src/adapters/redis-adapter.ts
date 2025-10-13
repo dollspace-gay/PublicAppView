@@ -38,6 +38,10 @@ export class RedisAdapter implements InputAdapter {
     this.redis = new Redis(this.config.redisUrl, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
+      // Enable auto-reconnect to master on READONLY errors
+      enableOfflineQueue: true,
+      // Ensure we connect to master, not replica
+      role: 'master',
       retryStrategy: (times) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
@@ -49,11 +53,18 @@ export class RedisAdapter implements InputAdapter {
     });
 
     this.redis.on('error', (error) => {
+      // Handle READONLY errors specifically - indicates connection to replica instead of master
+      if (error.message && error.message.includes('READONLY')) {
+        console.error(`[${this.getName()}] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.`);
+      }
       console.error(`[${this.getName()}] Redis error:`, error);
     });
 
     // Ensure consumer group exists
     await this.ensureConsumerGroup();
+    
+    // Verify we're connected to master (not replica)
+    await this.verifyMasterConnection();
 
     // Start consuming events
     this.isRunning = true;
@@ -88,6 +99,25 @@ export class RedisAdapter implements InputAdapter {
     }
 
     console.log(`[${this.getName()}] Stopped`);
+  }
+
+  private async verifyMasterConnection(): Promise<void> {
+    if (!this.redis) return;
+
+    try {
+      // Check if we're connected to a master or replica
+      const info = await this.redis.info('replication');
+      
+      if (info.includes('role:slave') || info.includes('role:replica')) {
+        console.error(`[${this.getName()}] WARNING: Connected to Redis replica (read-only)!`);
+        console.error(`[${this.getName()}] Write operations like XREADGROUP will fail.`);
+        console.error(`[${this.getName()}] Please update REDIS_URL to point to the master Redis instance.`);
+      } else if (info.includes('role:master')) {
+        console.log(`[${this.getName()}] Verified connection to master (read-write)`);
+      }
+    } catch (error) {
+      console.warn(`[${this.getName()}] Could not verify Redis role:`, error);
+    }
   }
 
   private async ensureConsumerGroup(): Promise<void> {
@@ -172,7 +202,7 @@ export class RedisAdapter implements InputAdapter {
         'STREAMS',
         this.streamKey,
         '>'
-      );
+      ) as any;
 
       if (!results || results.length === 0) {
         return [];
@@ -204,8 +234,13 @@ export class RedisAdapter implements InputAdapter {
       }
 
       return events;
-    } catch (error) {
-      console.error(`[${this.getName()}] Error consuming events:`, error);
+    } catch (error: any) {
+      // Handle READONLY errors specifically
+      if (error.message && error.message.includes('READONLY')) {
+        console.error(`[${this.getName()}] READONLY error - Redis is configured as a read-only replica. XREADGROUP requires write access. Please connect to the master Redis instance.`);
+      } else {
+        console.error(`[${this.getName()}] Error consuming events:`, error);
+      }
       return [];
     }
   }

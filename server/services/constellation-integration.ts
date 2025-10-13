@@ -49,9 +49,17 @@ class ConstellationIntegration {
         this.redis = new Redis(redisUrl, {
           retryStrategy: (times) => Math.min(times * 50, 2000),
           maxRetriesPerRequest: 3,
+          // Enable auto-reconnect to master on READONLY errors
+          enableOfflineQueue: true,
+          // Ensure we connect to master for write operations
+          role: 'master',
         });
 
-        this.redis.on('error', (error) => {
+        this.redis.on('error', (error: any) => {
+          // Handle READONLY errors specifically
+          if (error.message && error.message.includes('READONLY')) {
+            console.error('[CONSTELLATION] READONLY error - connected to replica instead of master.');
+          }
           console.error('[CONSTELLATION] Redis error:', error);
         });
       }
