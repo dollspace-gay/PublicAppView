@@ -1042,7 +1042,7 @@ export class EventProcessor {
             reasonSubject: uri,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
         }
       } catch (error) {
@@ -1073,7 +1073,7 @@ export class EventProcessor {
             reasonSubject: uri,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
           processedMentions.add(handle);
         }
@@ -1119,7 +1119,7 @@ export class EventProcessor {
             reasonSubject: uri,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
         }
       }
@@ -1187,7 +1187,7 @@ export class EventProcessor {
             reasonSubject: postUri,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
           smartConsole.error(`[NOTIFICATION] Error creating like notification:`, error);
@@ -1265,7 +1265,7 @@ export class EventProcessor {
             reasonSubject: postUri,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
           smartConsole.error(`[NOTIFICATION] Error creating repost notification:`, error);
@@ -1402,7 +1402,7 @@ export class EventProcessor {
             reasonSubject: undefined,
             cid: cid,
             isRead: false,
-            createdAt: new Date(record.createdAt),
+            createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
           smartConsole.error(`[NOTIFICATION] Error creating follow notification:`, error);
