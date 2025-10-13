@@ -8,6 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Shield, LogIn } from "lucide-react";
 import { api } from "@/lib/api";
 
+// Sanitize user input to prevent XSS attacks
+function sanitizeText(text: string): string {
+  return text
+    .replace(/[<>\"']/g, '') // Remove potentially dangerous characters
+    .substring(0, 500); // Limit length to prevent abuse
+}
+
 export default function LoginPage() {
   const { toast } = useToast();
   const [loginHandle, setLoginHandle] = useState("");
@@ -21,7 +28,7 @@ export default function LoginPage() {
     if (error) {
       toast({
         title: "Authentication Failed",
-        description: decodeURIComponent(error),
+        description: sanitizeText(decodeURIComponent(error)),
         variant: "destructive",
       });
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -48,12 +55,31 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: (data: { handle: string }) => api.post<{ authUrl: string }>("/api/auth/login", data),
     onSuccess: (data) => {
-      window.location.href = data.authUrl;
+      // Validate authUrl before redirecting to prevent open redirect attacks
+      try {
+        const url = new URL(data.authUrl);
+        // Only allow HTTPS URLs and known AT Protocol domains
+        if (url.protocol === 'https:') {
+          window.location.href = data.authUrl;
+        } else {
+          toast({
+            title: "Login Failed",
+            description: "Invalid authentication URL received",
+            variant: "destructive",
+          });
+        }
+      } catch {
+        toast({
+          title: "Login Failed",
+          description: "Invalid authentication URL format",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
         title: "Login Failed",
-        description: error.message || "Failed to initiate login",
+        description: sanitizeText(error.message || "Failed to initiate login"),
         variant: "destructive",
       });
     },
