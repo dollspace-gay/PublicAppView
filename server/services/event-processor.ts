@@ -1692,9 +1692,22 @@ export class EventProcessor {
         }
         break;
       case "app.bsky.graph.follow":
-        const follow = await this.storage.getFollow(uri);
-        if (follow) {
-          await this.storage.deleteFollow(uri, follow.followerDid);
+        try {
+          const follow = await this.storage.getFollow(uri);
+          if (follow) {
+            await this.storage.deleteFollow(uri, follow.followerDid);
+          }
+        } catch (error: any) {
+          // Fallback: extract followerDid from URI (at://did/collection/rkey)
+          const uriParts = uri.replace('at://', '').split('/');
+          if (uriParts.length >= 1) {
+            const followerDid = uriParts[0];
+            try {
+              await this.storage.deleteFollow(uri, followerDid);
+            } catch (deleteError: any) {
+              smartConsole.error(`[EVENT_PROCESSOR] Error deleting follow ${uri}:`, deleteError);
+            }
+          }
         }
         break;
       case "app.bsky.graph.block":
