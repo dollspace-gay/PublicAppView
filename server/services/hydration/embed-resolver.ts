@@ -329,22 +329,8 @@ export class EmbedResolver {
     // Check for the string "undefined" which can happen with improper data extraction
     if (!cid || cid === 'undefined') return '';
     
-    // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
-    // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
-    // PUBLIC_URL is our publicUrl (base URL of the application)
-    // Fallback to Bluesky CDN (https://cdn.bsky.app/img) if no custom endpoint is configured
-    const endpoint = process.env.IMG_URI_ENDPOINT || 
-                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
-                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
-                     'https://cdn.bsky.app/img';
-    
-    if (!endpoint) {
-      console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return '';
-    }
-    
-    return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
+    // Always use Bluesky CDN for image hosting
+    return `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@jpeg`;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL
@@ -352,18 +338,8 @@ export class EmbedResolver {
     // Check for falsy values and the literal string "undefined"
     if (!cid || cid === 'undefined') return '';
     
-    const endpoint = process.env.IMG_URI_ENDPOINT || 
-                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
-                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
-                     'https://cdn.bsky.app/img';
-    
-    if (!endpoint) {
-      console.error('[EMBED_RESOLVER] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return '';
-    }
-    
-    return `${endpoint}/${preset}/plain/${did}/${cid}@jpeg`;
+    // Always use Bluesky CDN for image hosting
+    return `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@jpeg`;
   }
 
   /**

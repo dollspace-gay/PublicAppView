@@ -56,16 +56,9 @@ export class PDSDataFetcher {
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
     if (!blobCid || blobCid === 'undefined') return undefined;
     
-    const endpoint = process.env.IMG_URI_ENDPOINT || 
-                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
-                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null) ||
-                     'https://cdn.bsky.app/img';
-    
-    if (!endpoint) return undefined;
-    
+    // Always use Bluesky CDN for image hosting
     const sizeStr = format === 'avatar' || format === 'banner' ? 'plain' : 'fullsize';
-    return `${endpoint}/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
+    return `https://cdn.bsky.app/img/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
   }
 
   constructor() {
