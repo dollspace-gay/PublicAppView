@@ -134,6 +134,10 @@ class FirehoseConsumer:
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
+        # First thing - print to confirm handler is called
+        print(f"HANDLER CALLED! Message type: {type(message)}", flush=True)
+        logger.info(f"🔥 HANDLER CALLED! Message type: {type(message)}")
+        
         try:
             logger.debug(f"Received message")
             
@@ -230,14 +234,18 @@ class FirehoseConsumer:
             params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=self.current_cursor)
             logger.info(f"Resuming from cursor: {self.current_cursor}")
         
-        logger.info(f"Connecting to firehose at {self.relay_url}...")
-        self.client = FirehoseSubscribeReposClient(params, base_uri=self.relay_url)
+        logger.info(f"Connecting to firehose...")
+        self.client = FirehoseSubscribeReposClient(params)
         
-        logger.info("Connected to firehose successfully")
+        logger.info("Firehose client created")
         logger.info("Starting to listen for events...")
         
         # Start the client (this blocks until stopped)
-        self.client.start(self.on_message_handler)
+        try:
+            self.client.start(self.on_message_handler)
+        except Exception as e:
+            logger.error(f"Error in client.start(): {e}", exc_info=True)
+            raise
     
     def stop(self) -> None:
         """Gracefully stop the consumer."""
