@@ -156,19 +156,7 @@ class FirehoseConsumer:
         """Handle incoming WebSocket message from firehose."""
         try:
             # Import atproto library for message parsing
-            # Based on: https://gist.github.com/stuartlangridge/20ffe860fee0ecc315d3878c1ea77c35
-            from atproto import parse_subscribe_repos_message, models, CAR
-            
-            # Try different import paths for get_or_create (API changed between versions)
-            try:
-                from atproto.xrpc_client.models.utils import get_or_create
-            except (ImportError, ModuleNotFoundError):
-                try:
-                    from atproto_client.models.utils import get_or_create
-                except (ImportError, ModuleNotFoundError):
-                    # Fallback: define our own simple decoder
-                    def get_or_create(raw_record, strict=False):
-                        return raw_record
+            from atproto import parse_subscribe_repos_message, models
             
             try:
                 # Parse the binary message using atproto SDK
@@ -179,11 +167,9 @@ class FirehoseConsumer:
                     seq = commit.seq
                     await self.save_cursor(seq)
                     
-                    # Parse CAR (Content Addressable aRchive) from commit blocks
-                    # This contains the actual record data
-                    car = CAR.from_bytes(commit.blocks)
-                    
                     # Parse the commit operations
+                    # Note: We're not extracting full record data to avoid complexity
+                    # TypeScript workers will fetch full records from PDS if needed
                     data = {
                         "repo": commit.repo,
                         "ops": [],
@@ -196,45 +182,9 @@ class FirehoseConsumer:
                             "path": op.path,
                         }
                         
-                        # For creates/updates, extract the actual record from CAR blocks
-                        if op.action in ["create", "update"] and op.cid:
+                        # Include CID for reference
+                        if hasattr(op, 'cid') and op.cid:
                             op_data["cid"] = str(op.cid)
-                            
-                            try:
-                                # Get raw CBOR bytes from CAR blocks
-                                raw_bytes = car.blocks.get(op.cid)
-                                if raw_bytes:
-                                    try:
-                                        # Decode CBOR bytes to get the actual record
-                                        # get_or_create expects already-decoded data, not bytes
-                                        # So we need to decode the CBOR first
-                                        from atproto.cbor import decode_dag
-                                        decoded_record = decode_dag(raw_bytes)
-                                        
-                                        # Now try to convert to a proper model using get_or_create
-                                        try:
-                                            record = get_or_create(decoded_record, strict=False)
-                                            
-                                            # Convert record to dict for JSON serialization
-                                            if hasattr(record, 'model_dump'):
-                                                op_data["record"] = record.model_dump()
-                                            elif hasattr(record, 'dict'):
-                                                op_data["record"] = record.dict()
-                                            elif hasattr(record, '__dict__'):
-                                                op_data["record"] = record.__dict__
-                                            else:
-                                                # Record is already a dict
-                                                op_data["record"] = record if isinstance(record, dict) else decoded_record
-                                        except:
-                                            # get_or_create failed, use decoded dict directly
-                                            op_data["record"] = decoded_record
-                                            
-                                    except Exception as decode_err:
-                                        # CBOR decode failed - skip record data
-                                        logger.debug(f"Could not decode CBOR for {op.path}: {decode_err}")
-                            except Exception as e:
-                                # If record parsing fails, log but continue with just metadata
-                                logger.debug(f"Could not parse record for {op.path}: {e}")
                         
                         data["ops"].append(op_data)
                     
