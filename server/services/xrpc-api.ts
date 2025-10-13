@@ -886,6 +886,39 @@ export class XRPCApi {
       storage.getThreadContexts(postUris),
     ]);
 
+    // Check for missing authors (posts exist but authors don't)
+    if (authors.length !== authorDids.length) {
+      const foundDids = new Set(authors.map(a => a.did));
+      const missingDids = authorDids.filter(did => !foundDids.has(did));
+      console.warn(`[XRPC] serializePosts: ${missingDids.length} authors missing from database:`, missingDids);
+      
+      // Try to fetch missing authors on-demand
+      console.log(`[XRPC] Attempting to fetch ${missingDids.length} missing authors...`);
+      const fetchPromises = missingDids.map(did => 
+        lazyDataLoader.ensureUserProfile(did).catch(err => {
+          console.error(`[XRPC] Failed to fetch profile for ${did}:`, err);
+        })
+      );
+      
+      // Wait for all fetches to complete (with timeout)
+      await Promise.race([
+        Promise.all(fetchPromises),
+        new Promise(resolve => setTimeout(resolve, 5000)) // 5 second timeout
+      ]);
+      
+      // Re-fetch authors after lazy loading
+      const refetchedAuthors = await storage.getUsers(missingDids);
+      authors.push(...refetchedAuthors);
+      console.log(`[XRPC] Successfully fetched ${refetchedAuthors.length}/${missingDids.length} missing authors`);
+      
+      if (refetchedAuthors.length < missingDids.length) {
+        const stillMissingDids = missingDids.filter(did => 
+          !refetchedAuthors.some(a => a.did === did)
+        );
+        console.warn(`[XRPC] Still missing ${stillMissingDids.length} authors after lazy load:`, stillMissingDids);
+      }
+    }
+
     // Fetch counts for each author
     const authorCounts = new Map<string, { lists: number; feedgens: number; starterPacks: number; isLabeler: boolean }>();
     await Promise.all(authorDids.map(async (authorDid) => {
@@ -1073,7 +1106,7 @@ export class XRPCApi {
           pinned: viewerState.pinned || false,
         } : {},
       };
-    });
+    }).filter(post => post !== null);
   }
 
   async getTimeline(req: Request, res: Response) {
@@ -3877,17 +3910,28 @@ export class XRPCApi {
 
       const postUris = likes.map((like) => like.postUri);
       const posts = await storage.getPosts(postUris);
+      
+      // Log if there's a mismatch between liked posts and fetched posts
+      if (posts.length !== postUris.length) {
+        console.warn(`[XRPC] getActorLikes: Expected ${postUris.length} posts, but only found ${posts.length}`);
+        const foundUris = new Set(posts.map(p => p.uri));
+        const missingUris = postUris.filter(uri => !foundUris.has(uri));
+        console.warn(`[XRPC] Missing posts:`, missingUris);
+      }
+      
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
       );
 
-      // Filter out any null entries
-      const validPosts = serializedPosts.filter(post => post !== null);
+      // Log if posts were filtered out during serialization (e.g., due to invalid handles)
+      if (serializedPosts.length !== posts.length) {
+        console.warn(`[XRPC] getActorLikes: ${posts.length - serializedPosts.length} posts filtered out during serialization`);
+      }
 
       res.json({
         cursor,
-        feed: validPosts.map((post) => ({ post })),
+        feed: serializedPosts.map((post) => ({ post })),
       });
     } catch (error) {
       this._handleError(res, error, 'getActorLikes');
