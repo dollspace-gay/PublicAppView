@@ -5,6 +5,7 @@ import { didResolver } from "./did-resolver";
 import { pdsDataFetcher } from "./pds-data-fetcher";
 import { smartConsole } from "./console-wrapper";
 import { logAggregator } from "./log-aggregator";
+import { sanitizeObject } from "../utils/sanitize";
 import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
 import { CID } from 'multiformats/cid';
 import * as Digest from 'multiformats/hashes/digest';
