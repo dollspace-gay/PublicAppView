@@ -61,6 +61,7 @@ class FirehoseConsumer:
         self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
         self.current_cursor: Optional[int] = None
+        self.loop = None  # Store reference to main event loop
         
         # Metrics
         self.event_count = 0
@@ -139,8 +140,9 @@ class FirehoseConsumer:
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message (sync version for client)."""
-        # Run async handler in the event loop
-        asyncio.create_task(self.handle_message(message))
+        # Schedule async handler in the main event loop
+        if self.loop:
+            asyncio.run_coroutine_threadsafe(self.handle_message(message), self.loop)
     
     async def handle_message(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
@@ -228,6 +230,9 @@ class FirehoseConsumer:
     async def run(self) -> None:
         """Main run loop."""
         self.running = True
+        
+        # Store reference to the current event loop
+        self.loop = asyncio.get_running_loop()
         
         # Connect to Redis
         await self.connect_redis()
