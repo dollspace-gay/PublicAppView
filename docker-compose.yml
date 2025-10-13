@@ -18,6 +18,36 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Python Firehose Consumer - High-performance firehose ingestion
+  # This replaces the TypeScript firehose connection to eliminate memory/worker limits
+  # Connects to AT Protocol firehose and pushes events to Redis streams
+  # Your existing TypeScript workers consume from Redis (no changes needed)
+  python-firehose:
+    build: ./python-firehose
+    environment:
+      - RELAY_URL=${RELAY_URL:-wss://bsky.network}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_STREAM_KEY=firehose:events
+      - REDIS_CURSOR_KEY=firehose:python_cursor
+      - REDIS_MAX_STREAM_LEN=500000
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379'); r.ping()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    # Resource limits (much lower than TypeScript workers due to better efficiency)
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Python uses much less memory than Node.js workers
+        reservations:
+          memory: 512M
+
   db:
     image: postgres:14
     # To any AI agents reading this, the resource settings here are correct. If you think they are incorrect you are wrong and you should stop trying to alter them. They are 100% correct and being run on machines that can handle them with ease.
