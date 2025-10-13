@@ -3,35 +3,46 @@
 High-performance AT Protocol Firehose Consumer (Python)
 
 This script connects to the AT Protocol firehose and pushes events to Redis streams.
-It replaces the TypeScript firehose connection to eliminate memory/worker limitations.
-
-Key advantages over TypeScript:
-- True async I/O with asyncio (no event loop blocking)
-- Better memory management (no V8 heap limits)
-- No need for worker processes - single process handles full firehose throughput
-- Native multithreading for Redis operations
-
-The existing TypeScript workers continue to consume from Redis unchanged.
+Based on official atproto examples - uses synchronous approach for simplicity.
 """
 
-import asyncio
 import json
 import logging
 import os
 import signal
 import sys
 import time
-from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
-import websockets
-import redis.asyncio as aioredis
-from websockets.client import WebSocketClientProtocol
-from websockets.exceptions import WebSocketException
+import redis
+from atproto import (
+    CAR,
+    FirehoseSubscribeReposClient,
+    firehose_models,
+    models,
+    parse_subscribe_repos_message,
+)
+
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """JSON encoder that handles bytes, CIDs, and other non-serializable objects."""
+    def default(self, obj):
+        # Handle bytes objects
+        if isinstance(obj, bytes):
+            return obj.hex()  # Convert bytes to hex string
+        # Handle CID objects (they have a string representation)
+        if hasattr(obj, '__str__') and not isinstance(obj, (dict, list, tuple)):
+            return str(obj)
+        # Fallback to default behavior
+        try:
+            return super().default(obj)
+        except TypeError:
+            return repr(obj)
 
 # Configure logging
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format='[%(asctime)s] [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -40,10 +51,8 @@ logger = logging.getLogger(__name__)
 
 class FirehoseConsumer:
     """
-    Asynchronous AT Protocol firehose consumer that pushes to Redis streams.
-    
-    This is a drop-in replacement for the TypeScript firehose connection,
-    designed to eliminate worker overhead and memory limitations.
+    Synchronous AT Protocol firehose consumer that pushes to Redis streams.
+    Uses sync Redis client for simplicity (no async/sync bridge issues).
     """
     
     def __init__(
@@ -60,8 +69,8 @@ class FirehoseConsumer:
         self.cursor_key = cursor_key
         self.max_stream_len = max_stream_len
         
-        self.redis: Optional[aioredis.Redis] = None
-        self.websocket: Optional[WebSocketClientProtocol] = None
+        self.redis_client: Optional[redis.Redis] = None
+        self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
         self.current_cursor: Optional[int] = None
         
@@ -74,39 +83,29 @@ class FirehoseConsumer:
         self.last_cursor_save = 0
         self.cursor_save_interval = 5  # seconds
         
-        # Reconnection
-        self.reconnect_delay = 1
-        self.max_reconnect_delay = 30
-        
-    async def connect_redis(self) -> None:
-        """Connect to Redis and ensure stream is set up."""
+    def connect_redis(self) -> None:
+        """Connect to Redis."""
         logger.info(f"Connecting to Redis at {self.redis_url}...")
         
-        self.redis = await aioredis.from_url(
+        self.redis_client = redis.from_url(
             self.redis_url,
-            encoding="utf-8",
             decode_responses=True,
             socket_keepalive=True,
-            socket_keepalive_options={
-                1: 1,  # TCP_KEEPIDLE
-                2: 1,  # TCP_KEEPINTVL
-                3: 3,  # TCP_KEEPCNT
-            }
         )
         
         # Verify connection
-        await self.redis.ping()
+        self.redis_client.ping()
         logger.info("Connected to Redis successfully")
         
         # Load saved cursor
-        saved_cursor = await self.redis.get(self.cursor_key)
+        saved_cursor = self.redis_client.get(self.cursor_key)
         if saved_cursor:
             self.current_cursor = int(saved_cursor)
             logger.info(f"Loaded saved cursor: {self.current_cursor}")
         else:
             logger.info("No saved cursor found, starting from current position")
     
-    async def save_cursor(self, cursor: int) -> None:
+    def save_cursor(self, cursor: int) -> None:
         """Save cursor to Redis for restart recovery."""
         self.current_cursor = cursor
         
@@ -115,25 +114,20 @@ class FirehoseConsumer:
         if now - self.last_cursor_save > self.cursor_save_interval:
             self.last_cursor_save = now
             try:
-                await self.redis.set(self.cursor_key, str(cursor))
+                self.redis_client.set(self.cursor_key, str(cursor))
             except Exception as e:
                 logger.error(f"Error saving cursor: {e}")
     
-    async def push_to_redis(self, event_type: str, data: Dict[str, Any], seq: Optional[int] = None) -> None:
-        """
-        Push event to Redis stream.
-        
-        Uses the same format as the TypeScript firehose service so existing
-        TypeScript consumers don't need any changes.
-        """
+    def push_to_redis(self, event_type: str, data: dict, seq: Optional[int] = None) -> None:
+        """Push event to Redis stream."""
         try:
             # Use XADD with MAXLEN to prevent infinite stream growth
-            # The ~ makes it approximate trimming (more efficient)
-            await self.redis.xadd(
+            # Use SafeJSONEncoder to handle bytes and CIDs
+            self.redis_client.xadd(
                 self.stream_key,
                 {
                     "type": event_type,
-                    "data": json.dumps(data),
+                    "data": json.dumps(data, cls=SafeJSONEncoder),
                     "seq": str(seq) if seq else "",
                 },
                 maxlen=self.max_stream_len,
@@ -155,206 +149,140 @@ class FirehoseConsumer:
             logger.error(f"Error pushing to Redis: {e}")
             raise
     
-    def parse_car_message(self, data: bytes) -> Optional[Dict[str, Any]]:
-        """
-        Parse CAR (Content Addressable aRchive) message from firehose.
+    def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
+        """Handle incoming firehose message."""
+        # Handler is being called - remove debug prints
+        logger.debug(f"Handler called")
         
-        Note: This is a simplified parser. For production use, you might want
-        to use a proper CAR/DAG-CBOR library like 'dag-cbor' or 'ipld'.
-        
-        For now, we'll extract basic info from the WebSocket frames.
-        """
         try:
-            # The AT Protocol firehose sends messages in a specific format
-            # For simplicity, we'll parse the JSON parts
-            # In production, you'd use proper CAR/CBOR parsing
+            logger.debug(f"Received message")
             
-            # Messages come as {"op":1,"t":"#commit",...} or similar
-            # The websocket library gives us the raw bytes
+            commit = parse_subscribe_repos_message(message)
+            logger.debug(f"Parsed: {type(commit).__name__}")
             
-            # Try to decode as JSON first (for identity/account updates)
-            try:
-                return json.loads(data.decode('utf-8'))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                # This is likely a binary CAR message (commits)
-                # For now, we'll skip detailed parsing and focus on the header
-                # A full implementation would use dag-cbor library
-                logger.debug("Received binary CAR message (commits)")
-                return None
+            # Handle Commit messages (posts, likes, follows, etc.)
+            if isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Commit):
+                seq = commit.seq
+                self.save_cursor(seq)
                 
-        except Exception as e:
-            logger.error(f"Error parsing message: {e}")
-            return None
-    
-    async def handle_websocket_message(self, message: bytes) -> None:
-        """Handle incoming WebSocket message from firehose."""
-        try:
-            # AT Protocol firehose sends CBOR-encoded messages
-            # We need to decode them properly
-            # For this implementation, we'll use the atproto library
-            
-            # Parse the message (simplified - see note in parse_car_message)
-            parsed = self.parse_car_message(message)
-            
-            if not parsed:
-                # Most messages will be here (binary CAR commits)
-                # We'd need a proper CAR parser, but for now we'll use atproto library
-                # Let's import it dynamically
-                try:
-                    from atproto import parse_subscribe_repos_message, models
+                # Parse the commit operations
+                data = {
+                    "repo": commit.repo,
+                    "ops": [],
+                }
+                
+                # Parse CAR blocks if available
+                car = None
+                if commit.blocks:
+                    try:
+                        car = CAR.from_bytes(commit.blocks)
+                    except Exception as e:
+                        logger.debug(f"Could not parse CAR: {e}")
+                
+                # Process operations
+                for op in commit.ops:
+                    op_data = {
+                        "action": op.action,
+                        "path": op.path,
+                    }
                     
-                    msg = parse_subscribe_repos_message(message)
-                    
-                    if isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Commit):
-                        # Extract commit data
-                        seq = msg.seq
-                        await self.save_cursor(seq)
+                    # Include CID
+                    if hasattr(op, 'cid') and op.cid:
+                        op_data["cid"] = str(op.cid)
                         
-                        # Parse the commit operations
-                        data = {
-                            "repo": msg.repo,
-                            "ops": [],
-                        }
-                        
-                        # Process operations (creates, updates, deletes)
-                        if msg.blocks:
-                            # Parse blocks to extract operations
-                            # This requires CAR parsing which atproto handles
+                        # Try to extract record data
+                        if car and op.action in ["create", "update"]:
                             try:
-                                for op in msg.ops:
-                                    op_data = {
-                                        "action": op.action,
-                                        "path": op.path,
-                                    }
-                                    if op.cid:
-                                        op_data["cid"] = str(op.cid)
-                                    # Record would need to be extracted from blocks
-                                    data["ops"].append(op_data)
+                                record_bytes = car.blocks.get(op.cid)
+                                if record_bytes:
+                                    record = models.get_or_create(record_bytes, strict=False)
+                                    if record:
+                                        if hasattr(record, 'model_dump'):
+                                            op_data["record"] = record.model_dump()
+                                        elif hasattr(record, 'dict'):
+                                            op_data["record"] = record.dict()
                             except Exception as e:
-                                logger.debug(f"Error parsing ops: {e}")
-                        
-                        await self.push_to_redis("commit", data, seq)
+                                logger.debug(f"Could not extract record: {e}")
                     
-                    elif isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Identity):
-                        # Identity update (handle change)
-                        data = {
-                            "did": msg.did,
-                            "handle": msg.handle,
-                        }
-                        await self.push_to_redis("identity", data, msg.seq)
-                        if msg.seq:
-                            await self.save_cursor(msg.seq)
-                    
-                    elif isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Account):
-                        # Account update (active/inactive)
-                        data = {
-                            "did": msg.did,
-                            "active": msg.active,
-                        }
-                        await self.push_to_redis("account", data, msg.seq)
-                        if msg.seq:
-                            await self.save_cursor(msg.seq)
-                    
-                    self.last_event_time = time.time()
-                    
-                except ImportError:
-                    logger.error(
-                        "atproto library not installed. "
-                        "Install with: pip install atproto"
-                    )
-                    raise
-                except Exception as e:
-                    logger.error(f"Error parsing atproto message: {e}")
+                    data["ops"].append(op_data)
+                
+                logger.debug(f"Pushing commit with {len(data['ops'])} ops")
+                self.push_to_redis("commit", data, seq)
+                self.last_event_time = time.time()
+            
+            # Handle Identity messages
+            elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
+                data = {
+                    "did": commit.did,
+                    "handle": getattr(commit, 'handle', commit.did),
+                }
+                seq = getattr(commit, 'seq', None)
+                self.push_to_redis("identity", data, seq)
+                if seq:
+                    self.save_cursor(seq)
+                self.last_event_time = time.time()
+            
+            # Handle Account messages
+            elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Account):
+                data = {
+                    "did": commit.did,
+                    "active": getattr(commit, 'active', True),
+                }
+                seq = getattr(commit, 'seq', None)
+                self.push_to_redis("account", data, seq)
+                if seq:
+                    self.save_cursor(seq)
+                self.last_event_time = time.time()
             
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            logger.error(f"Error handling message: {e}", exc_info=True)
     
-    async def connect_websocket(self) -> None:
-        """Connect to AT Protocol firehose WebSocket."""
-        # Build WebSocket URL
-        ws_url = f"{self.relay_url}/xrpc/com.atproto.sync.subscribeRepos"
-        
-        # Add cursor parameter if resuming
-        if self.current_cursor:
-            ws_url += f"?cursor={self.current_cursor}"
-            logger.info(f"Resuming from cursor: {self.current_cursor}")
-        
-        logger.info(f"Connecting to firehose at {ws_url}...")
-        
-        try:
-            async with websockets.connect(
-                ws_url,
-                ping_interval=30,  # Send ping every 30s to keep connection alive
-                ping_timeout=45,   # Expect pong within 45s
-                max_size=10 * 1024 * 1024,  # 10MB max message size
-                compression=None,  # Disable compression for lower latency
-            ) as websocket:
-                self.websocket = websocket
-                logger.info("Connected to firehose successfully")
-                
-                # Reset reconnect delay on successful connection
-                self.reconnect_delay = 1
-                
-                # Receive and process messages
-                async for message in websocket:
-                    if not self.running:
-                        break
-                    
-                    if isinstance(message, bytes):
-                        await self.handle_websocket_message(message)
-                    else:
-                        logger.warning(f"Received unexpected text message: {message[:100]}")
-                        
-        except WebSocketException as e:
-            logger.error(f"WebSocket error: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            raise
-    
-    async def run(self) -> None:
-        """Main run loop with automatic reconnection."""
+    def run(self) -> None:
+        """Main run loop."""
         self.running = True
         
         # Connect to Redis
-        await self.connect_redis()
+        self.connect_redis()
         
-        # Main loop with reconnection logic
-        while self.running:
-            try:
-                await self.connect_websocket()
-            except Exception as e:
-                if not self.running:
-                    break
-                
-                logger.error(f"Connection lost: {e}")
-                logger.info(f"Reconnecting in {self.reconnect_delay}s...")
-                
-                await asyncio.sleep(self.reconnect_delay)
-                
-                # Exponential backoff
-                self.reconnect_delay = min(
-                    self.reconnect_delay * 2,
-                    self.max_reconnect_delay
-                )
+        # Create firehose client
+        params = None
+        if self.current_cursor:
+            params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=self.current_cursor)
+            logger.info(f"Resuming from cursor: {self.current_cursor}")
+        
+        logger.info(f"Connecting to firehose...")
+        self.client = FirehoseSubscribeReposClient(params)
+        
+        logger.info("Firehose client created")
+        logger.info("Starting to listen for events...")
+        
+        # Start the client (this blocks until stopped)
+        try:
+            self.client.start(self.on_message_handler)
+        except Exception as e:
+            logger.error(f"Error in client.start(): {e}", exc_info=True)
+            raise
     
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Gracefully stop the consumer."""
         logger.info("Stopping firehose consumer...")
         self.running = False
         
-        # Close WebSocket
-        if self.websocket:
-            await self.websocket.close()
+        # Stop client
+        if self.client:
+            try:
+                self.client.stop()
+            except:
+                pass
         
         # Save final cursor
-        if self.current_cursor and self.redis:
-            await self.redis.set(self.cursor_key, str(self.current_cursor))
+        if self.current_cursor and self.redis_client:
+            self.redis_client.set(self.cursor_key, str(self.current_cursor))
             logger.info(f"Saved final cursor: {self.current_cursor}")
         
         # Close Redis
-        if self.redis:
-            await self.redis.close()
+        if self.redis_client:
+            self.redis_client.close()
         
         # Log final stats
         elapsed = time.time() - self.start_time
@@ -365,7 +293,7 @@ class FirehoseConsumer:
         )
 
 
-async def main():
+def main():
     """Main entry point."""
     # Configuration from environment
     relay_url = os.getenv("RELAY_URL", "wss://bsky.network")
@@ -394,23 +322,25 @@ async def main():
     )
     
     # Handle signals for graceful shutdown
-    loop = asyncio.get_event_loop()
-    
     def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        asyncio.create_task(consumer.stop())
+        logger.info(f"Received signal {signum}, shutting down...")
+        consumer.stop()
+        sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Run consumer
     try:
-        await consumer.run()
+        consumer.run()
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
-    finally:
-        await consumer.stop()
+        consumer.stop()
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        consumer.stop()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

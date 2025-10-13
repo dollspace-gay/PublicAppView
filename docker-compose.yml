@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -30,6 +28,7 @@ services:
       - REDIS_STREAM_KEY=firehose:events
       - REDIS_CURSOR_KEY=firehose:python_cursor
       - REDIS_MAX_STREAM_LEN=500000
+      - LOG_LEVEL=DEBUG  # Enable debug logging temporarily
     depends_on:
       redis:
         condition: service_healthy
