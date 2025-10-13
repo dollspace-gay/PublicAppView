@@ -3,22 +3,18 @@
 High-performance AT Protocol Firehose Consumer (Python)
 
 This script connects to the AT Protocol firehose and pushes events to Redis streams.
-It replaces the TypeScript firehose connection to eliminate memory/worker limitations.
-
-Based on official examples:
-- https://github.com/MarshalX/atproto/blob/main/examples/firehose/sub_repos.py
-- https://github.com/MarshalX/bluesky-feed-generator/blob/main/server/data_stream.py
+Based on official atproto examples - uses synchronous approach for simplicity.
 """
 
-import asyncio
 import json
 import logging
 import os
 import signal
+import sys
 import time
 from typing import Optional
 
-import redis.asyncio as aioredis
+import redis
 from atproto import (
     CAR,
     FirehoseSubscribeReposClient,
@@ -39,9 +35,8 @@ logger = logging.getLogger(__name__)
 
 class FirehoseConsumer:
     """
-    Asynchronous AT Protocol firehose consumer that pushes to Redis streams.
-    
-    Uses the official FirehoseSubscribeReposClient for proper message handling.
+    Synchronous AT Protocol firehose consumer that pushes to Redis streams.
+    Uses sync Redis client for simplicity (no async/sync bridge issues).
     """
     
     def __init__(
@@ -58,11 +53,10 @@ class FirehoseConsumer:
         self.cursor_key = cursor_key
         self.max_stream_len = max_stream_len
         
-        self.redis: Optional[aioredis.Redis] = None
+        self.redis_client: Optional[redis.Redis] = None
         self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
         self.current_cursor: Optional[int] = None
-        self.loop = None  # Store reference to main event loop
         
         # Metrics
         self.event_count = 0
@@ -73,30 +67,29 @@ class FirehoseConsumer:
         self.last_cursor_save = 0
         self.cursor_save_interval = 5  # seconds
         
-    async def connect_redis(self) -> None:
-        """Connect to Redis and ensure stream is set up."""
+    def connect_redis(self) -> None:
+        """Connect to Redis."""
         logger.info(f"Connecting to Redis at {self.redis_url}...")
         
-        self.redis = await aioredis.from_url(
+        self.redis_client = redis.from_url(
             self.redis_url,
-            encoding="utf-8",
             decode_responses=True,
             socket_keepalive=True,
         )
         
         # Verify connection
-        await self.redis.ping()
+        self.redis_client.ping()
         logger.info("Connected to Redis successfully")
         
         # Load saved cursor
-        saved_cursor = await self.redis.get(self.cursor_key)
+        saved_cursor = self.redis_client.get(self.cursor_key)
         if saved_cursor:
             self.current_cursor = int(saved_cursor)
             logger.info(f"Loaded saved cursor: {self.current_cursor}")
         else:
             logger.info("No saved cursor found, starting from current position")
     
-    async def save_cursor(self, cursor: int) -> None:
+    def save_cursor(self, cursor: int) -> None:
         """Save cursor to Redis for restart recovery."""
         self.current_cursor = cursor
         
@@ -105,15 +98,15 @@ class FirehoseConsumer:
         if now - self.last_cursor_save > self.cursor_save_interval:
             self.last_cursor_save = now
             try:
-                await self.redis.set(self.cursor_key, str(cursor))
+                self.redis_client.set(self.cursor_key, str(cursor))
             except Exception as e:
                 logger.error(f"Error saving cursor: {e}")
     
-    async def push_to_redis(self, event_type: str, data: dict, seq: Optional[int] = None) -> None:
+    def push_to_redis(self, event_type: str, data: dict, seq: Optional[int] = None) -> None:
         """Push event to Redis stream."""
         try:
             # Use XADD with MAXLEN to prevent infinite stream growth
-            await self.redis.xadd(
+            self.redis_client.xadd(
                 self.stream_key,
                 {
                     "type": event_type,
@@ -140,32 +133,17 @@ class FirehoseConsumer:
             raise
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
-        """Handle incoming firehose message (sync version for client)."""
-        # Debug: Log that we received a message
-        logger.debug(f"Received message: {message.header if hasattr(message, 'header') else type(message)}")
-        
-        # Schedule async handler in the main event loop
-        if self.loop:
-            future = asyncio.run_coroutine_threadsafe(self.handle_message(message), self.loop)
-            # Wait for completion to catch any errors
-            try:
-                future.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Error in message handler: {e}")
-        else:
-            logger.error("Event loop not available!")
-    
-    async def handle_message(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
         try:
-            logger.debug(f"Parsing message...")
+            logger.debug(f"Received message")
+            
             commit = parse_subscribe_repos_message(message)
-            logger.debug(f"Parsed commit type: {type(commit).__name__}")
+            logger.debug(f"Parsed: {type(commit).__name__}")
             
             # Handle Commit messages (posts, likes, follows, etc.)
             if isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Commit):
                 seq = commit.seq
-                await self.save_cursor(seq)
+                self.save_cursor(seq)
                 
                 # Parse the commit operations
                 data = {
@@ -173,13 +151,13 @@ class FirehoseConsumer:
                     "ops": [],
                 }
                 
-                # Parse CAR blocks if available for full record data
+                # Parse CAR blocks if available
                 car = None
                 if commit.blocks:
                     try:
                         car = CAR.from_bytes(commit.blocks)
                     except Exception as e:
-                        logger.debug(f"Could not parse CAR blocks: {e}")
+                        logger.debug(f"Could not parse CAR: {e}")
                 
                 # Process operations
                 for op in commit.ops:
@@ -192,67 +170,61 @@ class FirehoseConsumer:
                     if hasattr(op, 'cid') and op.cid:
                         op_data["cid"] = str(op.cid)
                         
-                        # Try to extract record data from CAR blocks
+                        # Try to extract record data
                         if car and op.action in ["create", "update"]:
                             try:
                                 record_bytes = car.blocks.get(op.cid)
                                 if record_bytes:
-                                    # Use models.get_or_create to parse the record
                                     record = models.get_or_create(record_bytes, strict=False)
                                     if record:
-                                        # Convert to dict for JSON serialization
                                         if hasattr(record, 'model_dump'):
                                             op_data["record"] = record.model_dump()
                                         elif hasattr(record, 'dict'):
                                             op_data["record"] = record.dict()
                             except Exception as e:
-                                logger.debug(f"Could not extract record for {op.path}: {e}")
+                                logger.debug(f"Could not extract record: {e}")
                     
                     data["ops"].append(op_data)
                 
-                logger.debug(f"Pushing commit to Redis: {len(data['ops'])} ops")
-                await self.push_to_redis("commit", data, seq)
+                logger.debug(f"Pushing commit with {len(data['ops'])} ops")
+                self.push_to_redis("commit", data, seq)
                 self.last_event_time = time.time()
-                logger.debug(f"Successfully pushed commit seq={seq}")
             
-            # Handle Identity messages (handle changes)
+            # Handle Identity messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
                 data = {
                     "did": commit.did,
                     "handle": getattr(commit, 'handle', commit.did),
                 }
                 seq = getattr(commit, 'seq', None)
-                await self.push_to_redis("identity", data, seq)
+                self.push_to_redis("identity", data, seq)
                 if seq:
-                    await self.save_cursor(seq)
+                    self.save_cursor(seq)
                 self.last_event_time = time.time()
             
-            # Handle Account messages (active/inactive)
+            # Handle Account messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Account):
                 data = {
                     "did": commit.did,
                     "active": getattr(commit, 'active', True),
                 }
                 seq = getattr(commit, 'seq', None)
-                await self.push_to_redis("account", data, seq)
+                self.push_to_redis("account", data, seq)
                 if seq:
-                    await self.save_cursor(seq)
+                    self.save_cursor(seq)
                 self.last_event_time = time.time()
             
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            logger.error(f"Error handling message: {e}", exc_info=True)
     
-    async def run(self) -> None:
+    def run(self) -> None:
         """Main run loop."""
         self.running = True
         
-        # Store reference to the current event loop
-        self.loop = asyncio.get_running_loop()
-        
         # Connect to Redis
-        await self.connect_redis()
+        self.connect_redis()
         
-        # Create firehose client with cursor if available
+        # Create firehose client
         params = None
         if self.current_cursor:
             params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=self.current_cursor)
@@ -262,34 +234,12 @@ class FirehoseConsumer:
         self.client = FirehoseSubscribeReposClient(params, base_uri=self.relay_url)
         
         logger.info("Connected to firehose successfully")
+        logger.info("Starting to listen for events...")
         
         # Start the client (this blocks until stopped)
-        # We need to run this in a thread since it's synchronous
-        import threading
-        
-        def run_client():
-            try:
-                self.client.start(self.on_message_handler)
-            except Exception as e:
-                logger.error(f"Firehose client error: {e}")
-                if self.running:
-                    # Attempt reconnection
-                    logger.info("Reconnecting in 5 seconds...")
-                    time.sleep(5)
-                    if self.running:
-                        run_client()
-        
-        client_thread = threading.Thread(target=run_client, daemon=True)
-        client_thread.start()
-        
-        # Keep the async loop alive
-        try:
-            while self.running:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
+        self.client.start(self.on_message_handler)
     
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Gracefully stop the consumer."""
         logger.info("Stopping firehose consumer...")
         self.running = False
@@ -302,13 +252,13 @@ class FirehoseConsumer:
                 pass
         
         # Save final cursor
-        if self.current_cursor and self.redis:
-            await self.redis.set(self.cursor_key, str(self.current_cursor))
+        if self.current_cursor and self.redis_client:
+            self.redis_client.set(self.cursor_key, str(self.current_cursor))
             logger.info(f"Saved final cursor: {self.current_cursor}")
         
         # Close Redis
-        if self.redis:
-            await self.redis.aclose()
+        if self.redis_client:
+            self.redis_client.close()
         
         # Log final stats
         elapsed = time.time() - self.start_time
@@ -319,7 +269,7 @@ class FirehoseConsumer:
         )
 
 
-async def main():
+def main():
     """Main entry point."""
     # Configuration from environment
     relay_url = os.getenv("RELAY_URL", "wss://bsky.network")
@@ -349,20 +299,24 @@ async def main():
     
     # Handle signals for graceful shutdown
     def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        asyncio.create_task(consumer.stop())
+        logger.info(f"Received signal {signum}, shutting down...")
+        consumer.stop()
+        sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Run consumer
     try:
-        await consumer.run()
+        consumer.run()
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
-    finally:
-        await consumer.stop()
+        consumer.stop()
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        consumer.stop()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
