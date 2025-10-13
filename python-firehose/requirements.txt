@@ -11,5 +11,8 @@ websockets>=12.0
 # Async Redis client
 redis[hiredis]>=5.0.0
 
+# Async PostgreSQL driver for direct database access
+asyncpg>=0.30.0
+
 # Additional utilities
 python-dotenv>=1.0.0
