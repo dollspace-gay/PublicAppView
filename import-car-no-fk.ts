@@ -18,6 +18,10 @@ async function importCar() {
     s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
   );
   
+  if (!pdsService || !pdsService.serviceEndpoint) {
+    throw new Error('PDS service not found in DID document');
+  }
+  
   const pdsUrl = typeof pdsService.serviceEndpoint === 'string' 
     ? pdsService.serviceEndpoint 
     : pdsService.serviceEndpoint.toString();
@@ -89,118 +93,161 @@ async function importCar() {
     `);
     console.log(`[CAR_IMPORT] ✓ User: ${handle}`);
 
-    // Insert posts
+    // Batch insert posts
     console.log(`[CAR_IMPORT] Importing ${records.posts.length} posts...`);
+    const BATCH_SIZE = 500;
     let postsCreated = 0;
-    for (const { rkey, record, cid } of records.posts) {
-      const uri = `at://${DID}/app.bsky.feed.post/${rkey}`;
-      await db.execute(sql`
-        INSERT INTO posts (uri, cid, author_did, text, parent_uri, root_uri, created_at, indexed_at)
-        VALUES (
-          ${uri},
-          ${cid?.toString() || 'unknown'},
-          ${DID},
-          ${(record as any).text || ''},
-          ${(record as any).reply?.parent?.uri || null},
-          ${(record as any).reply?.root?.uri || null},
-          ${new Date((record as any).createdAt)},
-          ${new Date()}
-        )
-        ON CONFLICT (uri) DO NOTHING
-      `);
-      postsCreated++;
-      if (postsCreated % 500 === 0) {
-        console.log(`[CAR_IMPORT]   ${postsCreated}/${records.posts.length} posts...`);
+    
+    for (let i = 0; i < records.posts.length; i += BATCH_SIZE) {
+      const batch = records.posts.slice(i, i + BATCH_SIZE);
+      
+      if (batch.length > 0) {
+        const uris = batch.map(({ rkey }) => `at://${DID}/app.bsky.feed.post/${rkey}`);
+        const cids = batch.map(({ cid }) => cid?.toString() || 'unknown');
+        const texts = batch.map(({ record }) => (record as any).text || '');
+        const parentUris = batch.map(({ record }) => (record as any).reply?.parent?.uri || null);
+        const rootUris = batch.map(({ record }) => (record as any).reply?.root?.uri || null);
+        const createdAts = batch.map(({ record }) => new Date((record as any).createdAt));
+        const indexedAt = new Date();
+        
+        await db.execute(sql`
+          INSERT INTO posts (uri, cid, author_did, text, parent_uri, root_uri, created_at, indexed_at)
+          SELECT 
+            unnest(${uris}::text[]),
+            unnest(${cids}::text[]),
+            ${DID},
+            unnest(${texts}::text[]),
+            unnest(${parentUris}::text[]),
+            unnest(${rootUris}::text[]),
+            unnest(${createdAts}::timestamp[]),
+            ${indexedAt}
+          ON CONFLICT (uri) DO NOTHING
+        `);
+        
+        postsCreated += batch.length;
+        console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.posts.length)}/${records.posts.length} posts...`);
       }
     }
     console.log(`[CAR_IMPORT] ✓ Posts: ${postsCreated}`);
 
-    // Insert likes (ALL of them, even external posts)
+    // Batch insert likes (ALL of them, even external posts)
     console.log(`[CAR_IMPORT] Importing ${records.likes.length} likes...`);
     let likesCreated = 0;
-    for (const { rkey, record } of records.likes) {
-      const uri = `at://${DID}/app.bsky.feed.like/${rkey}`;
-      await db.execute(sql`
-        INSERT INTO likes (uri, user_did, post_uri, created_at, indexed_at)
-        VALUES (
-          ${uri},
-          ${DID},
-          ${(record as any).subject?.uri || ''},
-          ${new Date((record as any).createdAt)},
-          ${new Date()}
-        )
-        ON CONFLICT (uri) DO NOTHING
-      `);
-      likesCreated++;
-      if (likesCreated % 1000 === 0) {
-        console.log(`[CAR_IMPORT]   ${likesCreated}/${records.likes.length} likes...`);
+    
+    for (let i = 0; i < records.likes.length; i += BATCH_SIZE) {
+      const batch = records.likes.slice(i, i + BATCH_SIZE);
+      
+      if (batch.length > 0) {
+        const uris = batch.map(({ rkey }) => `at://${DID}/app.bsky.feed.like/${rkey}`);
+        const postUris = batch.map(({ record }) => (record as any).subject?.uri || '');
+        const createdAts = batch.map(({ record }) => new Date((record as any).createdAt));
+        const indexedAt = new Date();
+        
+        await db.execute(sql`
+          INSERT INTO likes (uri, user_did, post_uri, created_at, indexed_at)
+          SELECT 
+            unnest(${uris}::text[]),
+            ${DID},
+            unnest(${postUris}::text[]),
+            unnest(${createdAts}::timestamp[]),
+            ${indexedAt}
+          ON CONFLICT (uri) DO NOTHING
+        `);
+        
+        likesCreated += batch.length;
+        if (i + BATCH_SIZE >= records.likes.length || (i + BATCH_SIZE) % 1000 === 0) {
+          console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.likes.length)}/${records.likes.length} likes...`);
+        }
       }
     }
     console.log(`[CAR_IMPORT] ✓ Likes: ${likesCreated}`);
 
-    // Insert reposts (ALL of them)
+    // Batch insert reposts (ALL of them)
     console.log(`[CAR_IMPORT] Importing ${records.reposts.length} reposts...`);
     let repostsCreated = 0;
-    for (const { rkey, record } of records.reposts) {
-      const uri = `at://${DID}/app.bsky.feed.repost/${rkey}`;
-      await db.execute(sql`
-        INSERT INTO reposts (uri, user_did, post_uri, created_at, indexed_at)
-        VALUES (
-          ${uri},
-          ${DID},
-          ${(record as any).subject?.uri || ''},
-          ${new Date((record as any).createdAt)},
-          ${new Date()}
-        )
-        ON CONFLICT (uri) DO NOTHING
-      `);
-      repostsCreated++;
-      if (repostsCreated % 500 === 0) {
-        console.log(`[CAR_IMPORT]   ${repostsCreated}/${records.reposts.length} reposts...`);
+    
+    for (let i = 0; i < records.reposts.length; i += BATCH_SIZE) {
+      const batch = records.reposts.slice(i, i + BATCH_SIZE);
+      
+      if (batch.length > 0) {
+        const uris = batch.map(({ rkey }) => `at://${DID}/app.bsky.feed.repost/${rkey}`);
+        const postUris = batch.map(({ record }) => (record as any).subject?.uri || '');
+        const createdAts = batch.map(({ record }) => new Date((record as any).createdAt));
+        const indexedAt = new Date();
+        
+        await db.execute(sql`
+          INSERT INTO reposts (uri, user_did, post_uri, created_at, indexed_at)
+          SELECT 
+            unnest(${uris}::text[]),
+            ${DID},
+            unnest(${postUris}::text[]),
+            unnest(${createdAts}::timestamp[]),
+            ${indexedAt}
+          ON CONFLICT (uri) DO NOTHING
+        `);
+        
+        repostsCreated += batch.length;
+        console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.reposts.length)}/${records.reposts.length} reposts...`);
       }
     }
     console.log(`[CAR_IMPORT] ✓ Reposts: ${repostsCreated}`);
 
-    // Insert follows
+    // Batch insert follows
     console.log(`[CAR_IMPORT] Importing ${records.follows.length} follows...`);
     let followsCreated = 0;
-    for (const { rkey, record } of records.follows) {
-      const uri = `at://${DID}/app.bsky.graph.follow/${rkey}`;
-      await db.execute(sql`
-        INSERT INTO follows (uri, follower_did, following_did, created_at, indexed_at)
-        VALUES (
-          ${uri},
-          ${DID},
-          ${(record as any).subject || ''},
-          ${new Date((record as any).createdAt)},
-          ${new Date()}
-        )
-        ON CONFLICT (uri) DO NOTHING
-      `);
-      followsCreated++;
-      if (followsCreated % 200 === 0) {
-        console.log(`[CAR_IMPORT]   ${followsCreated}/${records.follows.length} follows...`);
+    
+    for (let i = 0; i < records.follows.length; i += BATCH_SIZE) {
+      const batch = records.follows.slice(i, i + BATCH_SIZE);
+      
+      if (batch.length > 0) {
+        const uris = batch.map(({ rkey }) => `at://${DID}/app.bsky.graph.follow/${rkey}`);
+        const followingDids = batch.map(({ record }) => (record as any).subject || '');
+        const createdAts = batch.map(({ record }) => new Date((record as any).createdAt));
+        const indexedAt = new Date();
+        
+        await db.execute(sql`
+          INSERT INTO follows (uri, follower_did, following_did, created_at, indexed_at)
+          SELECT 
+            unnest(${uris}::text[]),
+            ${DID},
+            unnest(${followingDids}::text[]),
+            unnest(${createdAts}::timestamp[]),
+            ${indexedAt}
+          ON CONFLICT (uri) DO NOTHING
+        `);
+        
+        followsCreated += batch.length;
+        console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.follows.length)}/${records.follows.length} follows...`);
       }
     }
     console.log(`[CAR_IMPORT] ✓ Follows: ${followsCreated}`);
 
-    // Insert blocks
+    // Batch insert blocks
     console.log(`[CAR_IMPORT] Importing ${records.blocks.length} blocks...`);
     let blocksCreated = 0;
-    for (const { rkey, record } of records.blocks) {
-      const uri = `at://${DID}/app.bsky.graph.block/${rkey}`;
-      await db.execute(sql`
-        INSERT INTO blocks (uri, blocker_did, blocked_did, created_at, indexed_at)
-        VALUES (
-          ${uri},
-          ${DID},
-          ${(record as any).subject || ''},
-          ${new Date((record as any).createdAt)},
-          ${new Date()}
-        )
-        ON CONFLICT (uri) DO NOTHING
-      `);
-      blocksCreated++;
+    
+    for (let i = 0; i < records.blocks.length; i += BATCH_SIZE) {
+      const batch = records.blocks.slice(i, i + BATCH_SIZE);
+      
+      if (batch.length > 0) {
+        const uris = batch.map(({ rkey }) => `at://${DID}/app.bsky.graph.block/${rkey}`);
+        const blockedDids = batch.map(({ record }) => (record as any).subject || '');
+        const createdAts = batch.map(({ record }) => new Date((record as any).createdAt));
+        const indexedAt = new Date();
+        
+        await db.execute(sql`
+          INSERT INTO blocks (uri, blocker_did, blocked_did, created_at, indexed_at)
+          SELECT 
+            unnest(${uris}::text[]),
+            ${DID},
+            unnest(${blockedDids}::text[]),
+            unnest(${createdAts}::timestamp[]),
+            ${indexedAt}
+          ON CONFLICT (uri) DO NOTHING
+        `);
+        
+        blocksCreated += batch.length;
+      }
     }
     console.log(`[CAR_IMPORT] ✓ Blocks: ${blocksCreated}`);
 

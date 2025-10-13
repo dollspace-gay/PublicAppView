@@ -10,6 +10,33 @@ const DID = 'did:plc:dzvxvsiy3maw4iarpvizsj67';
 const BATCH_SIZE = 500;
 const didResolver = new IdResolver();
 
+// Helper function to extract blob CID from various formats
+function extractBlobCid(blob: any): string | null {
+  if (!blob) return null;
+  
+  // Handle string CID
+  if (typeof blob === 'string') {
+    return blob === 'undefined' ? null : blob;
+  }
+  
+  // Handle ref.$link format
+  if (blob.ref) {
+    if (typeof blob.ref === 'string') {
+      return blob.ref === 'undefined' ? null : blob.ref;
+    }
+    if (blob.ref.$link) {
+      return blob.ref.$link === 'undefined' ? null : blob.ref.$link;
+    }
+  }
+  
+  // Handle direct cid property
+  if (blob.cid) {
+    return blob.cid === 'undefined' ? null : blob.cid;
+  }
+  
+  return null;
+}
+
 async function importCar() {
   console.log(`[CAR_IMPORT] Starting import for ${DID}...`);
   
