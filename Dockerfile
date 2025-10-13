@@ -22,6 +22,13 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Install Python 3 and pip for backfill tool
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy package files and install only production dependencies
 COPY package*.json ./
 RUN npm ci --omit=dev
@@ -33,6 +40,10 @@ RUN npm install drizzle-kit@0.31.4 typescript dotenv
 # Install PM2 globally for cluster mode
 RUN npm install -g pm2
 
+# Install Python backfill tool dependencies
+COPY backfill-tool/requirements.txt /app/backfill-tool/
+RUN pip3 install --no-cache-dir -r /app/backfill-tool/requirements.txt --break-system-packages
+
 # Copy the built application from the builder stage
 COPY --from=builder /app/dist ./dist
 
@@ -40,6 +51,10 @@ COPY --from=builder /app/dist ./dist
 COPY drizzle.config.ts ./
 COPY tsconfig.json ./
 COPY shared ./shared
+
+# Copy Python backfill tool
+COPY backfill-tool/ /app/backfill-tool/
+RUN chmod +x /app/backfill-tool/backfill.py
 
 # Copy and make the entrypoint script executable
 COPY docker-entrypoint.sh ./

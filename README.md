@@ -239,6 +239,56 @@ docker exec -it publicappview-app-1 sh
 - `publicappview-db-1` (PostgreSQL database)
 - `publicappview-redis-1` (Redis cache)
 
+## Historical Backfill Tool
+
+For backfilling historical data, a high-performance **Python tool** is included that runs separately from your main application. This provides resource isolation and better performance for batch processing.
+
+### Why a Separate Tool?
+
+- **Resource Isolation**: Backfilling doesn't impact your live service
+- **Operational Flexibility**: Run manually for X days, pause, resume without touching production
+- **Better Performance**: Python's async I/O excels at batch ETL workloads
+- **Simple Deployment**: Already included in your Docker container
+
+### Quick Start
+
+```bash
+# Enter the running container
+docker exec -it publicappview-app-1 bash
+
+# Navigate to backfill tool
+cd /app/backfill-tool
+
+# Backfill last 30 days
+python3 backfill.py --days 30
+
+# Backfill all available history
+python3 backfill.py --days -1
+
+# Resume from last checkpoint
+python3 backfill.py --resume
+```
+
+### Usage Examples
+
+```bash
+# Backfill last 7 days
+python3 backfill.py --days 7
+
+# Start from specific cursor
+python3 backfill.py --start-cursor 12345000 --days 7
+
+# Custom performance settings
+python3 backfill.py --days 30 --workers 8 --batch-size 200
+```
+
+**Performance Expectations:**
+- Local database: 1,000-5,000 events/sec
+- Cloud database: 100-2,000 events/sec
+- 7 days of history ≈ 50-100M events (14-28 hours at 1,000 events/sec)
+
+For detailed documentation, see [`backfill-tool/README.md`](backfill-tool/README.md)
+
 ## Environment Variables
 
 ### Required
