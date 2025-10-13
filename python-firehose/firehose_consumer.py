@@ -197,10 +197,19 @@ class FirehoseConsumer:
                                 if record_bytes:
                                     record = models.get_or_create(record_bytes, strict=False)
                                     if record:
+                                        # Serialize the record and ensure $type field is included
                                         if hasattr(record, 'model_dump'):
-                                            op_data["record"] = record.model_dump()
+                                            record_data = record.model_dump()
                                         elif hasattr(record, 'dict'):
-                                            op_data["record"] = record.dict()
+                                            record_data = record.dict()
+                                        else:
+                                            record_data = {}
+                                        
+                                        # Add $type field from py_type attribute
+                                        if hasattr(record, 'py_type') and record.py_type:
+                                            record_data["$type"] = record.py_type
+                                        
+                                        op_data["record"] = record_data
                             except Exception as e:
                                 logger.debug(f"Could not extract record: {e}")
                     
