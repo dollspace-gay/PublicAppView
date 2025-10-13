@@ -85,6 +85,7 @@ export interface IStorage {
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
   deleteFollow(uri: string, userDid: string): Promise<void>;
+  getFollow(uri: string): Promise<Follow | undefined>;
   getFollows(followerDid: string, limit?: number): Promise<Follow[]>;
   getFollowers(followingDid: string, limit?: number): Promise<Follow[]>;
   isFollowing(followerDid: string, followingDid: string): Promise<boolean>;
@@ -1124,6 +1125,11 @@ export class DatabaseStorage implements IStorage {
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
     await redisQueue.incrementRecordCount('follows', -1);
+  }
+
+  async getFollow(uri: string): Promise<Follow | undefined> {
+    const [result] = await this.db.select().from(follows).where(eq(follows.uri, uri));
+    return result;
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
