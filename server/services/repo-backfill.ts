@@ -378,9 +378,14 @@ export class RepoBackfillService {
             }
 
           } catch (error: any) {
-            // Skip unparseable records
-            if (error?.code !== '23505') { // Ignore duplicates
+            // Skip unparseable records but provide better visibility
+            if (error?.code === '23505') {
+              // Silently ignore duplicates (common during reconnections)
+              recordsSkipped++;
+            } else {
+              // Log other errors for debugging
               console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
+              recordsSkipped++;
             }
           }
         }
@@ -449,10 +454,11 @@ export class RepoBackfillService {
               return;
             }
 
-            // Create minimal user record (using DID as temporary handle)
+            // Create minimal user record with standard fallback handle
+            // Use 'handle.invalid' as fallback (matches Bluesky's approach)
             await repoBackfillStorage.createUser({
               did: userDid,
-              handle: userDid, // Will be updated by PDS fetcher
+              handle: 'handle.invalid', // Standard fallback, will be updated by PDS fetcher
             });
             created++;
           } catch (error: any) {
