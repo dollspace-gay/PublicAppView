@@ -1669,7 +1669,7 @@ export class EventProcessor {
       case "app.bsky.feed.like":
         const like = await this.storage.getLike(uri);
         if (like) {
-          await this.storage.deleteLike(uri);
+          await this.storage.deleteLike(uri, like.userDid);
           await this.storage.incrementPostAggregation(like.postUri, 'likeCount', -1);
           await this.storage.deletePostViewerState(like.postUri, like.userDid);
         }
@@ -1692,7 +1692,10 @@ export class EventProcessor {
         }
         break;
       case "app.bsky.graph.follow":
-        await this.storage.deleteFollow(uri);
+        const follow = await this.storage.getFollow(uri);
+        if (follow) {
+          await this.storage.deleteFollow(uri, follow.followerDid);
+        }
         break;
       case "app.bsky.graph.block":
         await this.storage.deleteBlock(uri);

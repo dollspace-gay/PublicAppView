@@ -34,6 +34,56 @@ function useChart() {
   return context
 }
 
+/**
+ * Sanitizes a CSS color value to prevent CSS injection attacks
+ * @param value The color value to sanitize
+ * @returns A safe CSS color value or 'transparent' if invalid
+ */
+function sanitizeCSSValue(value: string | undefined): string {
+  if (!value || typeof value !== 'string') {
+    return 'transparent';
+  }
+  
+  // Allow only safe CSS color formats:
+  // - Hex colors: #RGB, #RRGGBB, #RRGGBBAA
+  // - RGB/RGBA: rgb(...), rgba(...)
+  // - HSL/HSLA: hsl(...), hsla(...)
+  // - Named colors (basic validation)
+  // - CSS variables: var(--...)
+  
+  const trimmed = value.trim();
+  
+  // Hex color
+  if (/^#[0-9A-Fa-f]{3,8}$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // RGB/RGBA
+  if (/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(\s*,\s*[\d.]+)?\s*\)$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // HSL/HSLA
+  if (/^hsla?\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%(\s*,\s*[\d.]+)?\s*\)$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // CSS variables
+  if (/^var\(--[a-zA-Z0-9-_]+\)$/.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // Named colors (basic whitelist)
+  const namedColors = /^(transparent|currentColor|inherit|black|white|red|green|blue|yellow|orange|purple|pink|gray|grey)$/i;
+  if (namedColors.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // If none match, return safe default
+  console.warn('[Chart] Invalid CSS color value detected, using transparent:', value);
+  return 'transparent';
+}
+
 const ChartContainer = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & {
@@ -240,8 +290,8 @@ const ChartTooltipContent = React.forwardRef<
                           )}
                           style={
                             {
-                              "--color-bg": indicatorColor,
-                              "--color-border": indicatorColor,
+                              "--color-bg": sanitizeCSSValue(indicatorColor),
+                              "--color-border": sanitizeCSSValue(indicatorColor),
                             } as React.CSSProperties
                           }
                         />
@@ -323,7 +373,7 @@ const ChartLegendContent = React.forwardRef<
                 <div
                   className="h-2 w-2 shrink-0 rounded-[2px]"
                   style={{
-                    backgroundColor: item.color,
+                    backgroundColor: sanitizeCSSValue(item.color),
                   }}
                 />
               )}

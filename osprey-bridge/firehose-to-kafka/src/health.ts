@@ -1,4 +1,17 @@
 import express from 'express';
+import http from 'http';
+
+export interface BridgeStatus {
+  running: boolean;
+  kafka: {
+    connected: boolean;
+  };
+  adapterType: string;
+  eventsProcessed: number;
+  enricher?: {
+    database: boolean;
+  };
+}
 
 export interface HealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -21,12 +34,12 @@ export interface HealthStatus {
 
 export class HealthCheckServer {
   private app: express.Application;
-  private server: any;
+  private server: http.Server | null = null;
   private port: number;
-  private getStatus: () => any;
+  private getStatus: () => BridgeStatus;
   private startTime: number;
 
-  constructor(port: number, getStatus: () => any) {
+  constructor(port: number, getStatus: () => BridgeStatus) {
     this.app = express();
     this.port = port;
     this.getStatus = getStatus;
@@ -49,7 +62,7 @@ export class HealthCheckServer {
             connected: bridgeStatus.kafka.connected,
           },
           enricher: {
-            database: true, // Assume healthy if not throwing errors
+            database: bridgeStatus.enricher?.database ?? true,
           },
           metrics: {
             eventsProcessed: bridgeStatus.eventsProcessed,
@@ -70,11 +83,15 @@ export class HealthCheckServer {
     });
 
     this.app.get('/ready', (req, res) => {
-      const bridgeStatus = this.getStatus();
-      if (bridgeStatus.running && bridgeStatus.kafka.connected) {
-        res.status(200).json({ ready: true });
-      } else {
-        res.status(503).json({ ready: false });
+      try {
+        const bridgeStatus = this.getStatus();
+        if (bridgeStatus.running && bridgeStatus.kafka.connected) {
+          res.status(200).json({ ready: true });
+        } else {
+          res.status(503).json({ ready: false, timestamp: new Date().toISOString() });
+        }
+      } catch (error) {
+        res.status(503).json({ ready: false, error: 'Failed to get readiness status', timestamp: new Date().toISOString() });
       }
     });
 

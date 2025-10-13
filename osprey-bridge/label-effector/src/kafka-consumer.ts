@@ -62,6 +62,7 @@ export class LabelConsumer {
     console.log(`[KAFKA] Starting label consumer...`);
     
     await this.consumer.run({
+      autoCommit: false, // Disable auto-commit to prevent data loss on errors
       eachMessage: async (payload: EachMessagePayload) => {
         await this.processMessage(payload);
       },
@@ -73,6 +74,12 @@ export class LabelConsumer {
     
     if (!message.value) {
       console.warn('[KAFKA] Received message with no value');
+      // Commit offset for empty messages to avoid reprocessing
+      await this.consumer.commitOffsets([{
+        topic,
+        partition,
+        offset: (parseInt(message.offset) + 1).toString(),
+      }]);
       return;
     }
 
@@ -82,6 +89,12 @@ export class LabelConsumer {
       // Validate label format
       if (!this.isValidLabel(labelData)) {
         console.warn('[KAFKA] Invalid label format:', labelData);
+        // Commit offset for invalid messages to avoid reprocessing
+        await this.consumer.commitOffsets([{
+          topic,
+          partition,
+          offset: (parseInt(message.offset) + 1).toString(),
+        }]);
         return;
       }
 
@@ -93,15 +106,24 @@ export class LabelConsumer {
         neg: label.neg || false,
       });
 
-      // Apply label via callback
+      // Apply label via callback - if this fails, don't commit offset
       await this.onLabel(label);
+      
+      // Only commit offset after successful processing
+      await this.consumer.commitOffsets([{
+        topic,
+        partition,
+        offset: (parseInt(message.offset) + 1).toString(),
+      }]);
       
       this.messagesProcessed++;
       this.lastMessageTime = new Date();
       
     } catch (error) {
-      console.error('[KAFKA] Error processing message:', error);
+      console.error('[KAFKA] Error processing message - will retry on next poll:', error);
       console.error('[KAFKA] Message value:', message.value.toString());
+      // Don't commit offset on error - message will be redelivered
+      // Consider implementing a dead letter queue for messages that fail repeatedly
     }
   }
 

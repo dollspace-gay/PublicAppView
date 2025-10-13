@@ -93,9 +93,9 @@ class DatabaseSessionStore {
       
       if (existingSession) {
         await storage.updateSession(sub, {
-          accessToken: encryptionService.encrypt(JSON.stringify(session)),
+          accessToken: await encryptionService.encrypt(JSON.stringify(session)),
           refreshToken: session.tokenSet.refresh_token 
-            ? encryptionService.encrypt(session.tokenSet.refresh_token)
+            ? await encryptionService.encrypt(session.tokenSet.refresh_token)
             : '',
           expiresAt,
         });
@@ -103,9 +103,9 @@ class DatabaseSessionStore {
         await storage.createSession({
           id: sub,
           userDid: sub,
-          accessToken: encryptionService.encrypt(JSON.stringify(session)),
+          accessToken: await encryptionService.encrypt(JSON.stringify(session)),
           refreshToken: session.tokenSet.refresh_token 
-            ? encryptionService.encrypt(session.tokenSet.refresh_token)
+            ? await encryptionService.encrypt(session.tokenSet.refresh_token)
             : '',
           pdsEndpoint: session.tokenSet.iss || '',
           expiresAt,
@@ -123,7 +123,7 @@ class DatabaseSessionStore {
       if (!dbSession) return undefined;
 
       try {
-        const savedSession = JSON.parse(encryptionService.decrypt(dbSession.accessToken));
+        const savedSession = JSON.parse(await encryptionService.decrypt(dbSession.accessToken));
         return savedSession as NodeSavedSession;
       } catch (error) {
         console.error('[OAUTH] Failed to decrypt session:', error);
