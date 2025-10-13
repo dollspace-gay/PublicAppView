@@ -10,4 +10,4 @@ const keyset = {
 
 writeFileSync('oauth-keyset.json', JSON.stringify(keyset, null, 2));
 console.log('✅ OAuth keyset created successfully');
-console.log('Contents:', JSON.stringify(keyset, null, 2));
+console.log('Keyset file written to oauth-keyset.json');

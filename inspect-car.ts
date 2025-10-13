@@ -15,6 +15,10 @@ async function inspect() {
     s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
   );
   
+  if (!pdsService) {
+    throw new Error('PDS service not found in DID document');
+  }
+  
   const pdsUrl = pdsService.serviceEndpoint;
   console.log(`[INSPECT] PDS: ${pdsUrl}`);
   
