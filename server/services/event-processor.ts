@@ -739,6 +739,7 @@ export class EventProcessor {
         return true;
       }
       smartConsole.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
+      smartConsole.error(`[EVENT_PROCESSOR] This will cause posts from this user to be missing from feeds`);
       return false;
     }
   }
@@ -959,7 +960,8 @@ export class EventProcessor {
   private async processPost(uri: string, cid: string, authorDid: string, record: any) {
     const authorReady = await this.ensureUser(authorDid);
     if (!authorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready (DID: ${authorDid})`);
+      smartConsole.warn(`[EVENT_PROCESSOR] This will cause the post to be missing from likes and other feeds`);
       return;
     }
     

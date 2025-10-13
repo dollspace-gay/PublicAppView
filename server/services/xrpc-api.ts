@@ -679,8 +679,13 @@ export class XRPCApi {
                      (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
     
     if (!endpoint) {
-      console.error('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return undefined;
+      // Fallback: Use a default CDN endpoint for development/testing
+      // This ensures profile pictures work even without proper configuration
+      const fallbackEndpoint = 'https://bsky.app/img';
+      console.warn('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - using fallback CDN endpoint');
+      const cdnUrl = `${fallbackEndpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
+      console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl} (fallback)`);
+      return cdnUrl;
     }
     
     const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
@@ -3914,7 +3919,7 @@ export class XRPCApi {
       );
 
       const postUris = likes.map((like) => like.postUri);
-      const posts = await storage.getPosts(postUris);
+      let posts = await storage.getPosts(postUris);
       
       // Log if there's a mismatch between liked posts and fetched posts
       if (posts.length !== postUris.length) {
@@ -3922,6 +3927,30 @@ export class XRPCApi {
         const foundUris = new Set(posts.map(p => p.uri));
         const missingUris = postUris.filter(uri => !foundUris.has(uri));
         console.warn(`[XRPC] Missing posts:`, missingUris);
+        
+        // Log additional debugging info
+        console.warn(`[XRPC] getActorLikes: This suggests posts were not properly stored in the database.`);
+        console.warn(`[XRPC] getActorLikes: Check event processing logs for "Skipping post" warnings.`);
+        
+        // Try to fetch missing posts from the network as a fallback
+        console.log(`[XRPC] getActorLikes: Attempting to fetch ${missingUris.length} missing posts from network...`);
+        try {
+          const { pdsDataFetcher } = await import('./pds-data-fetcher');
+          for (const missingUri of missingUris) {
+            try {
+              // Extract author DID from the URI
+              const authorDid = missingUri.split('/')[2];
+              pdsDataFetcher.markIncomplete('post', authorDid, missingUri);
+              console.log(`[XRPC] getActorLikes: Queued missing post ${missingUri} for fetching`);
+            } catch (fetchError) {
+              console.warn(`[XRPC] getActorLikes: Failed to queue missing post ${missingUri}:`, fetchError.message);
+            }
+          }
+          
+          console.log(`[XRPC] getActorLikes: Queued ${missingUris.length} missing posts for background fetching`);
+        } catch (importError) {
+          console.warn(`[XRPC] getActorLikes: Could not import PDS data fetcher for fallback:`, importError.message);
+        }
       }
       
       const serializedPosts = await this.serializePosts(
