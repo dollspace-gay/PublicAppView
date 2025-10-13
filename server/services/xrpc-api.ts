@@ -1073,7 +1073,7 @@ export class XRPCApi {
           pinned: viewerState.pinned || false,
         } : {},
       };
-    });
+    }).filter(post => post !== null);
   }
 
   async getTimeline(req: Request, res: Response) {
@@ -3877,17 +3877,28 @@ export class XRPCApi {
 
       const postUris = likes.map((like) => like.postUri);
       const posts = await storage.getPosts(postUris);
+      
+      // Log if there's a mismatch between liked posts and fetched posts
+      if (posts.length !== postUris.length) {
+        console.warn(`[XRPC] getActorLikes: Expected ${postUris.length} posts, but only found ${posts.length}`);
+        const foundUris = new Set(posts.map(p => p.uri));
+        const missingUris = postUris.filter(uri => !foundUris.has(uri));
+        console.warn(`[XRPC] Missing posts:`, missingUris);
+      }
+      
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
       );
 
-      // Filter out any null entries
-      const validPosts = serializedPosts.filter(post => post !== null);
+      // Log if posts were filtered out during serialization (e.g., due to invalid handles)
+      if (serializedPosts.length !== posts.length) {
+        console.warn(`[XRPC] getActorLikes: ${posts.length - serializedPosts.length} posts filtered out during serialization`);
+      }
 
       res.json({
         cursor,
-        feed: validPosts.map((post) => ({ post })),
+        feed: serializedPosts.map((post) => ({ post })),
       });
     } catch (error) {
       this._handleError(res, error, 'getActorLikes');
