@@ -2,7 +2,8 @@
 # High-performance async libraries for AT Protocol firehose ingestion
 
 # AT Protocol SDK for parsing firehose messages
-atproto>=0.0.54
+# Using latest version for best compatibility
+atproto>=0.0.55
 
 # Async WebSocket client
 websockets>=12.0

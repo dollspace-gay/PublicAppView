@@ -158,7 +158,17 @@ class FirehoseConsumer:
             # Import atproto library for message parsing
             # Based on: https://gist.github.com/stuartlangridge/20ffe860fee0ecc315d3878c1ea77c35
             from atproto import parse_subscribe_repos_message, models, CAR
-            from atproto.xrpc_client.models.utils import get_or_create
+            
+            # Try different import paths for get_or_create (API changed between versions)
+            try:
+                from atproto.xrpc_client.models.utils import get_or_create
+            except (ImportError, ModuleNotFoundError):
+                try:
+                    from atproto_client.models.utils import get_or_create
+                except (ImportError, ModuleNotFoundError):
+                    # Fallback: define our own simple decoder
+                    def get_or_create(raw_record, strict=False):
+                        return raw_record
             
             try:
                 # Parse the binary message using atproto SDK
@@ -194,19 +204,26 @@ class FirehoseConsumer:
                                 # Get raw record data from CAR blocks
                                 raw_record = car.blocks.get(op.cid)
                                 if raw_record:
-                                    # Decode the record using atproto's get_or_create
-                                    # strict=False allows parsing without full validation
-                                    record = get_or_create(raw_record, strict=False)
-                                    
-                                    # Convert record to dict for JSON serialization
-                                    # Use model_dump() if available (pydantic v2), else dict()
-                                    if hasattr(record, 'model_dump'):
-                                        op_data["record"] = record.model_dump()
-                                    elif hasattr(record, 'dict'):
-                                        op_data["record"] = record.dict()
-                                    else:
-                                        # Fallback: convert to dict manually
-                                        op_data["record"] = dict(raw_record) if isinstance(raw_record, dict) else raw_record
+                                    # Try to decode the record
+                                    try:
+                                        # Attempt to use get_or_create if available
+                                        record = get_or_create(raw_record, strict=False)
+                                        
+                                        # Convert record to dict for JSON serialization
+                                        if hasattr(record, 'model_dump'):
+                                            op_data["record"] = record.model_dump()
+                                        elif hasattr(record, 'dict'):
+                                            op_data["record"] = record.dict()
+                                        elif hasattr(record, '__dict__'):
+                                            op_data["record"] = record.__dict__
+                                        else:
+                                            # Record is already a dict or raw data
+                                            op_data["record"] = raw_record
+                                    except Exception as decode_err:
+                                        # Fallback: use raw record data directly
+                                        # CAR blocks contain CBOR-decoded data, so this should work
+                                        logger.debug(f"Using raw record for {op.path}: {decode_err}")
+                                        op_data["record"] = raw_record
                             except Exception as e:
                                 # If record parsing fails, log but continue with just metadata
                                 logger.debug(f"Could not parse record for {op.path}: {e}")
