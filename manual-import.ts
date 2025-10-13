@@ -6,6 +6,7 @@ import { ReadableRepo } from '@atproto/repo/dist/readable-repo.js';
 import { EventProcessor } from './server/services/event-processor';
 import { createStorage } from './server/storage';
 import { createDbPool } from './server/db';
+import { removeNullBytesFromObject } from './server/utils/sanitize';
 
 const DID = 'did:plc:dzvxvsiy3maw4iarpvizsj67'; // dollspace.gay
 
@@ -14,19 +15,6 @@ const importDb = createDbPool(2, "manual-import");
 const importStorage = createStorage(importDb);
 const eventProcessor = new EventProcessor(importStorage);
 const didResolver = new IdResolver();
-
-function sanitizeObject(obj: any): any {
-  if (obj === null || obj === undefined) return obj;
-  if (typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(sanitizeObject);
-  
-  const result: any = {};
-  for (const [key, value] of Object.entries(obj)) {
-    // Keep all fields including $type
-    result[key] = sanitizeObject(value);
-  }
-  return result;
-}
 
 function generateSyntheticCid(record: any, did: string, path: string): string {
   const content = JSON.stringify({ record, did, path });
@@ -92,8 +80,8 @@ async function importRepo() {
       // Count collections
       collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
       
-      // Sanitize record before processing
-      const sanitized = sanitizeObject(record);
+      // Remove null bytes from record before processing (PostgreSQL requirement)
+      const sanitized = removeNullBytesFromObject(record);
       
       const path = `${collection}/${rkey}`;
       const finalCid = cid?.toString() || generateSyntheticCid(sanitized, DID, path);

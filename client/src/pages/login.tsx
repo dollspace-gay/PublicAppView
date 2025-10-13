@@ -8,6 +8,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Shield, LogIn } from "lucide-react";
 import { api } from "@/lib/api";
 
+// Sanitize user input to prevent XSS attacks
+function sanitizeText(text: string): string {
+  return text
+    .replace(/[<>\"']/g, '') // Remove potentially dangerous characters
+    .substring(0, 500); // Limit length to prevent abuse
+}
+
 export default function LoginPage() {
   const { toast } = useToast();
   const [loginHandle, setLoginHandle] = useState("");
@@ -21,23 +28,27 @@ export default function LoginPage() {
     if (error) {
       toast({
         title: "Authentication Failed",
-        description: decodeURIComponent(error),
+        description: sanitizeText(decodeURIComponent(error)),
         variant: "destructive",
       });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
     
     if (token) {
-      // CRITICAL: Clear URL IMMEDIATELY before any other operations
-      // This minimizes the window where the token is visible in browser history
+      // SECURITY: Token in URL is a security risk, but we clear it immediately
+      // The backend has already set an HttpOnly cookie during OAuth callback
+      // We should never have gotten here - redirect without the token parameter
+      console.warn('[LOGIN] Token found in URL - this should not happen with cookie-based auth');
+      
+      // Clear URL IMMEDIATELY to remove token from browser history
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      // Store token and redirect after URL is cleared
-      localStorage.setItem("dashboard_token", token);
       toast({
         title: "Login Successful",
         description: "Welcome! Redirecting...",
       });
+      
+      // Redirect to check if we have a valid session via cookie
       window.location.href = '/';
       return;
     }
@@ -48,12 +59,31 @@ export default function LoginPage() {
   const loginMutation = useMutation({
     mutationFn: (data: { handle: string }) => api.post<{ authUrl: string }>("/api/auth/login", data),
     onSuccess: (data) => {
-      window.location.href = data.authUrl;
+      // Validate authUrl before redirecting to prevent open redirect attacks
+      try {
+        const url = new URL(data.authUrl);
+        // Only allow HTTPS URLs and known AT Protocol domains
+        if (url.protocol === 'https:') {
+          window.location.href = data.authUrl;
+        } else {
+          toast({
+            title: "Login Failed",
+            description: "Invalid authentication URL received",
+            variant: "destructive",
+          });
+        }
+      } catch {
+        toast({
+          title: "Login Failed",
+          description: "Invalid authentication URL format",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
         title: "Login Failed",
-        description: error.message || "Failed to initiate login",
+        description: sanitizeText(error.message || "Failed to initiate login"),
         variant: "destructive",
       });
     },

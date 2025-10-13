@@ -2440,23 +2440,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Extract DID from refresh token to find PDS
-      // Note: Refresh tokens from PDS contain the DID - we need to decode it
-      // For now, we'll proxy to a known PDS or require the client to specify
-      // In production, decode JWT to get DID, then resolve to PDS
-      
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
-      
-      const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
-      
-      if (!result.success || !result.data) {
+      // Extract DID from refresh token JWT to find correct PDS
+      // JWT format: header.payload.signature (base64url encoded)
+      try {
+        const parts = refreshToken.split('.');
+        if (parts.length !== 3) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Malformed refresh token"
+          });
+        }
+        
+        // Decode JWT payload (second part)
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const userDid = payload.sub; // DID is in the 'sub' claim
+        
+        if (!userDid || !userDid.startsWith('did:')) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Token does not contain valid DID"
+          });
+        }
+        
+        // Resolve user's DID to their actual PDS endpoint
+        const { didResolver } = await import('./services/did-resolver');
+        const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+        
+        if (!pdsEndpoint) {
+          console.error(`[XRPC] Could not resolve PDS for DID: ${userDid}`);
+          return res.status(400).json({
+            error: "InvalidRequest",
+            message: "Could not determine user's PDS endpoint"
+          });
+        }
+        
+        const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
+        
+        if (!result.success || !result.data) {
+          return res.status(401).json({
+            error: "AuthenticationFailed",
+            message: result.error || "Failed to refresh session"
+          });
+        }
+        
+        res.json(result.data);
+      } catch (decodeError) {
+        console.error("[XRPC] Error decoding refresh token:", decodeError);
         return res.status(401).json({
-          error: "AuthenticationFailed",
-          message: result.error || "Failed to refresh session"
+          error: "InvalidToken",
+          message: "Failed to decode refresh token"
         });
       }
-      
-      res.json(result.data);
     } catch (error) {
       console.error("[XRPC] Error in refreshSession:", error);
       res.status(500).json({
@@ -2478,19 +2512,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get PDS endpoint from token or use default
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
-      
-      const result = await pdsClient.getSession(pdsEndpoint, accessToken);
-      
-      if (!result.success || !result.data) {
+      // Extract DID from access token JWT to find correct PDS
+      // JWT format: header.payload.signature (base64url encoded)
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length !== 3) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Malformed access token"
+          });
+        }
+        
+        // Decode JWT payload (second part)
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const userDid = payload.sub; // DID is in the 'sub' claim
+        
+        if (!userDid || !userDid.startsWith('did:')) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Token does not contain valid DID"
+          });
+        }
+        
+        // Resolve user's DID to their actual PDS endpoint
+        const { didResolver } = await import('./services/did-resolver');
+        const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+        
+        if (!pdsEndpoint) {
+          console.error(`[XRPC] Could not resolve PDS for DID: ${userDid}`);
+          return res.status(400).json({
+            error: "InvalidRequest",
+            message: "Could not determine user's PDS endpoint"
+          });
+        }
+        
+        const result = await pdsClient.getSession(pdsEndpoint, accessToken);
+        
+        if (!result.success || !result.data) {
+          return res.status(401).json({
+            error: "AuthenticationFailed",
+            message: result.error || "Invalid or expired session"
+          });
+        }
+        
+        res.json(result.data);
+      } catch (decodeError) {
+        console.error("[XRPC] Error decoding access token:", decodeError);
         return res.status(401).json({
-          error: "AuthenticationFailed",
-          message: result.error || "Invalid or expired session"
+          error: "InvalidToken",
+          message: "Failed to decode access token"
         });
       }
-      
-      res.json(result.data);
     } catch (error) {
       console.error("[XRPC] Error in getSession:", error);
       res.status(401).json({

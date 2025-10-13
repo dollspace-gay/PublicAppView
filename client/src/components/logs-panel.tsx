@@ -22,6 +22,16 @@ const getLevelColor = (level: LogEntry["level"]) => {
   }
 };
 
+// Sanitize log messages to prevent XSS attacks
+function sanitizeLogMessage(message: string): string {
+  // Remove any HTML tags and script-like content, limit length
+  return message
+    .replace(/[<>]/g, '') // Remove angle brackets to prevent tag injection
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/on\w+=/gi, '') // Remove event handlers
+    .substring(0, 1000); // Limit length to prevent abuse
+}
+
 export function LogsPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<string>("all");
@@ -174,7 +184,7 @@ export function LogsPanel() {
                 <div key={i} className="mb-2" data-testid={`log-entry-${i}`}>
                   <span className="text-muted-foreground">[{formatTime(log.timestamp)}]</span>
                   <span className={`ml-2 ${getLevelColor(log.level)}`}>[{log.level}]</span>
-                  <span className="text-foreground ml-2">{log.message}</span>
+                  <span className="text-foreground ml-2">{sanitizeLogMessage(log.message)}</span>
                 </div>
               ))
             )}
