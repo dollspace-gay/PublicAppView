@@ -87,11 +87,8 @@ class FirehoseConsumer:
             encoding="utf-8",
             decode_responses=True,
             socket_keepalive=True,
-            socket_keepalive_options={
-                1: 1,  # TCP_KEEPIDLE
-                2: 1,  # TCP_KEEPINTVL
-                3: 3,  # TCP_KEEPCNT
-            }
+            # Note: socket_keepalive_options removed for compatibility
+            # Basic keepalive is sufficient for Docker networking
         )
         
         # Verify connection
@@ -354,7 +351,7 @@ class FirehoseConsumer:
         
         # Close Redis
         if self.redis:
-            await self.redis.close()
+            await self.redis.aclose()
         
         # Log final stats
         elapsed = time.time() - self.start_time
