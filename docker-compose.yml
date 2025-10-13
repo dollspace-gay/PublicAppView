@@ -112,6 +112,7 @@ services:
     restart: unless-stopped
 
   # Constellation Bridge - Enhanced interaction statistics
+  # Only starts if CONSTELLATION_ENABLED=true in .env
   constellation-bridge:
     build: ./microcosm-bridge/constellation-client
     environment:
@@ -126,9 +127,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    profiles:
-      - constellation
-      - microcosm
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
       interval: 30s
@@ -136,6 +134,7 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
+    # Note: Set CONSTELLATION_ENABLED=false in your environment to disable Constellation features
 
 volumes:
   postgres_data:
