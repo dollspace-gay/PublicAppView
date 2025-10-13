@@ -152,15 +152,21 @@ async function importCar() {
   for (const { rkey, record, cid } of records.posts) {
     try {
       const uri = `at://${DID}/app.bsky.feed.post/${rkey}`;
+      const postRecord = record as any;
+      
       await db.insert(posts)
         .values({
           uri,
           cid: cid?.toString() || 'unknown',
           authorDid: DID,
-          text: (record as any).text || '',
-          parentUri: (record as any).reply?.parent?.uri || null,
-          rootUri: (record as any).reply?.root?.uri || null,
-          createdAt: new Date((record as any).createdAt),
+          text: postRecord.text || '',
+          parentUri: postRecord.reply?.parent?.uri || null,
+          rootUri: postRecord.reply?.root?.uri || null,
+          // Include full record data - embeds, facets, etc.
+          embed: postRecord.embed || null,
+          facets: postRecord.facets || null,
+          tags: postRecord.tags || [],
+          createdAt: new Date(postRecord.createdAt),
           indexedAt: new Date()
         })
         .onConflictDoNothing();
@@ -170,7 +176,9 @@ async function importCar() {
         console.log(`[CAR_IMPORT]   ${postsCreated}/${records.posts.length} posts...`);
       }
     } catch (error: any) {
-      console.error(`[CAR_IMPORT] Post error:`, error.message);
+      // Log detailed error to help debug what's being dropped
+      console.error(`[CAR_IMPORT] Failed to import post ${rkey}:`, error.message);
+      console.error(`[CAR_IMPORT]   Record data:`, JSON.stringify(record).substring(0, 200));
     }
   }
   console.log(`[CAR_IMPORT] ✓ Created ${postsCreated} posts`);

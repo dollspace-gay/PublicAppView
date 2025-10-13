@@ -959,6 +959,7 @@ export class EventProcessor {
       parentUri: record.reply?.parent.uri,
       rootUri: record.reply?.root.uri,
       embed: record.embed,
+      facets: record.facets, // Store facets for rich text (links, mentions, hashtags)
       createdAt: this.safeDate(record.createdAt),
     };
 

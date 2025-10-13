@@ -130,14 +130,30 @@ async function importCar() {
       cid: cid.toString(),
       authorDid: DID,
       text: record.text || '',
-      replyParentUri: record.reply?.parent?.uri || null,
-      replyRootUri: record.reply?.root?.uri || null,
+      parentUri: record.reply?.parent?.uri || null,
+      rootUri: record.reply?.root?.uri || null,
+      // Include full record data - embeds, facets, tags, etc.
+      embed: record.embed || null,
+      facets: record.facets || null,
+      tags: record.tags || [],
       createdAt: new Date(record.createdAt),
       indexedAt: new Date()
     }));
     
-    await db.insert(posts).values(values).onConflictDoNothing();
-    console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.posts.length)}/${records.posts.length} posts...`);
+    try {
+      await db.insert(posts).values(values).onConflictDoNothing();
+      console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.posts.length)}/${records.posts.length} posts...`);
+    } catch (error: any) {
+      console.error(`[CAR_IMPORT] Batch insert error at offset ${i}:`, error.message);
+      // Try inserting one by one to identify problematic records
+      for (const value of values) {
+        try {
+          await db.insert(posts).values(value).onConflictDoNothing();
+        } catch (individualError: any) {
+          console.error(`[CAR_IMPORT]   Failed post ${value.uri}:`, individualError.message);
+        }
+      }
+    }
   }
   console.log(`[CAR_IMPORT] ✓ Created posts`);
   
@@ -196,8 +212,15 @@ async function importCar() {
   console.log(`[CAR_IMPORT] Creating ${records.blocks.length} blocks...`);
   for (let i = 0; i < records.blocks.length; i += BATCH_SIZE) {
     const batch = records.blocks.slice(i, i + BATCH_SIZE);
+    // Filter out invalid blocks but log them
     const values = batch
-      .filter(({ record }) => record && record.subject && record.createdAt)
+      .filter(({ record }) => {
+        if (!record || !record.subject || !record.createdAt) {
+          console.warn(`[CAR_IMPORT] Skipping invalid block record at offset ${i}`);
+          return false;
+        }
+        return true;
+      })
       .map(({ rkey, record }) => ({
         uri: `at://${DID}/app.bsky.graph.block/${rkey}`,
         blockerDid: DID,
@@ -209,7 +232,7 @@ async function importCar() {
     if (values.length > 0) {
       await db.insert(blocks).values(values).onConflictDoNothing();
     }
-    console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.blocks.length)}/${records.blocks.length} blocks...`);
+    console.log(`[CAR_IMPORT]   ${Math.min(i + BATCH_SIZE, records.blocks.length)}/${records.blocks.length} blocks (${values.length} valid)...`);
   }
   console.log(`[CAR_IMPORT] ✓ Created blocks`);
   
