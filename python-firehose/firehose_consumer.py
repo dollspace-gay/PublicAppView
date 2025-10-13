@@ -28,8 +28,9 @@ from atproto import (
 )
 
 # Configure logging
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format='[%(asctime)s] [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
@@ -140,14 +141,26 @@ class FirehoseConsumer:
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message (sync version for client)."""
+        # Debug: Log that we received a message
+        logger.debug(f"Received message: {message.header if hasattr(message, 'header') else type(message)}")
+        
         # Schedule async handler in the main event loop
         if self.loop:
-            asyncio.run_coroutine_threadsafe(self.handle_message(message), self.loop)
+            future = asyncio.run_coroutine_threadsafe(self.handle_message(message), self.loop)
+            # Wait for completion to catch any errors
+            try:
+                future.result(timeout=5)
+            except Exception as e:
+                logger.error(f"Error in message handler: {e}")
+        else:
+            logger.error("Event loop not available!")
     
     async def handle_message(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
         try:
+            logger.debug(f"Parsing message...")
             commit = parse_subscribe_repos_message(message)
+            logger.debug(f"Parsed commit type: {type(commit).__name__}")
             
             # Handle Commit messages (posts, likes, follows, etc.)
             if isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Commit):
@@ -197,8 +210,10 @@ class FirehoseConsumer:
                     
                     data["ops"].append(op_data)
                 
+                logger.debug(f"Pushing commit to Redis: {len(data['ops'])} ops")
                 await self.push_to_redis("commit", data, seq)
                 self.last_event_time = time.time()
+                logger.debug(f"Successfully pushed commit seq={seq}")
             
             # Handle Identity messages (handle changes)
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
