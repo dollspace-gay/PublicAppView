@@ -152,117 +152,92 @@ class FirehoseConsumer:
             logger.error(f"Error pushing to Redis: {e}")
             raise
     
-    def parse_car_message(self, data: bytes) -> Optional[Dict[str, Any]]:
-        """
-        Parse CAR (Content Addressable aRchive) message from firehose.
-        
-        Note: This is a simplified parser. For production use, you might want
-        to use a proper CAR/DAG-CBOR library like 'dag-cbor' or 'ipld'.
-        
-        For now, we'll extract basic info from the WebSocket frames.
-        """
-        try:
-            # The AT Protocol firehose sends messages in a specific format
-            # For simplicity, we'll parse the JSON parts
-            # In production, you'd use proper CAR/CBOR parsing
-            
-            # Messages come as {"op":1,"t":"#commit",...} or similar
-            # The websocket library gives us the raw bytes
-            
-            # Try to decode as JSON first (for identity/account updates)
-            try:
-                return json.loads(data.decode('utf-8'))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                # This is likely a binary CAR message (commits)
-                # For now, we'll skip detailed parsing and focus on the header
-                # A full implementation would use dag-cbor library
-                logger.debug("Received binary CAR message (commits)")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error parsing message: {e}")
-            return None
-    
     async def handle_websocket_message(self, message: bytes) -> None:
         """Handle incoming WebSocket message from firehose."""
         try:
-            # AT Protocol firehose sends CBOR-encoded messages
-            # We need to decode them properly
-            # For this implementation, we'll use the atproto library
+            # Import atproto library for message parsing
+            from atproto import parse_subscribe_repos_message, models
+            from atproto.exceptions import FirehoseError
             
-            # Parse the message (simplified - see note in parse_car_message)
-            parsed = self.parse_car_message(message)
-            
-            if not parsed:
-                # Most messages will be here (binary CAR commits)
-                # We'd need a proper CAR parser, but for now we'll use atproto library
-                # Let's import it dynamically
-                try:
-                    from atproto import parse_subscribe_repos_message, models
+            try:
+                # Parse the binary message using atproto SDK
+                msg = parse_subscribe_repos_message(message)
+                
+                # Check message type and handle accordingly
+                if hasattr(msg, '__class__'):
+                    msg_type = msg.__class__.__name__
+                else:
+                    logger.warning(f"Unknown message format: {type(msg)}")
+                    return
+                
+                # Handle Commit messages (posts, likes, follows, etc.)
+                if msg_type == 'Commit' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Commit):
+                    seq = msg.seq
+                    await self.save_cursor(seq)
                     
-                    msg = parse_subscribe_repos_message(message)
+                    # Parse the commit operations
+                    data = {
+                        "repo": msg.repo,
+                        "ops": [],
+                    }
                     
-                    if isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Commit):
-                        # Extract commit data
-                        seq = msg.seq
-                        await self.save_cursor(seq)
-                        
-                        # Parse the commit operations
-                        data = {
-                            "repo": msg.repo,
-                            "ops": [],
-                        }
-                        
-                        # Process operations (creates, updates, deletes)
-                        if msg.blocks:
-                            # Parse blocks to extract operations
-                            # This requires CAR parsing which atproto handles
-                            try:
-                                for op in msg.ops:
-                                    op_data = {
-                                        "action": op.action,
-                                        "path": op.path,
-                                    }
-                                    if op.cid:
-                                        op_data["cid"] = str(op.cid)
-                                    # Record would need to be extracted from blocks
-                                    data["ops"].append(op_data)
-                            except Exception as e:
-                                logger.debug(f"Error parsing ops: {e}")
-                        
-                        await self.push_to_redis("commit", data, seq)
+                    # Process operations (creates, updates, deletes)
+                    if hasattr(msg, 'ops') and msg.ops:
+                        try:
+                            for op in msg.ops:
+                                op_data = {
+                                    "action": op.action,
+                                    "path": op.path,
+                                }
+                                if hasattr(op, 'cid') and op.cid:
+                                    op_data["cid"] = str(op.cid)
+                                data["ops"].append(op_data)
+                        except Exception as e:
+                            logger.debug(f"Error parsing ops: {e}")
                     
-                    elif isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Identity):
-                        # Identity update (handle change)
-                        data = {
-                            "did": msg.did,
-                            "handle": msg.handle,
-                        }
-                        await self.push_to_redis("identity", data, msg.seq)
-                        if msg.seq:
-                            await self.save_cursor(msg.seq)
-                    
-                    elif isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Account):
-                        # Account update (active/inactive)
-                        data = {
-                            "did": msg.did,
-                            "active": msg.active,
-                        }
-                        await self.push_to_redis("account", data, msg.seq)
-                        if msg.seq:
-                            await self.save_cursor(msg.seq)
-                    
+                    await self.push_to_redis("commit", data, seq)
                     self.last_event_time = time.time()
-                    
-                except ImportError:
-                    logger.error(
-                        "atproto library not installed. "
-                        "Install with: pip install atproto"
-                    )
-                    raise
-                except Exception as e:
-                    logger.error(f"Error parsing atproto message: {e}")
+                
+                # Handle Identity messages (handle changes)
+                elif msg_type == 'Identity' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Identity):
+                    data = {
+                        "did": msg.did,
+                        "handle": getattr(msg, 'handle', msg.did),
+                    }
+                    seq = getattr(msg, 'seq', None)
+                    await self.push_to_redis("identity", data, seq)
+                    if seq:
+                        await self.save_cursor(seq)
+                    self.last_event_time = time.time()
+                
+                # Handle Account messages (active/inactive)
+                elif msg_type == 'Account' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Account):
+                    data = {
+                        "did": msg.did,
+                        "active": getattr(msg, 'active', True),
+                    }
+                    seq = getattr(msg, 'seq', None)
+                    await self.push_to_redis("account", data, seq)
+                    if seq:
+                        await self.save_cursor(seq)
+                    self.last_event_time = time.time()
+                
+                else:
+                    # Unknown message type - log for debugging
+                    logger.debug(f"Unknown message type: {msg_type}")
+                
+            except FirehoseError as e:
+                logger.error(f"Firehose protocol error: {e}")
+            except Exception as e:
+                logger.error(f"Error parsing atproto message: {e}")
+                logger.debug(f"Message type: {type(message)}, length: {len(message)}")
             
+        except ImportError:
+            logger.error(
+                "atproto library not installed. "
+                "Install with: pip install atproto"
+            )
+            raise
         except Exception as e:
             logger.error(f"Error handling message: {e}")
     
