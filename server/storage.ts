@@ -85,6 +85,7 @@ export interface IStorage {
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
   deleteFollow(uri: string, userDid: string): Promise<void>;
+  getFollow(uri: string): Promise<Follow | undefined>;
   getFollows(followerDid: string, limit?: number): Promise<Follow[]>;
   getFollowers(followingDid: string, limit?: number): Promise<Follow[]>;
   isFollowing(followerDid: string, followingDid: string): Promise<boolean>;
@@ -145,6 +146,7 @@ export interface IStorage {
   updateSession(id: string, data: Partial<Pick<InsertSession, 'accessToken' | 'refreshToken' | 'expiresAt'>>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<void>;
   deleteExpiredSessions(): Promise<void>;
+  deleteCorruptedSessions(): Promise<number>;
 
   // OAuth state operations
   saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void>;
@@ -1126,6 +1128,11 @@ export class DatabaseStorage implements IStorage {
     await redisQueue.incrementRecordCount('follows', -1);
   }
 
+  async getFollow(uri: string): Promise<Follow | undefined> {
+    const [result] = await this.db.select().from(follows).where(eq(follows.uri, uri));
+    return result;
+  }
+
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
     return await this.db
       .select()
@@ -1678,8 +1685,8 @@ export class DatabaseStorage implements IStorage {
     // Encrypt tokens before storing
     const encryptedSession = {
       ...sanitized,
-      accessToken: encryptionService.encrypt(sanitized.accessToken),
-      refreshToken: sanitized.refreshToken ? encryptionService.encrypt(sanitized.refreshToken) : null,
+      accessToken: await encryptionService.encrypt(sanitized.accessToken),
+      refreshToken: sanitized.refreshToken ? await encryptionService.encrypt(sanitized.refreshToken) : null,
     };
     
     const [newSession] = await this.db
@@ -1690,8 +1697,8 @@ export class DatabaseStorage implements IStorage {
     // Decrypt tokens before returning
     return {
       ...newSession,
-      accessToken: encryptionService.decrypt(newSession.accessToken),
-      refreshToken: newSession.refreshToken ? encryptionService.decrypt(newSession.refreshToken) : null,
+      accessToken: await encryptionService.decrypt(newSession.accessToken),
+      refreshToken: newSession.refreshToken ? await encryptionService.decrypt(newSession.refreshToken) : null,
     };
   }
 
@@ -1773,6 +1780,32 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpiredSessions(): Promise<void> {
     await this.db.delete(sessions).where(sql`${sessions.expiresAt} < NOW()`);
+  }
+
+  /**
+   * Delete corrupted sessions (those that cannot be decrypted)
+   * This is useful for cleaning up sessions created before encryption was fixed
+   */
+  async deleteCorruptedSessions(): Promise<number> {
+    const allSessions = await this.db.select().from(sessions);
+    let deletedCount = 0;
+    
+    for (const session of allSessions) {
+      try {
+        // Try to decrypt the session
+        await encryptionService.decrypt(session.accessToken);
+        if (session.refreshToken) {
+          await encryptionService.decrypt(session.refreshToken);
+        }
+      } catch (error) {
+        // Decryption failed - delete this corrupted session
+        console.log(`[STORAGE] Deleting corrupted session ${session.id}`);
+        await this.db.delete(sessions).where(eq(sessions.id, session.id));
+        deletedCount++;
+      }
+    }
+    
+    return deletedCount;
   }
 
   async saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void> {
