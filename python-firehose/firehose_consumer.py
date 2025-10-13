@@ -62,7 +62,7 @@ class FirehoseConsumer:
         self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
         self.current_cursor: Optional[int] = None
-        self.loop = None  # Store reference to main event loop
+        self.loop = None  # Event loop reference for callback
         
         # Metrics
         self.event_count = 0
@@ -139,26 +139,10 @@ class FirehoseConsumer:
             logger.error(f"Error pushing to Redis: {e}")
             raise
     
-    def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
-        """Handle incoming firehose message (sync version for client)."""
-        # Debug: Log that we received a message
-        logger.debug(f"Received message: {message.header if hasattr(message, 'header') else type(message)}")
-        
-        # Schedule async handler in the main event loop
-        if self.loop:
-            future = asyncio.run_coroutine_threadsafe(self.handle_message(message), self.loop)
-            # Wait for completion to catch any errors
-            try:
-                future.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Error in message handler: {e}")
-        else:
-            logger.error("Event loop not available!")
-    
     async def handle_message(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message."""
         try:
-            logger.debug(f"Parsing message...")
+            logger.debug(f"Received message, parsing...")
             commit = parse_subscribe_repos_message(message)
             logger.debug(f"Parsed commit type: {type(commit).__name__}")
             
@@ -242,64 +226,64 @@ class FirehoseConsumer:
         except Exception as e:
             logger.error(f"Error handling message: {e}")
     
+    def _sync_callback(self, message: firehose_models.MessageFrame) -> None:
+        """Synchronous callback that schedules async message handling."""
+        try:
+            # Create a future in the event loop
+            future = asyncio.run_coroutine_threadsafe(
+                self.handle_message(message),
+                self.loop
+            )
+            # Wait for it with a timeout to prevent blocking
+            future.result(timeout=10)
+        except Exception as e:
+            logger.error(f"Error in callback: {e}", exc_info=True)
+    
     async def run(self) -> None:
         """Main run loop."""
         self.running = True
-        
-        # Store reference to the current event loop
         self.loop = asyncio.get_running_loop()
         
         # Connect to Redis
         await self.connect_redis()
         
-        # Create firehose client with cursor if available
-        params = None
-        if self.current_cursor:
-            params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=self.current_cursor)
-            logger.info(f"Resuming from cursor: {self.current_cursor}")
-        
-        logger.info(f"Connecting to firehose at {self.relay_url}...")
-        self.client = FirehoseSubscribeReposClient(params, base_uri=self.relay_url)
-        
-        logger.info("Connected to firehose successfully")
-        
-        # Start the client (this blocks until stopped)
-        # We need to run this in a thread since it's synchronous
-        import threading
-        
-        def run_client():
+        # Main reconnection loop
+        while self.running:
             try:
-                self.client.start(self.on_message_handler)
+                # Create firehose client with cursor if available
+                params = None
+                if self.current_cursor:
+                    params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=self.current_cursor)
+                    logger.info(f"Resuming from cursor: {self.current_cursor}")
+                
+                logger.info(f"Connecting to firehose at {self.relay_url}...")
+                self.client = FirehoseSubscribeReposClient(params, base_uri=self.relay_url)
+                
+                logger.info("Connected to firehose successfully")
+                logger.info("Starting message processing...")
+                
+                # Run the blocking start() in a thread pool
+                await asyncio.to_thread(self.client.start, self._sync_callback)
+                    
             except Exception as e:
-                logger.error(f"Firehose client error: {e}")
+                logger.error(f"Firehose error: {e}", exc_info=True)
                 if self.running:
-                    # Attempt reconnection
                     logger.info("Reconnecting in 5 seconds...")
-                    time.sleep(5)
-                    if self.running:
-                        run_client()
-        
-        client_thread = threading.Thread(target=run_client, daemon=True)
-        client_thread.start()
-        
-        # Keep the async loop alive
-        try:
-            while self.running:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
+                    await asyncio.sleep(5)
+                else:
+                    break
     
     async def stop(self) -> None:
         """Gracefully stop the consumer."""
         logger.info("Stopping firehose consumer...")
         self.running = False
         
-        # Stop client
+        # Stop the firehose client
         if self.client:
             try:
                 self.client.stop()
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Error stopping client: {e}")
         
         # Save final cursor
         if self.current_cursor and self.redis:
