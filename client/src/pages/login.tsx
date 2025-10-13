@@ -35,16 +35,20 @@ export default function LoginPage() {
     }
     
     if (token) {
-      // CRITICAL: Clear URL IMMEDIATELY before any other operations
-      // This minimizes the window where the token is visible in browser history
+      // SECURITY: Token in URL is a security risk, but we clear it immediately
+      // The backend has already set an HttpOnly cookie during OAuth callback
+      // We should never have gotten here - redirect without the token parameter
+      console.warn('[LOGIN] Token found in URL - this should not happen with cookie-based auth');
+      
+      // Clear URL IMMEDIATELY to remove token from browser history
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      // Store token and redirect after URL is cleared
-      localStorage.setItem("dashboard_token", token);
       toast({
         title: "Login Successful",
         description: "Welcome! Redirecting...",
       });
+      
+      // Redirect to check if we have a valid session via cookie
       window.location.href = '/';
       return;
     }

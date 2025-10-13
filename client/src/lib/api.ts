@@ -2,31 +2,10 @@ import { queryClient } from "./queryClient";
 
 // A simple wrapper around fetch to handle auth and errors
 
-// --- Auth Token Management ---
-const getAuthToken = (): string | null => {
-  try {
-    return localStorage.getItem("dashboard_token");
-  } catch (error) {
-    console.error("Failed to read from localStorage:", error);
-    return null;
-  }
-};
-
-const setAuthToken = (token: string): void => {
-  try {
-    localStorage.setItem("dashboard_token", token);
-  } catch (error) {
-    console.error("Failed to write to localStorage:", error);
-  }
-};
-
-const clearAuthToken = (): void => {
-  try {
-    localStorage.removeItem("dashboard_token");
-  } catch (error) {
-    console.error("Failed to remove from localStorage:", error);
-  }
-};
+// --- Cookie-Based Authentication ---
+// SECURITY: We use HttpOnly cookies for authentication instead of localStorage
+// This prevents XSS attacks from stealing authentication tokens
+// The backend sets the 'auth_token' cookie, and we just need to send it with 'credentials: include'
 
 // --- CSRF Token Management ---
 let csrfToken: string | null = null;
@@ -92,32 +71,28 @@ const request = async (
   body?: any,
   retryCount = 0,
 ): Promise<any> => {
-  const authToken = getAuthToken();
   const csrf = await fetchCSRFToken();
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
-  if (authToken) {
-    headers["Authorization"] = `Bearer ${authToken}`;
-  }
-
+  // Add CSRF token for state-changing requests
   if (csrf && method !== 'GET') {
     headers['X-CSRF-Token'] = csrf;
   }
 
   console.log(`[API] ${method} ${url}`, { 
-    hasAuth: !!authToken, 
     hasCSRF: !!csrf, 
-    retryCount 
+    retryCount,
+    usingCookieAuth: true
   });
 
   const response = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include', // Ensure cookies are sent
+    credentials: 'include', // Send HttpOnly cookies (auth_token)
   });
 
   if (!response.ok) {
@@ -136,8 +111,8 @@ const request = async (
       }
     }
 
+    // On 401, invalidate session cache so UI updates
     if (response.status === 401) {
-      clearAuthToken();
       queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
     }
     
@@ -162,8 +137,8 @@ const api = {
   post: <T>(url: string, body: any): Promise<T> => request('POST', url, body),
   put: <T>(url: string, body: any): Promise<T> => request('PUT', url, body),
   delete: <T>(url: string): Promise<T> => request('DELETE', url),
-  // Expose refresh function for manual token refresh if needed
+  // Expose refresh function for manual CSRF token refresh if needed
   refreshCSRFToken,
 };
 
-export { api, setAuthToken, refreshCSRFToken };
+export { api, refreshCSRFToken };

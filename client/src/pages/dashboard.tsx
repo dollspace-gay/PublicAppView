@@ -17,7 +17,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldAlert } from "lucide-react";
-import { api, setAuthToken } from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface MetricsData {
   eventsProcessed: number;
@@ -51,25 +51,9 @@ interface MetricsData {
 export default function Dashboard() {
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const search = useSearch();
 
-  // Handle auth token from URL (SECURITY: minimize token exposure in URL)
-  useEffect(() => {
-    const params = new URLSearchParams(search);
-    const token = params.get("token");
-
-    if (token) {
-      console.log("[AUTH] Token found in URL, setting auth token...");
-      
-      // CRITICAL: Clear the URL IMMEDIATELY before any async operations
-      // This minimizes the window where the token is visible in browser history
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      // Store token and invalidate session after URL is cleared
-      setAuthToken(token);
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
-    }
-  }, [search, queryClient]);
+  // SECURITY: We now use HttpOnly cookies for authentication
+  // No need to handle tokens in URL or localStorage
 
   const { data: session } = useQuery<{ isAdmin?: boolean }>({
     queryKey: ["/api/auth/session"],
