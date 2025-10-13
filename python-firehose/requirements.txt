@@ -1,0 +1,14 @@
+# Python Firehose Consumer Dependencies
+# High-performance async libraries for AT Protocol firehose ingestion
+
+# AT Protocol SDK for parsing firehose messages
+atproto>=0.0.54
+
+# Async WebSocket client
+websockets>=12.0
+
+# Async Redis client
+redis[hiredis]>=5.0.0
+
+# Additional utilities
+python-dotenv>=1.0.0

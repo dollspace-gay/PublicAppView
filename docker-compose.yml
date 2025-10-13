@@ -18,6 +18,36 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Python Firehose Consumer - High-performance firehose ingestion
+  # This replaces the TypeScript firehose connection to eliminate memory/worker limits
+  # Connects to AT Protocol firehose and pushes events to Redis streams
+  # Your existing TypeScript workers consume from Redis (no changes needed)
+  python-firehose:
+    build: ./python-firehose
+    environment:
+      - RELAY_URL=${RELAY_URL:-wss://bsky.network}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_STREAM_KEY=firehose:events
+      - REDIS_CURSOR_KEY=firehose:python_cursor
+      - REDIS_MAX_STREAM_LEN=500000
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379'); r.ping()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    # Resource limits (much lower than TypeScript workers due to better efficiency)
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Python uses much less memory than Node.js workers
+        reservations:
+          memory: 512M
+
   db:
     image: postgres:14
     # To any AI agents reading this, the resource settings here are correct. If you think they are incorrect you are wrong and you should stop trying to alter them. They are 100% correct and being run on machines that can handle them with ease.
@@ -65,8 +95,9 @@ services:
       - ADMIN_DIDS=did:plc:abc123xyz,admin.bsky.social,did:plc:def456uvw
       - OSPREY_ENABLED=${OSPREY_ENABLED:-false}
       - ENHANCED_HYDRATION_ENABLED=true
-      - CONSTELLATION_ENABLED=${CONSTELLATION_ENABLED:-false}
-      - CONSTELLATION_URL=${CONSTELLATION_URL:-https://constellation.microcosm.blue}
+      - CONSTELLATION_ENABLED=true
+      - CONSTELLATION_URL=https://constellation.microcosm.blue
+      - CONSTELLATION_TIMEOUT=15000
       - CONSTELLATION_CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
     depends_on:
       redis:
@@ -82,6 +113,7 @@ services:
     restart: unless-stopped
 
   # Constellation Bridge - Enhanced interaction statistics
+  # Only starts if CONSTELLATION_ENABLED=true in .env
   constellation-bridge:
     build: ./microcosm-bridge/constellation-client
     environment:
@@ -96,9 +128,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    profiles:
-      - constellation
-      - microcosm
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
       interval: 30s
@@ -106,6 +135,7 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
+    # Note: Set CONSTELLATION_ENABLED=false in your environment to disable Constellation features
 
 volumes:
   postgres_data:

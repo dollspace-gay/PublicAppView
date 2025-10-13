@@ -669,20 +669,8 @@ export class XRPCApi {
     // Check for falsy values and the literal string "undefined"
     if (!blobCid || blobCid === 'undefined') return undefined;
     
-    // Follow Bluesky AppView pattern: config.cdnUrl || `${config.publicUrl}/img`
-    // IMG_URI_ENDPOINT is our cdnUrl (custom CDN endpoint)
-    // PUBLIC_URL is our publicUrl (base URL of the application)
-    const endpoint = process.env.IMG_URI_ENDPOINT || 
-                     (process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL}/img` : null) ||
-                     (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/img` : null) ||
-                     (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/img` : null);
-    
-    if (!endpoint) {
-      console.error('[CDN_TRANSFORM] No PUBLIC_URL or IMG_URI_ENDPOINT configured - image URLs will fail AT Protocol validation');
-      return undefined;
-    }
-    
-    const cdnUrl = `${endpoint}/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    // Always use Bluesky CDN for image hosting
+    const cdnUrl = `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
     return cdnUrl;
   }
