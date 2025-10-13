@@ -6,6 +6,8 @@
 
 This Python service replaces the TypeScript firehose connection to eliminate worker overhead and memory limitations. It connects to the AT Protocol firehose and pushes events to Redis streams, where your existing TypeScript workers consume them (no changes needed to your TypeScript code).
 
+**Implementation based on:** [AT Protocol Firehose Guide](https://gist.github.com/stuartlangridge/20ffe860fee0ecc315d3878c1ea77c35) - Uses proper CAR parsing with `atproto` library to extract full record data.
+
 ### Why Python?
 
 The original TypeScript implementation needed multiple workers because:

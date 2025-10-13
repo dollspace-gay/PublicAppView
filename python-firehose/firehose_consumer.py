@@ -156,85 +156,102 @@ class FirehoseConsumer:
         """Handle incoming WebSocket message from firehose."""
         try:
             # Import atproto library for message parsing
-            from atproto import parse_subscribe_repos_message, models
-            from atproto.exceptions import FirehoseError
+            # Based on: https://gist.github.com/stuartlangridge/20ffe860fee0ecc315d3878c1ea77c35
+            from atproto import parse_subscribe_repos_message, models, CAR
+            from atproto.xrpc_client.models.utils import get_or_create
             
             try:
                 # Parse the binary message using atproto SDK
-                msg = parse_subscribe_repos_message(message)
-                
-                # Check message type and handle accordingly
-                if hasattr(msg, '__class__'):
-                    msg_type = msg.__class__.__name__
-                else:
-                    logger.warning(f"Unknown message format: {type(msg)}")
-                    return
+                commit = parse_subscribe_repos_message(message)
                 
                 # Handle Commit messages (posts, likes, follows, etc.)
-                if msg_type == 'Commit' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Commit):
-                    seq = msg.seq
+                if isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Commit):
+                    seq = commit.seq
                     await self.save_cursor(seq)
+                    
+                    # Parse CAR (Content Addressable aRchive) from commit blocks
+                    # This contains the actual record data
+                    car = CAR.from_bytes(commit.blocks)
                     
                     # Parse the commit operations
                     data = {
-                        "repo": msg.repo,
+                        "repo": commit.repo,
                         "ops": [],
                     }
                     
                     # Process operations (creates, updates, deletes)
-                    if hasattr(msg, 'ops') and msg.ops:
-                        try:
-                            for op in msg.ops:
-                                op_data = {
-                                    "action": op.action,
-                                    "path": op.path,
-                                }
-                                if hasattr(op, 'cid') and op.cid:
-                                    op_data["cid"] = str(op.cid)
-                                data["ops"].append(op_data)
-                        except Exception as e:
-                            logger.debug(f"Error parsing ops: {e}")
+                    for op in commit.ops:
+                        op_data = {
+                            "action": op.action,
+                            "path": op.path,
+                        }
+                        
+                        # For creates/updates, extract the actual record from CAR blocks
+                        if op.action in ["create", "update"] and op.cid:
+                            op_data["cid"] = str(op.cid)
+                            
+                            try:
+                                # Get raw record data from CAR blocks
+                                raw_record = car.blocks.get(op.cid)
+                                if raw_record:
+                                    # Decode the record using atproto's get_or_create
+                                    # strict=False allows parsing without full validation
+                                    record = get_or_create(raw_record, strict=False)
+                                    
+                                    # Convert record to dict for JSON serialization
+                                    # Use model_dump() if available (pydantic v2), else dict()
+                                    if hasattr(record, 'model_dump'):
+                                        op_data["record"] = record.model_dump()
+                                    elif hasattr(record, 'dict'):
+                                        op_data["record"] = record.dict()
+                                    else:
+                                        # Fallback: convert to dict manually
+                                        op_data["record"] = dict(raw_record) if isinstance(raw_record, dict) else raw_record
+                            except Exception as e:
+                                # If record parsing fails, log but continue with just metadata
+                                logger.debug(f"Could not parse record for {op.path}: {e}")
+                        
+                        data["ops"].append(op_data)
                     
                     await self.push_to_redis("commit", data, seq)
                     self.last_event_time = time.time()
                 
                 # Handle Identity messages (handle changes)
-                elif msg_type == 'Identity' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Identity):
+                elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
                     data = {
-                        "did": msg.did,
-                        "handle": getattr(msg, 'handle', msg.did),
+                        "did": commit.did,
+                        "handle": getattr(commit, 'handle', commit.did),
                     }
-                    seq = getattr(msg, 'seq', None)
+                    seq = getattr(commit, 'seq', None)
                     await self.push_to_redis("identity", data, seq)
                     if seq:
                         await self.save_cursor(seq)
                     self.last_event_time = time.time()
                 
                 # Handle Account messages (active/inactive)
-                elif msg_type == 'Account' or isinstance(msg, models.ComAtprotoSyncSubscribeRepos.Account):
+                elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Account):
                     data = {
-                        "did": msg.did,
-                        "active": getattr(msg, 'active', True),
+                        "did": commit.did,
+                        "active": getattr(commit, 'active', True),
                     }
-                    seq = getattr(msg, 'seq', None)
+                    seq = getattr(commit, 'seq', None)
                     await self.push_to_redis("account", data, seq)
                     if seq:
                         await self.save_cursor(seq)
                     self.last_event_time = time.time()
                 
                 else:
-                    # Unknown message type - log for debugging
-                    logger.debug(f"Unknown message type: {msg_type}")
+                    # Handle or tombstone messages - just log for now
+                    logger.debug(f"Received message type: {type(commit).__name__}")
                 
-            except FirehoseError as e:
-                logger.error(f"Firehose protocol error: {e}")
             except Exception as e:
                 logger.error(f"Error parsing atproto message: {e}")
-                logger.debug(f"Message type: {type(message)}, length: {len(message)}")
+                # Only log full traceback at debug level to avoid log spam
+                logger.debug(f"Message type: {type(message)}, length: {len(message)}", exc_info=True)
             
-        except ImportError:
+        except ImportError as e:
             logger.error(
-                "atproto library not installed. "
+                f"atproto library not installed or missing component: {e}. "
                 "Install with: pip install atproto"
             )
             raise
