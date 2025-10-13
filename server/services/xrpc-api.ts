@@ -886,6 +886,39 @@ export class XRPCApi {
       storage.getThreadContexts(postUris),
     ]);
 
+    // Check for missing authors (posts exist but authors don't)
+    if (authors.length !== authorDids.length) {
+      const foundDids = new Set(authors.map(a => a.did));
+      const missingDids = authorDids.filter(did => !foundDids.has(did));
+      console.warn(`[XRPC] serializePosts: ${missingDids.length} authors missing from database:`, missingDids);
+      
+      // Try to fetch missing authors on-demand
+      console.log(`[XRPC] Attempting to fetch ${missingDids.length} missing authors...`);
+      const fetchPromises = missingDids.map(did => 
+        lazyDataLoader.ensureUserProfile(did).catch(err => {
+          console.error(`[XRPC] Failed to fetch profile for ${did}:`, err);
+        })
+      );
+      
+      // Wait for all fetches to complete (with timeout)
+      await Promise.race([
+        Promise.all(fetchPromises),
+        new Promise(resolve => setTimeout(resolve, 5000)) // 5 second timeout
+      ]);
+      
+      // Re-fetch authors after lazy loading
+      const refetchedAuthors = await storage.getUsers(missingDids);
+      authors.push(...refetchedAuthors);
+      console.log(`[XRPC] Successfully fetched ${refetchedAuthors.length}/${missingDids.length} missing authors`);
+      
+      if (refetchedAuthors.length < missingDids.length) {
+        const stillMissingDids = missingDids.filter(did => 
+          !refetchedAuthors.some(a => a.did === did)
+        );
+        console.warn(`[XRPC] Still missing ${stillMissingDids.length} authors after lazy load:`, stillMissingDids);
+      }
+    }
+
     // Fetch counts for each author
     const authorCounts = new Map<string, { lists: number; feedgens: number; starterPacks: number; isLabeler: boolean }>();
     await Promise.all(authorDids.map(async (authorDid) => {

@@ -100,6 +100,36 @@ export class EnhancedHydrator {
       .from(users)
       .where(inArray(users.did, Array.from(actorDids)));
 
+    // Check for missing actors and attempt to fetch them
+    const actorDidsArray = Array.from(actorDids);
+    if (actorsData.length !== actorDidsArray.length) {
+      const foundDids = new Set(actorsData.map(a => a.did));
+      const missingDids = actorDidsArray.filter(did => !foundDids.has(did));
+      console.warn(`[ENHANCED_HYDRATION] ${missingDids.length} actors missing from database:`, missingDids);
+      
+      // Try to fetch missing actors
+      const { lazyDataLoader } = await import('../lazy-data-loader');
+      console.log(`[ENHANCED_HYDRATION] Attempting to fetch ${missingDids.length} missing actors...`);
+      
+      await Promise.race([
+        Promise.all(missingDids.map(did => 
+          lazyDataLoader.ensureUserProfile(did).catch(err => {
+            console.error(`[ENHANCED_HYDRATION] Failed to fetch profile for ${did}:`, err);
+          })
+        )),
+        new Promise(resolve => setTimeout(resolve, 5000)) // 5 second timeout
+      ]);
+      
+      // Re-fetch actors after lazy loading
+      const refetchedActors = await db
+        .select()
+        .from(users)
+        .where(inArray(users.did, missingDids));
+      
+      actorsData.push(...refetchedActors);
+      console.log(`[ENHANCED_HYDRATION] Successfully fetched ${refetchedActors.length}/${missingDids.length} missing actors`);
+    }
+
     const actorsMap = new Map<string, any>();
     for (const actor of actorsData) {
       actorsMap.set(actor.did, {
