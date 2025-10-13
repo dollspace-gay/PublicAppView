@@ -136,11 +136,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Consumer worker (Redis → PostgreSQL)`);
   }
   
-  // ALL workers consume from Redis queue in parallel (only if firehose is enabled)
+  // ALL workers consume from Redis queue in parallel
   const consumerId = `worker-${workerId}`;
-  if (firehoseEnabled) {
-    console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
-  }
+  console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
   
   // Start multiple parallel consumer pipelines per worker for maximum throughput
   const { eventProcessor } = await import("./services/event-processor");
@@ -179,9 +177,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
   
-  // Launch parallel consumer pipelines (only if firehose is enabled)
-  if (firehoseEnabled) {
-    const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
+  // Launch parallel consumer pipelines
+  const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
       return (async () => {
         const pipelineConsumerId = `${consumerId}-p${pipelineId}`;
         let iterationCount = 0;
@@ -229,20 +226,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     // Run all pipelines concurrently (don't await - let them run in background)
-    Promise.allSettled(consumerPipelines);
-    
-    // Start periodic retry mechanism for pending operations
-    setInterval(async () => {
-      try {
-        const retriedCount = await eventProcessor.retryPendingOperations();
-        if (retriedCount > 0) {
-          console.log(`[REDIS] Retried ${retriedCount} pending operations`);
-        }
-      } catch (error) {
-        console.error(`[REDIS] Error during retry cycle:`, error);
+  Promise.allSettled(consumerPipelines);
+  
+  // Start periodic retry mechanism for pending operations
+  setInterval(async () => {
+    try {
+      const retriedCount = await eventProcessor.retryPendingOperations();
+      if (retriedCount > 0) {
+        console.log(`[REDIS] Retried ${retriedCount} pending operations`);
       }
-    }, 30000); // Retry every 30 seconds
-  }
+    } catch (error) {
+      console.error(`[REDIS] Error during retry cycle:`, error);
+    }
+  }, 30000); // Retry every 30 seconds
 
   // WebDID endpoint - Serve DID document for did:web resolution
   const serveDIDDocument = async (_req: Request, res: Response) => {
