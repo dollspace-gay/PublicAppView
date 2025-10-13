@@ -147,7 +147,20 @@ class ConstellationIntegration {
       }
 
       const text = await response.text();
-      const count = parseInt(text.trim(), 10);
+      let count: number;
+      
+      // Try to parse as JSON first (new API format)
+      try {
+        const json = JSON.parse(text);
+        if (typeof json === 'object' && 'total' in json) {
+          count = parseInt(String(json.total), 10);
+        } else {
+          throw new Error('JSON response missing total field');
+        }
+      } catch (jsonError) {
+        // Fall back to plain text number (old API format)
+        count = parseInt(text.trim(), 10);
+      }
       
       if (isNaN(count)) {
         throw new Error(`Invalid response: ${text}`);
