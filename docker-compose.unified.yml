@@ -1,9 +1,9 @@
 services:
   redis:
     image: redis:7-alpine
-    # Redis is now optional - only needed for caching and metrics
-    # The unified worker connects directly to PostgreSQL
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --appendonly yes --appendfsync everysec
+    # Redis streams are used for event distribution from firehose reader to consumer worker
+    # Using noeviction policy to prevent data loss
+    command: redis-server --maxmemory 8gb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
     ports:
       - "6379:6379"
     healthcheck:
@@ -33,25 +33,59 @@ services:
     restart: unless-stopped
     shm_size: 10gb
 
-  # UNIFIED PYTHON WORKER - Replaces 32 TypeScript workers!
-  # Single Python process that:
-  # - Connects to AT Protocol firehose
-  # - Processes events directly to PostgreSQL
-  # - No Redis queue needed (but available for caching)
-  unified-worker:
-    build:
-      context: ./python-firehose
-      dockerfile: Dockerfile.unified
+  # Python Firehose Reader - Connects to firehose and writes to Redis
+  python-firehose:
+    build: ./python-firehose
     environment:
       - RELAY_URL=${RELAY_URL:-wss://bsky.network}
-      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
-      - DB_POOL_SIZE=20
+      - REDIS_URL=redis://redis:6379
+      - REDIS_STREAM_KEY=firehose:events
+      - REDIS_CURSOR_KEY=firehose:python_cursor
+      - REDIS_MAX_STREAM_LEN=500000
       - LOG_LEVEL=INFO
     depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379'); r.ping()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # PYTHON REDIS CONSUMER - Replaces 32 TypeScript workers!
+  # Single Python process that:
+  # - Consumes events from Redis streams (XREADGROUP)
+  # - Processes events to PostgreSQL
+  # - Runs 5 parallel consumer pipelines
+  python-worker:
+    build:
+      context: ./python-firehose
+      dockerfile: Dockerfile.worker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - REDIS_STREAM_KEY=firehose:events
+      - REDIS_CONSUMER_GROUP=firehose-processors
+      - CONSUMER_ID=python-worker
+      - DB_POOL_SIZE=20
+      - BATCH_SIZE=10
+      - PARALLEL_CONSUMERS=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:password@db:5432/atproto', timeout=5))\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import asyncio; import redis.asyncio as redis; asyncio.run(redis.from_url('redis://redis:6379').ping())\" || exit 1"]
       interval: 30s
       timeout: 10s
       start_period: 40s

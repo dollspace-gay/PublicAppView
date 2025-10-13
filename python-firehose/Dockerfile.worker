@@ -1,0 +1,37 @@
+# Python Redis Consumer Worker Dockerfile
+# Replaces 32 TypeScript workers with a single Python process
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy Redis consumer worker
+COPY redis_consumer_worker.py .
+
+# Set environment defaults
+ENV REDIS_URL=redis://redis:6379
+ENV DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+ENV REDIS_STREAM_KEY=firehose:events
+ENV REDIS_CONSUMER_GROUP=firehose-processors
+ENV CONSUMER_ID=python-worker
+ENV DB_POOL_SIZE=20
+ENV BATCH_SIZE=10
+ENV PARALLEL_CONSUMERS=5
+ENV LOG_LEVEL=INFO
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD python -c "import asyncio; import redis.asyncio as redis; asyncio.run(redis.from_url('${REDIS_URL}').ping())" || exit 1
+
+# Run Redis consumer worker
+CMD ["python", "-u", "redis_consumer_worker.py"]

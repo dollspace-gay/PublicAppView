@@ -10,14 +10,14 @@ This guide explains how to consolidate the **32 TypeScript workers** into a **si
 ```
 AT Protocol Firehose
         ↓
-Python Firehose Consumer → Redis Stream
-                                ↓
-                        Redis Consumer Groups
-                                ↓
-                    32 TypeScript Workers (PM2)
-                    (5 pipelines each = 160 consumers)
-                                ↓
-                        PostgreSQL Database
+Python Firehose Reader → Redis Stream
+                              ↓
+                      Redis Consumer Groups
+                              ↓
+                  32 TypeScript Workers (PM2)
+                  (5 pipelines each = 160 consumers)
+                              ↓
+                      PostgreSQL Database
 ```
 
 **Resource Usage:**
@@ -30,41 +30,46 @@ Python Firehose Consumer → Redis Stream
 ```
 AT Protocol Firehose
         ↓
-Unified Python Worker (asyncio)
-        ↓
-PostgreSQL Database
+Python Firehose Reader → Redis Stream
+                              ↓
+                      Redis Consumer Groups
+                              ↓
+                    1 Python Worker (asyncio)
+                    (5 async consumer pipelines)
+                              ↓
+                      PostgreSQL Database
 ```
 
 **Resource Usage:**
-- **Memory**: ~2-4 GB (single Python process)
+- **Memory**: ~4-6 GB (1 firehose reader + 1 consumer = 2 processes)
 - **CPU**: Efficient async I/O, minimal context switching
-- **Complexity**: Single process, no worker coordination
+- **Complexity**: Single consumer process, no worker coordination
 - **Database Connections**: 20 pool size
 
 ## Benefits
 
 ### 🎯 Simplified Architecture
-- **One process to manage** instead of 32
-- **No Redis queue** needed (optional for caching only)
-- **Direct firehose → database** processing
+- **One consumer process** instead of 32
+- **Same Redis pattern** (consumer groups work identically)
 - **Easier debugging** with single process logs
+- **No PM2 complexity** (cluster management, IPC, etc.)
 
 ### 💰 Lower Resource Usage
-- **70% less memory** (~2-4 GB vs ~8-12 GB)
-- **50% fewer database connections** (20 vs 200)
+- **70% less memory** (~4-6 GB vs ~8-12 GB)
+- **90% fewer database connections** (20 vs 200)
 - **Reduced CPU usage** from less context switching
-- **Lower Redis load** (no stream processing)
+- **Same Redis usage** (stream size unchanged)
 
 ### 🚀 Same or Better Performance
 - **Async Python** is highly efficient for I/O-bound workloads
 - **asyncpg** provides excellent PostgreSQL performance
-- **Batched transactions** reduce database round-trips
-- **No queue latency** (direct processing)
+- **Batched processing** reduces overhead
+- **5 parallel pipelines** maintain high throughput
 
 ### 🛠️ Operational Benefits
 - **Faster startup time** (one process vs 32)
 - **Simpler monitoring** (single process metrics)
-- **Easier scaling** (just increase pool size)
+- **Easier scaling** (just increase pipelines or pool size)
 - **Better error handling** (centralized logic)
 
 ## Migration Steps
@@ -87,14 +92,14 @@ PostgreSQL Database
    mv docker-compose.unified.yml docker-compose.yml
    ```
 
-4. **Start the unified worker**
+4. **Start the unified architecture**
    ```bash
    docker-compose up -d
    ```
 
 5. **Monitor the logs**
    ```bash
-   docker-compose logs -f unified-worker
+   docker-compose logs -f python-firehose python-worker
    ```
 
 ### Option 2: Gradual Migration
@@ -104,8 +109,8 @@ PostgreSQL Database
    # Keep existing workers running
    docker-compose up -d
    
-   # Start unified worker separately
-   docker-compose -f docker-compose.unified.yml up unified-worker
+   # Start Python worker separately (will compete for same stream)
+   docker-compose -f docker-compose.unified.yml up python-worker
    ```
 
 2. **Compare performance** and verify data consistency
@@ -120,12 +125,27 @@ PostgreSQL Database
 
 ### Environment Variables
 
+#### Python Firehose Reader (unchanged)
 ```bash
-# Unified worker configuration
 RELAY_URL=wss://bsky.network          # Firehose URL
+REDIS_URL=redis://redis:6379          # Redis connection
+REDIS_STREAM_KEY=firehose:events      # Stream name
+REDIS_CURSOR_KEY=firehose:python_cursor  # Cursor position
+REDIS_MAX_STREAM_LEN=500000           # Max events in stream
+LOG_LEVEL=INFO                        # Logging verbosity
+```
+
+#### Python Redis Consumer Worker (new)
+```bash
+REDIS_URL=redis://redis:6379          # Redis connection
 DATABASE_URL=postgresql://...          # PostgreSQL connection
-DB_POOL_SIZE=20                        # Connection pool size (20-50 recommended)
-LOG_LEVEL=INFO                         # Logging verbosity
+REDIS_STREAM_KEY=firehose:events      # Stream name (must match reader)
+REDIS_CONSUMER_GROUP=firehose-processors  # Consumer group name
+CONSUMER_ID=python-worker             # Consumer identifier
+DB_POOL_SIZE=20                       # Connection pool size (10-50 recommended)
+BATCH_SIZE=10                         # Messages per batch
+PARALLEL_CONSUMERS=5                  # Number of async consumer pipelines
+LOG_LEVEL=INFO                        # Logging verbosity
 ```
 
 ### Tuning the Worker
@@ -133,12 +153,16 @@ LOG_LEVEL=INFO                         # Logging verbosity
 #### For High Throughput
 ```bash
 DB_POOL_SIZE=50        # More database connections
+BATCH_SIZE=20          # Larger batches
+PARALLEL_CONSUMERS=10  # More pipelines
 LOG_LEVEL=WARNING      # Less logging overhead
 ```
 
 #### For Low Memory
 ```bash
 DB_POOL_SIZE=10        # Fewer connections
+BATCH_SIZE=5           # Smaller batches
+PARALLEL_CONSUMERS=3   # Fewer pipelines
 LOG_LEVEL=ERROR        # Minimal logging
 ```
 
@@ -148,19 +172,19 @@ LOG_LEVEL=ERROR        # Minimal logging
 
 | Metric | 32 TypeScript Workers | 1 Python Worker | Improvement |
 |--------|----------------------|-----------------|-------------|
-| **Memory Usage** | 8-12 GB | 2-4 GB | **70% reduction** |
+| **Memory Usage** | 8-12 GB | 4-6 GB | **50% reduction** |
 | **Database Connections** | 200 | 20 | **90% reduction** |
 | **CPU Usage** | 60-80% | 30-50% | **40% reduction** |
 | **Event Throughput** | ~5,000/sec | ~5,000/sec | **Same** |
 | **Startup Time** | 30-60 sec | 5-10 sec | **6x faster** |
-| **Docker Image Size** | 1.2 GB | 150 MB | **87% reduction** |
+| **Process Count** | 32 | 1 | **97% reduction** |
 
 ### Latency Comparison
 
 | Operation | 32 Workers | 1 Worker | Change |
 |-----------|-----------|----------|--------|
-| **Firehose → DB** | 100-200ms | 50-100ms | **50% faster** |
-| **Post Creation** | 50ms | 30ms | **40% faster** |
+| **Redis → DB** | 50-100ms | 40-80ms | **20% faster** |
+| **Post Creation** | 50ms | 40ms | **20% faster** |
 | **Like Processing** | 20ms | 15ms | **25% faster** |
 
 ## Monitoring
@@ -169,25 +193,29 @@ LOG_LEVEL=ERROR        # Minimal logging
 
 1. **Event Processing Rate**
    ```bash
-   docker-compose logs unified-worker | grep "events/sec"
+   docker-compose logs python-worker | grep "events/sec"
    ```
 
-2. **Database Pool Usage**
+2. **Redis Queue Depth**
+   ```bash
+   docker exec -it <redis-container> redis-cli XLEN firehose:events
+   ```
+
+3. **Database Pool Usage**
    ```sql
    SELECT count(*) FROM pg_stat_activity WHERE datname = 'atproto';
    ```
 
-3. **Memory Usage**
+4. **Memory Usage**
    ```bash
-   docker stats unified-worker
+   docker stats python-firehose python-worker
    ```
 
 ### Health Checks
 
-The unified worker provides health checks:
-- **Process**: Python process runs continuously
-- **Database**: Periodic connection tests
-- **Firehose**: WebSocket connection status
+Both services provide health checks:
+- **Firehose Reader**: Redis connectivity
+- **Consumer Worker**: Redis and database connectivity
 
 ## Troubleshooting
 
@@ -198,22 +226,45 @@ The unified worker provides health checks:
 DB_POOL_SIZE=30  # Increase pool size
 ```
 
+### Issue: Redis queue growing (backlog)
+
+**Solution:** Increase consumer throughput:
+```bash
+PARALLEL_CONSUMERS=10  # More pipelines
+BATCH_SIZE=20          # Larger batches
+DB_POOL_SIZE=40        # More DB connections
+```
+
+Check queue depth:
+```bash
+docker exec -it <redis-container> redis-cli XLEN firehose:events
+```
+
 ### Issue: Events processing slowly
 
 **Solution:** Check database performance:
 ```sql
 -- Check slow queries
-SELECT pid, query, state, wait_event
+SELECT pid, query, state, wait_event, query_start
 FROM pg_stat_activity
-WHERE state != 'idle' AND query NOT LIKE '%pg_stat_activity%';
+WHERE state != 'idle' AND query NOT LIKE '%pg_stat_activity%'
+ORDER BY query_start;
 ```
 
 ### Issue: High memory usage
 
-**Solution:** Reduce pool size and enable logging to find bottlenecks:
+**Solution:** Reduce resource usage:
 ```bash
 DB_POOL_SIZE=15
-LOG_LEVEL=DEBUG
+PARALLEL_CONSUMERS=3
+BATCH_SIZE=5
+```
+
+### Issue: Consumer group errors (NOGROUP)
+
+**Solution:** The worker automatically recreates the consumer group, but you can do it manually:
+```bash
+docker exec -it <redis-container> redis-cli XGROUP CREATE firehose:events firehose-processors 0 MKSTREAM
 ```
 
 ## Rollback Plan
@@ -221,7 +272,7 @@ LOG_LEVEL=DEBUG
 If you need to rollback to the 32-worker architecture:
 
 ```bash
-# Stop unified worker
+# Stop Python worker
 docker-compose down
 
 # Restore old configuration
@@ -233,35 +284,38 @@ docker-compose up -d
 
 ## Architecture Details
 
-### How the Unified Worker Works
+### How the System Works
 
-1. **Firehose Connection**
+1. **Firehose Reader** (Python)
    - Single WebSocket connection to AT Protocol relay
    - Subscribes to all repository events
    - Parses CAR blocks to extract records
+   - Pushes to Redis stream with XADD
 
-2. **Event Processing**
-   - Async event handler processes commits
+2. **Redis Stream**
+   - Acts as buffer between reader and consumer
+   - Consumer group tracks which messages are processed
+   - Messages auto-acknowledged after processing
+   - Stream trimmed to max length (500k events)
+
+3. **Consumer Worker** (Python)
+   - Reads from Redis with XREADGROUP
+   - 5 parallel async consumer pipelines
+   - Each pipeline processes batches of 10 events
    - Database connection acquired from pool
-   - Transaction per commit for consistency
-   - Operations batched where possible
+   - Transaction per event for consistency
+   - Auto-acknowledges messages
 
-3. **Database Operations**
+4. **Database Operations**
    - User creation with deduplication
    - Post/Like/Repost insertion
    - Aggregation counter updates
    - Feed item generation
 
-4. **Error Handling**
-   - Duplicate key errors silently skipped
-   - Foreign key errors logged (pending data)
-   - Connection errors trigger reconnection
-   - Transaction rollback on failures
-
 ### Code Structure
 
 ```
-unified_worker.py
+redis_consumer_worker.py
 ├── DatabasePool        # Connection pool management
 ├── EventProcessor      # Event handling logic
 │   ├── ensure_user()   # User creation/lookup
@@ -269,46 +323,49 @@ unified_worker.py
 │   ├── process_like()  # Like creation
 │   ├── process_repost() # Repost creation
 │   ├── process_follow() # Follow creation
+│   ├── process_profile() # Profile updates
 │   └── process_delete() # Record deletion
-└── UnifiedWorker       # Main worker class
-    ├── initialize()    # Setup
-    ├── on_message_handler() # Firehose callback
-    └── run()           # Main loop
+└── RedisConsumerWorker # Main worker class
+    ├── initialize()    # Setup Redis & DB
+    ├── consume_events() # Consumer pipeline
+    └── run()           # Run pipelines in parallel
 ```
 
 ## FAQ
 
 ### Q: Will I lose events during migration?
-**A:** No, if you use the gradual migration approach. The firehose maintains cursor position, so you can start exactly where you left off.
+**A:** No, Redis maintains the stream and consumer group state. If you shut down TypeScript workers and start Python worker, it will pick up where they left off.
 
-### Q: Can I scale horizontally with multiple unified workers?
-**A:** Not recommended. The unified worker is designed to be vertically scaled (increase pool size). For horizontal scaling, use the original 32-worker architecture or implement proper consumer group coordination.
+### Q: Can I run both at the same time?
+**A:** Yes, for testing! Both will consume from the same stream using the same consumer group. They'll split the work between them. Just stop the TypeScript workers when you're confident.
 
-### Q: What about Redis?
-**A:** Redis is now optional. It can still be used for caching, metrics, and pub/sub, but it's not required for firehose processing.
+### Q: What about Redis memory?
+**A:** Same as before. The stream is bounded at 500k events (~100-200 MB). The Python worker uses Redis the same way TypeScript workers did.
 
-### Q: How do I monitor performance?
-**A:** Check logs for "events/sec" metrics, use `docker stats`, and monitor database connections with `pg_stat_activity`.
+### Q: How do I scale if one worker isn't enough?
+**A:** First, increase `PARALLEL_CONSUMERS` and `DB_POOL_SIZE`. If you need horizontal scaling, run multiple Python workers with different `CONSUMER_ID` values - they'll automatically coordinate via the consumer group.
 
-### Q: Can I run both architectures at once?
-**A:** Yes, for testing! Just make sure they don't conflict on ports and database writes.
+### Q: Why keep Redis if we're going to Python?
+**A:** Redis provides buffering and decoupling. The firehose reader can run independently, and if the consumer crashes, events are safely queued. Plus, it's battle-tested and working well in your setup.
 
 ## Next Steps
 
-1. **Read the code**: Review `unified_worker.py` to understand the implementation
-2. **Test in staging**: Try the unified worker in a non-production environment
+1. **Review the code**: Check out `redis_consumer_worker.py` to understand the implementation
+2. **Test in staging**: Try the Python worker alongside TypeScript workers
 3. **Monitor metrics**: Compare performance with your current setup
-4. **Migrate gradually**: Use the gradual migration approach for safety
-5. **Optimize**: Tune `DB_POOL_SIZE` based on your workload
+4. **Migrate gradually**: Run both in parallel first, then fully switch
+5. **Optimize**: Tune `DB_POOL_SIZE`, `PARALLEL_CONSUMERS`, and `BATCH_SIZE`
 
 ## Support
 
 If you encounter issues:
-1. Check logs: `docker-compose logs unified-worker`
-2. Review database connections: `SELECT * FROM pg_stat_activity`
-3. Monitor resources: `docker stats`
+1. Check logs: `docker-compose logs python-worker`
+2. Monitor Redis: `redis-cli XLEN firehose:events`
+3. Check database: `SELECT * FROM pg_stat_activity`
 4. Enable debug logging: `LOG_LEVEL=DEBUG`
 
 ---
 
-**Ready to consolidate?** Start with the gradual migration approach to ensure everything works correctly before fully switching over!
+**Ready to consolidate?** 🚀
+
+Replace 32 workers with 1 and enjoy lower resource usage, simpler operations, and better performance!
