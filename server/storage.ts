@@ -326,37 +326,39 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const sanitized = sanitizeObject(insertUser);
     
-    // Check if user already exists to determine if this is a new user
-    const existingUser = await this.getUser(sanitized.did);
-    const isNewUser = !existingUser;
-    
-    const [user] = await this.db
+    // Try to insert first with onConflictDoNothing to detect new users atomically
+    const [insertedUser] = await this.db
       .insert(users)
       .values(sanitized)
-      .onConflictDoUpdate({
-        target: users.did,
-        set: {
-          handle: sanitized.handle,
-          displayName: sanitized.displayName,
-          avatarUrl: sanitized.avatarUrl,
-          description: sanitized.description,
-          profileRecord: sanitized.profileRecord,
-        },
-      })
+      .onConflictDoNothing()
       .returning();
     
-    // Update Redis counter for dashboard metrics (only if this was a new user)
-    if (isNewUser) {
+    // If insert succeeded, this is a new user - increment counter
+    if (insertedUser) {
       const { redisQueue } = await import("./services/redis-queue");
       await redisQueue.incrementRecordCount('users');
+      return insertedUser;
     }
     
-    return user;
+    // If insert was skipped due to conflict, update the existing user
+    const [updatedUser] = await this.db
+      .update(users)
+      .set({
+        handle: sanitized.handle,
+        displayName: sanitized.displayName,
+        avatarUrl: sanitized.avatarUrl,
+        description: sanitized.description,
+        profileRecord: sanitized.profileRecord,
+      })
+      .where(eq(users.did, sanitized.did))
+      .returning();
+    
+    return updatedUser;
   }
 
   async updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined> {
     const sanitized = sanitizeObject(data);
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set(sanitized)
       .where(eq(users.did, did))
@@ -365,23 +367,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUserHandle(did: string, handle: string): Promise<void> {
-    // Check if user already exists to determine if this is a new user
-    const existingUser = await this.getUser(did);
-    const isNewUser = !existingUser;
-    
-    await this.db
+    // Try to insert first with onConflictDoNothing to detect new users atomically
+    const [insertedUser] = await this.db
       .insert(users)
       .values({ did, handle })
-      .onConflictDoUpdate({
-        target: users.did,
-        set: { handle },
-      });
+      .onConflictDoNothing()
+      .returning();
     
-    // Update Redis counter for dashboard metrics (only if this was a new user)
-    if (isNewUser) {
+    // If insert succeeded, this is a new user - increment counter
+    if (insertedUser) {
       const { redisQueue } = await import("./services/redis-queue");
       await redisQueue.incrementRecordCount('users');
+      return;
     }
+    
+    // If insert was skipped due to conflict, update the existing user
+    await this.db
+      .update(users)
+      .set({ handle })
+      .where(eq(users.did, did));
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
@@ -730,7 +734,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteFeedItem(uri: string): Promise<void> {
-    await db.delete(feedItems).where(eq(feedItems.uri, uri));
+    await this.db.delete(feedItems).where(eq(feedItems.uri, uri));
     
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
@@ -1123,7 +1127,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
-    return await db
+    return await this.db
       .select()
       .from(follows)
       .where(eq(follows.followerDid, followerDid))
@@ -1131,7 +1135,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFollowers(followingDid: string, limit = 100): Promise<Follow[]> {
-    return await db
+    return await this.db
       .select()
       .from(follows)
       .where(eq(follows.followingDid, followingDid))
@@ -1424,7 +1428,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean> {
-    const [result] = await db
+    const [result] = await this.db
       .select()
       .from(threadMutes)
       .where(and(eq(threadMutes.muterDid, muterDid), eq(threadMutes.threadRootUri, threadRootUri)))
@@ -1447,7 +1451,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(userPreferences)
       .set({ ...prefs, updatedAt: new Date() })
       .where(eq(userPreferences.userDid, userDid))
@@ -1824,7 +1828,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserSettings(userDid: string, settings: Partial<InsertUserSettings>): Promise<UserSettings | undefined> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(userSettings)
       .set(settings)
       .where(eq(userSettings.userDid, userDid))
@@ -2218,7 +2222,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createListItem(item: InsertListItem): Promise<ListItem> {
-    const [newItem] = await db
+    const [newItem] = await this.db
       .insert(listItems)
       .values(item)
       .onConflictDoNothing()
@@ -2231,7 +2235,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getListItems(listUri: string, limit = 100): Promise<ListItem[]> {
-    return await db
+    return await this.db
       .select()
       .from(listItems)
       .where(eq(listItems.listUri, listUri))
@@ -2253,7 +2257,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${posts.indexedAt} < ${new Date(cursor)}`);
     }
 
-    return await db
+    return await this.db
       .select()
       .from(posts)
       .where(and(...conditions))
@@ -2263,7 +2267,7 @@ export class DatabaseStorage implements IStorage {
 
   // Feed generator operations
   async createFeedGenerator(generator: InsertFeedGenerator): Promise<FeedGenerator> {
-    const [feedGen] = await db
+    const [feedGen] = await this.db
       .insert(feedGenerators)
       .values(generator)
       .onConflictDoUpdate({
@@ -2303,7 +2307,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${feedGenerators.indexedAt} < ${new Date(cursor)}`);
     }
 
-    const generators = await db
+    const generators = await this.db
       .select()
       .from(feedGenerators)
       .where(and(...conditions))
@@ -2377,7 +2381,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined> {
-    const [generator] = await db
+    const [generator] = await this.db
       .update(feedGenerators)
       .set(data)
       .where(eq(feedGenerators.uri, uri))
@@ -2387,7 +2391,7 @@ export class DatabaseStorage implements IStorage {
 
   // Starter pack operations
   async createStarterPack(pack: InsertStarterPack): Promise<StarterPack> {
-    const [starterPack] = await db
+    const [starterPack] = await this.db
       .insert(starterPacks)
       .values(pack)
       .onConflictDoUpdate({
@@ -2425,7 +2429,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(conditions.length ? and(...conditions) : undefined as any)
@@ -2442,7 +2446,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(and(...conditions))
@@ -2459,7 +2463,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(and(...conditions))
@@ -2473,7 +2477,7 @@ export class DatabaseStorage implements IStorage {
 
   // Labeler service operations
   async createLabelerService(service: InsertLabelerService): Promise<LabelerService> {
-    const [labelerService] = await db
+    const [labelerService] = await this.db
       .insert(labelerServices)
       .values(service)
       .onConflictDoUpdate({
