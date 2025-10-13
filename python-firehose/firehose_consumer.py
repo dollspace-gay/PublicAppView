@@ -201,29 +201,37 @@ class FirehoseConsumer:
                             op_data["cid"] = str(op.cid)
                             
                             try:
-                                # Get raw record data from CAR blocks
-                                raw_record = car.blocks.get(op.cid)
-                                if raw_record:
-                                    # Try to decode the record
+                                # Get raw CBOR bytes from CAR blocks
+                                raw_bytes = car.blocks.get(op.cid)
+                                if raw_bytes:
                                     try:
-                                        # Attempt to use get_or_create if available
-                                        record = get_or_create(raw_record, strict=False)
+                                        # Decode CBOR bytes to get the actual record
+                                        # get_or_create expects already-decoded data, not bytes
+                                        # So we need to decode the CBOR first
+                                        from atproto.cbor import decode_dag
+                                        decoded_record = decode_dag(raw_bytes)
                                         
-                                        # Convert record to dict for JSON serialization
-                                        if hasattr(record, 'model_dump'):
-                                            op_data["record"] = record.model_dump()
-                                        elif hasattr(record, 'dict'):
-                                            op_data["record"] = record.dict()
-                                        elif hasattr(record, '__dict__'):
-                                            op_data["record"] = record.__dict__
-                                        else:
-                                            # Record is already a dict or raw data
-                                            op_data["record"] = raw_record
+                                        # Now try to convert to a proper model using get_or_create
+                                        try:
+                                            record = get_or_create(decoded_record, strict=False)
+                                            
+                                            # Convert record to dict for JSON serialization
+                                            if hasattr(record, 'model_dump'):
+                                                op_data["record"] = record.model_dump()
+                                            elif hasattr(record, 'dict'):
+                                                op_data["record"] = record.dict()
+                                            elif hasattr(record, '__dict__'):
+                                                op_data["record"] = record.__dict__
+                                            else:
+                                                # Record is already a dict
+                                                op_data["record"] = record if isinstance(record, dict) else decoded_record
+                                        except:
+                                            # get_or_create failed, use decoded dict directly
+                                            op_data["record"] = decoded_record
+                                            
                                     except Exception as decode_err:
-                                        # Fallback: use raw record data directly
-                                        # CAR blocks contain CBOR-decoded data, so this should work
-                                        logger.debug(f"Using raw record for {op.path}: {decode_err}")
-                                        op_data["record"] = raw_record
+                                        # CBOR decode failed - skip record data
+                                        logger.debug(f"Could not decode CBOR for {op.path}: {decode_err}")
                             except Exception as e:
                                 # If record parsing fails, log but continue with just metadata
                                 logger.debug(f"Could not parse record for {op.path}: {e}")
