@@ -72,7 +72,8 @@ export class AdminAuthorizationService {
           if (!resolvedDid) {
             // Fallback: Try calling the official AT Protocol resolution endpoint
             try {
-              const response = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${handle}`);
+              const encodedHandle = encodeURIComponent(handle);
+              const response = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodedHandle}`);
               if (response.ok) {
                 const data = await response.json();
                 resolvedDid = data.did;

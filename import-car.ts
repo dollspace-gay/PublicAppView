@@ -178,6 +178,7 @@ async function importCar() {
   // Step 3: Create likes (all of them, including external posts)
   console.log(`[CAR_IMPORT] Creating ${records.likes.length} likes...`);
   let likesCreated = 0;
+  let likesErrors = 0;
   
   for (const { rkey, record } of records.likes) {
     try {
@@ -199,14 +200,18 @@ async function importCar() {
         console.log(`[CAR_IMPORT]   ${likesCreated}/${records.likes.length} likes...`);
       }
     } catch (error: any) {
-      // Skip errors silently
+      likesErrors++;
+      if (likesErrors <= 10) {
+        console.error(`[CAR_IMPORT] Error importing like ${rkey}:`, error.message);
+      }
     }
   }
-  console.log(`[CAR_IMPORT] ✓ Created ${likesCreated} likes`);
+  console.log(`[CAR_IMPORT] ✓ Created ${likesCreated} likes (${likesErrors} errors)`);
 
   // Step 4: Create reposts (all of them, including external posts)
   console.log(`[CAR_IMPORT] Creating ${records.reposts.length} reposts...`);
   let repostsCreated = 0;
+  let repostsErrors = 0;
   
   for (const { rkey, record } of records.reposts) {
     try {
@@ -228,14 +233,18 @@ async function importCar() {
         console.log(`[CAR_IMPORT]   ${repostsCreated}/${records.reposts.length} reposts...`);
       }
     } catch (error: any) {
-      // Skip errors silently
+      repostsErrors++;
+      if (repostsErrors <= 10) {
+        console.error(`[CAR_IMPORT] Error importing repost ${rkey}:`, error.message);
+      }
     }
   }
-  console.log(`[CAR_IMPORT] ✓ Created ${repostsCreated} reposts`);
+  console.log(`[CAR_IMPORT] ✓ Created ${repostsCreated} reposts (${repostsErrors} errors)`);
 
   // Step 5: Create follows
   console.log(`[CAR_IMPORT] Creating ${records.follows.length} follows...`);
   let followsCreated = 0;
+  let followsErrors = 0;
   
   for (const { rkey, record } of records.follows) {
     try {
@@ -255,14 +264,18 @@ async function importCar() {
         console.log(`[CAR_IMPORT]   ${followsCreated}/${records.follows.length} follows...`);
       }
     } catch (error: any) {
-      // Skip errors silently
+      followsErrors++;
+      if (followsErrors <= 10) {
+        console.error(`[CAR_IMPORT] Error importing follow ${rkey}:`, error.message);
+      }
     }
   }
-  console.log(`[CAR_IMPORT] ✓ Created ${followsCreated} follows`);
+  console.log(`[CAR_IMPORT] ✓ Created ${followsCreated} follows (${followsErrors} errors)`);
 
   // Step 6: Create blocks
   console.log(`[CAR_IMPORT] Creating ${records.blocks.length} blocks...`);
   let blocksCreated = 0;
+  let blocksErrors = 0;
   
   for (const { rkey, record } of records.blocks) {
     try {
@@ -279,20 +292,25 @@ async function importCar() {
       
       blocksCreated++;
     } catch (error: any) {
-      // Skip errors silently
+      blocksErrors++;
+      if (blocksErrors <= 10) {
+        console.error(`[CAR_IMPORT] Error importing block ${rkey}:`, error.message);
+      }
     }
   }
-  console.log(`[CAR_IMPORT] ✓ Created ${blocksCreated} blocks`);
+  console.log(`[CAR_IMPORT] ✓ Created ${blocksCreated} blocks (${blocksErrors} errors)`);
 
   // Summary
+  const totalErrors = likesErrors + repostsErrors + followsErrors + blocksErrors;
   console.log(`
 [CAR_IMPORT] ✅ Import complete!
   User: ${handle}
   Posts: ${postsCreated}
-  Likes: ${likesCreated}
-  Reposts: ${repostsCreated}
-  Follows: ${followsCreated}
-  Blocks: ${blocksCreated}
+  Likes: ${likesCreated} (${likesErrors} errors)
+  Reposts: ${repostsCreated} (${repostsErrors} errors)
+  Follows: ${followsCreated} (${followsErrors} errors)
+  Blocks: ${blocksCreated} (${blocksErrors} errors)
+  ${totalErrors > 0 ? `\n⚠️  Total errors: ${totalErrors} (first 10 per type logged above)` : ''}
 `);
   
   process.exit(0);

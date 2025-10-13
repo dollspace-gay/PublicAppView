@@ -1538,7 +1538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Label management endpoints (admin)
-  app.post("/api/labels/apply", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/labels/apply", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         subject: z.string(),
@@ -1566,7 +1566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/labels/:uri", requireAuth, async (req: AuthRequest, res) => {
+  app.delete("/api/labels/:uri", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const uri = decodeURIComponent(req.params.uri);
       const session = await storage.getSession(req.session!.sessionId);
@@ -1591,7 +1591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/labels/definitions", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/labels/definitions", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         value: z.string(),
@@ -1633,7 +1633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Moderation queue management endpoints (admin)
-  app.get("/api/moderation/queue", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/moderation/queue", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         status: z.enum(["pending", "under_review", "resolved", "dismissed"]).default("pending"),
@@ -1655,7 +1655,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/moderation/report/:id", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/moderation/report/:id", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const reportId = parseInt(req.params.id);
       const session = await storage.getSession(req.session!.sessionId);
@@ -1676,7 +1676,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/moderation/assign", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/moderation/assign", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         reportId: z.number(),
@@ -1698,7 +1698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/moderation/action", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/moderation/action", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         reportId: z.number(),
@@ -1730,7 +1730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/moderation/dismiss", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/moderation/dismiss", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         reportId: z.number(),
@@ -1752,7 +1752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/moderation/escalate", requireAuth, async (req: AuthRequest, res) => {
+  app.post("/api/moderation/escalate", requireAdmin, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         reportId: z.number(),
@@ -2440,23 +2440,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Extract DID from refresh token to find PDS
-      // Note: Refresh tokens from PDS contain the DID - we need to decode it
-      // For now, we'll proxy to a known PDS or require the client to specify
-      // In production, decode JWT to get DID, then resolve to PDS
-      
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
-      
-      const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
-      
-      if (!result.success || !result.data) {
+      // Extract DID from refresh token JWT to find correct PDS
+      // JWT format: header.payload.signature (base64url encoded)
+      try {
+        const parts = refreshToken.split('.');
+        if (parts.length !== 3) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Malformed refresh token"
+          });
+        }
+        
+        // Decode JWT payload (second part)
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const userDid = payload.sub; // DID is in the 'sub' claim
+        
+        if (!userDid || !userDid.startsWith('did:')) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Token does not contain valid DID"
+          });
+        }
+        
+        // Resolve user's DID to their actual PDS endpoint
+        const { didResolver } = await import('./services/did-resolver');
+        const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+        
+        if (!pdsEndpoint) {
+          console.error(`[XRPC] Could not resolve PDS for DID: ${userDid}`);
+          return res.status(400).json({
+            error: "InvalidRequest",
+            message: "Could not determine user's PDS endpoint"
+          });
+        }
+        
+        const result = await pdsClient.refreshSession(pdsEndpoint, refreshToken);
+        
+        if (!result.success || !result.data) {
+          return res.status(401).json({
+            error: "AuthenticationFailed",
+            message: result.error || "Failed to refresh session"
+          });
+        }
+        
+        res.json(result.data);
+      } catch (decodeError) {
+        console.error("[XRPC] Error decoding refresh token:", decodeError);
         return res.status(401).json({
-          error: "AuthenticationFailed",
-          message: result.error || "Failed to refresh session"
+          error: "InvalidToken",
+          message: "Failed to decode refresh token"
         });
       }
-      
-      res.json(result.data);
     } catch (error) {
       console.error("[XRPC] Error in refreshSession:", error);
       res.status(500).json({
@@ -2478,19 +2512,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get PDS endpoint from token or use default
-      const pdsEndpoint = process.env.DEFAULT_PDS_ENDPOINT || "https://bsky.social";
-      
-      const result = await pdsClient.getSession(pdsEndpoint, accessToken);
-      
-      if (!result.success || !result.data) {
+      // Extract DID from access token JWT to find correct PDS
+      // JWT format: header.payload.signature (base64url encoded)
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length !== 3) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Malformed access token"
+          });
+        }
+        
+        // Decode JWT payload (second part)
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const userDid = payload.sub; // DID is in the 'sub' claim
+        
+        if (!userDid || !userDid.startsWith('did:')) {
+          return res.status(401).json({
+            error: "InvalidToken",
+            message: "Token does not contain valid DID"
+          });
+        }
+        
+        // Resolve user's DID to their actual PDS endpoint
+        const { didResolver } = await import('./services/did-resolver');
+        const pdsEndpoint = await didResolver.resolveDIDToPDS(userDid);
+        
+        if (!pdsEndpoint) {
+          console.error(`[XRPC] Could not resolve PDS for DID: ${userDid}`);
+          return res.status(400).json({
+            error: "InvalidRequest",
+            message: "Could not determine user's PDS endpoint"
+          });
+        }
+        
+        const result = await pdsClient.getSession(pdsEndpoint, accessToken);
+        
+        if (!result.success || !result.data) {
+          return res.status(401).json({
+            error: "AuthenticationFailed",
+            message: result.error || "Invalid or expired session"
+          });
+        }
+        
+        res.json(result.data);
+      } catch (decodeError) {
+        console.error("[XRPC] Error decoding access token:", decodeError);
         return res.status(401).json({
-          error: "AuthenticationFailed",
-          message: result.error || "Invalid or expired session"
+          error: "InvalidToken",
+          message: "Failed to decode access token"
         });
       }
-      
-      res.json(result.data);
     } catch (error) {
       console.error("[XRPC] Error in getSession:", error);
       res.status(401).json({
@@ -3185,7 +3257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     perMessageDeflate: false // Disable compression to avoid RSV1 frame errors
   });
 
-  // Handle WebSocket connections
+  // Handle WebSocket connections - Consolidated handler for dashboard metrics and firehose events
   wss.on("connection", (ws: WebSocket, req) => {
     console.log("[WS] Dashboard client connected from", req.headers.origin || req.headers.host);
     let connectionAlive = true;
@@ -3205,25 +3277,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }, 30000);
 
-    ws.on("message", (data) => {
-      console.log("[WS] Received message from client:", data.toString());
-    });
-
-    ws.on("close", (code, reason) => {
-      console.log("[WS] Dashboard client disconnected - Code:", code, "Reason:", reason.toString());
-      connectionAlive = false;
-      clearInterval(pingInterval);
-    });
-
-    ws.on("error", (error) => {
-      console.error("[WS] Dashboard client error:", error);
-      connectionAlive = false;
-    });
-
-    ws.on("pong", () => {
-      // Client responded to ping, connection is alive
-    });
-
     // Send welcome message immediately
     try {
       ws.send(JSON.stringify({ type: "connected", message: "Dashboard WebSocket connected" }));
@@ -3232,17 +3285,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[WS] Error sending welcome message:", error);
       ws.close();
     }
-  });
 
-  // Subscribe firehose events to broadcast to all WebSocket clients
-  firehoseClient.onEvent((event) => {
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({
-          type: "event",
-          data: event,
-        }));
+    // Subscribe to firehose events for this connection
+    const firehoseEventHandler = (event: any) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({
+            type: "event",
+            data: event,
+          }));
+        } catch (error) {
+          console.error("[WS] Error sending firehose event:", error);
+        }
       }
+    };
+    firehoseClient.onEvent(firehoseEventHandler);
+
+    // Send metrics every 2 seconds
+    const metricsInterval = setInterval(async () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          const stats = await storage.getStats();
+          const metrics = metricsService.getStats();
+          const eventCounts = metricsService.getEventCounts();
+          const systemHealth = await metricsService.getSystemHealth();
+          const firehoseStatus = await firehoseClient.getStatus();
+
+          const payload = {
+            type: "metrics",
+            data: {
+              eventsProcessed: metrics.totalEvents,
+              dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
+              apiRequestsPerMinute: metrics.apiRequestsPerMinute,
+              stats,
+              eventCounts,
+              systemHealth,
+              firehoseStatus,
+              errorRate: metrics.errorRate,
+              lastUpdate: metrics.lastUpdate,
+            },
+          };
+
+          ws.send(JSON.stringify(payload));
+        } catch (error) {
+          console.error("[WS] Error sending metrics:", error);
+        }
+      }
+    }, 2000);
+
+    ws.on("message", (data) => {
+      console.log("[WS] Received message from client:", data.toString());
+    });
+
+    ws.on("close", (code, reason) => {
+      console.log("[WS] Dashboard client disconnected - Code:", code, "Reason:", reason.toString());
+      connectionAlive = false;
+      clearInterval(pingInterval);
+      clearInterval(metricsInterval);
+      // CRITICAL: Remove firehose event listener to prevent memory leaks
+      firehoseClient.offEvent(firehoseEventHandler);
+    });
+
+    ws.on("error", (error) => {
+      console.error("[WS] Dashboard client error:", error);
+      connectionAlive = false;
+    });
+
+    ws.on("pong", () => {
+      connectionAlive = true;
+      // Client responded to ping, connection is alive
     });
   });
 
@@ -3341,58 +3452,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  wss.on("connection", (ws: WebSocket) => {
-    console.log("[WS] Client connected");
-
-    // Send initial test message
-    try {
-      ws.send(JSON.stringify({ type: "connected", message: "Welcome to AppView" }));
-    } catch (error) {
-      console.error("[WS] Error sending initial message:", error);
-    }
-
-    // Send metrics every 2 seconds
-    const interval = setInterval(async () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          const stats = await storage.getStats();
-          const metrics = metricsService.getStats();
-          const eventCounts = metricsService.getEventCounts();
-          const systemHealth = await metricsService.getSystemHealth();
-          const firehoseStatus = await firehoseClient.getStatus();
-
-          const payload = {
-            type: "metrics",
-            data: {
-              eventsProcessed: metrics.totalEvents,
-              dbRecords: stats.totalUsers + stats.totalPosts + stats.totalLikes + stats.totalReposts + stats.totalFollows + stats.totalBlocks,
-              apiRequestsPerMinute: metrics.apiRequestsPerMinute,
-              stats,
-              eventCounts,
-              systemHealth,
-              firehoseStatus,
-              errorRate: metrics.errorRate,
-              lastUpdate: metrics.lastUpdate,
-            },
-          };
-
-          ws.send(JSON.stringify(payload));
-        } catch (error) {
-          console.error("[WS] Error sending metrics:", error);
-        }
-      }
-    }, 2000);
-
-    ws.on("close", () => {
-      console.log("[WS] Client disconnected");
-      clearInterval(interval);
-    });
-
-    ws.on("error", (error) => {
-      console.error("[WS] Error:", error);
-      clearInterval(interval);
-    });
-  });
 
   return httpServer;
 }

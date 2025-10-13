@@ -94,7 +94,9 @@ class DatabaseSessionStore {
       if (existingSession) {
         await storage.updateSession(sub, {
           accessToken: encryptionService.encrypt(JSON.stringify(session)),
-          refreshToken: session.tokenSet.refresh_token || '',
+          refreshToken: session.tokenSet.refresh_token 
+            ? encryptionService.encrypt(session.tokenSet.refresh_token)
+            : '',
           expiresAt,
         });
       } else {
@@ -102,7 +104,9 @@ class DatabaseSessionStore {
           id: sub,
           userDid: sub,
           accessToken: encryptionService.encrypt(JSON.stringify(session)),
-          refreshToken: session.tokenSet.refresh_token || '',
+          refreshToken: session.tokenSet.refresh_token 
+            ? encryptionService.encrypt(session.tokenSet.refresh_token)
+            : '',
           pdsEndpoint: session.tokenSet.iss || '',
           expiresAt,
         });

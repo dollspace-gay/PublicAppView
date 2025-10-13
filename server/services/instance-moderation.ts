@@ -153,16 +153,25 @@ class InstanceModerationService {
 
     const labelValue = labelMap[params.requestType] || 'illegal-content';
 
+    // Sanitize user-provided strings to prevent XSS when reason is displayed
+    const sanitizedRequestor = params.requestor
+      .replace(/[<>\"']/g, '') // Remove HTML special characters
+      .substring(0, 200); // Limit length
+    
+    const sanitizedDetails = params.details
+      .replace(/[<>\"']/g, '') // Remove HTML special characters
+      .substring(0, 500); // Limit length
+
     await this.applyInstanceLabel({
       subject: params.subject,
       labelValue,
-      reason: `Takedown request from ${params.requestor}: ${params.details}`,
+      reason: `Takedown request from ${sanitizedRequestor}: ${sanitizedDetails}`,
     });
 
     console.log(`[INSTANCE_MOD] Takedown processed:`, {
       type: params.requestType,
       subject: params.subject,
-      requestor: params.requestor,
+      requestor: sanitizedRequestor,
     });
   }
 

@@ -419,7 +419,7 @@ export class FirehoseClient {
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
-      this.connect();
+      this.connect(this.workerId, this.totalWorkers);
     }, this.reconnectDelay);
   }
 
