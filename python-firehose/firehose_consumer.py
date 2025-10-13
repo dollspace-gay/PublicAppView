@@ -186,32 +186,65 @@ class FirehoseConsumer:
                         "path": op.path,
                     }
                     
-                    # Include CID
-                    if hasattr(op, 'cid') and op.cid:
-                        op_data["cid"] = str(op.cid)
+                    # For create/update actions, we MUST extract the record
+                    # The TypeScript event processor requires record.$type to be present
+                    if op.action in ["create", "update"]:
+                        # Include CID (required for create/update)
+                        if hasattr(op, 'cid') and op.cid:
+                            op_data["cid"] = str(op.cid)
+                        else:
+                            # Skip ops without CID for create/update - malformed data
+                            logger.debug(f"Skipping {op.action} op without CID: {op.path}")
+                            continue
                         
-                        # Try to extract record data
-                        if car and op.action in ["create", "update"]:
-                            try:
-                                record_bytes = car.blocks.get(op.cid)
-                                if record_bytes:
-                                    record = models.get_or_create(record_bytes, strict=False)
-                                    if record:
-                                        # Serialize the record and ensure $type field is included
-                                        if hasattr(record, 'model_dump'):
-                                            record_data = record.model_dump()
-                                        elif hasattr(record, 'dict'):
-                                            record_data = record.dict()
-                                        else:
-                                            record_data = {}
-                                        
-                                        # Add $type field from py_type attribute
-                                        if hasattr(record, 'py_type') and record.py_type:
-                                            record_data["$type"] = record.py_type
-                                        
-                                        op_data["record"] = record_data
-                            except Exception as e:
-                                logger.debug(f"Could not extract record: {e}")
+                        # Extract record data from CAR blocks
+                        if not car:
+                            # No CAR blocks available - skip this op
+                            logger.debug(f"Skipping {op.action} op - no CAR blocks: {op.path}")
+                            continue
+                        
+                        try:
+                            record_bytes = car.blocks.get(op.cid)
+                            if not record_bytes:
+                                logger.debug(f"Skipping {op.action} op - CID not in CAR blocks: {op.path}")
+                                continue
+                            
+                            record = models.get_or_create(record_bytes, strict=False)
+                            if not record:
+                                logger.debug(f"Skipping {op.action} op - could not parse record: {op.path}")
+                                continue
+                            
+                            # Serialize the record and ensure $type field is included
+                            if hasattr(record, 'model_dump'):
+                                record_data = record.model_dump()
+                            elif hasattr(record, 'dict'):
+                                record_data = record.dict()
+                            else:
+                                record_data = {}
+                            
+                            # CRITICAL: Add $type field from py_type attribute
+                            # The TypeScript event processor uses this to determine record type
+                            if hasattr(record, 'py_type') and record.py_type:
+                                record_data["$type"] = record.py_type
+                            else:
+                                # No $type available - skip this op
+                                logger.debug(f"Skipping {op.action} op - no $type available: {op.path}")
+                                continue
+                            
+                            op_data["record"] = record_data
+                            
+                        except Exception as e:
+                            logger.debug(f"Skipping {op.action} op - extraction error: {op.path} - {e}")
+                            continue
+                    
+                    elif op.action == "delete":
+                        # Delete actions only need action and path (no CID or record)
+                        pass
+                    
+                    else:
+                        # Unknown action - skip
+                        logger.debug(f"Skipping unknown action: {op.action} - {op.path}")
+                        continue
                     
                     data["ops"].append(op_data)
                 
