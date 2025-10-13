@@ -821,22 +821,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const userDid = session.userDid;
-      const { posts: postsTable, likes: likesTable, reposts: repostsTable, follows: followsTable } = await import('@shared/schema');
+      const { 
+        posts: postsTable, 
+        likes: likesTable, 
+        reposts: repostsTable, 
+        follows: followsTable,
+        blocks: blocksTable,
+        mutes: mutesTable,
+        listMutes: listMutesTable,
+        listBlocks: listBlocksTable,
+        threadMutes: threadMutesTable,
+        bookmarks: bookmarksTable,
+        notifications: notificationsTable,
+        activitySubscriptions: activitySubscriptionsTable,
+        lists: listsTable,
+        listItems: listItemsTable,
+        feedGenerators: feedGeneratorsTable,
+        starterPacks: starterPacksTable,
+        labelerServices: labelerServicesTable,
+        verifications: verificationsTable,
+        genericRecords: genericRecordsTable
+      } = await import('@shared/schema');
 
-      // Use efficient COUNT queries instead of loading all records
-      const [postsCount, likesCount, repostsCount, followsCount] = await Promise.all([
+      // Use efficient COUNT queries for all user-related tables
+      const [
+        postsCount, 
+        likesCount, 
+        repostsCount, 
+        followsCount,
+        blocksCount,
+        mutesCount,
+        listMutesCount,
+        listBlocksCount,
+        threadMutesCount,
+        bookmarksCount,
+        notificationsCount,
+        activitySubscriptionsCount,
+        listsCount,
+        listItemsCount,
+        feedGeneratorsCount,
+        starterPacksCount,
+        labelerServicesCount,
+        verificationsCount,
+        genericRecordsCount
+      ] = await Promise.all([
+        // Posts (authorDid)
         db.select({ count: sql<number>`count(*)::int` }).from(postsTable).where(eq(postsTable.authorDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Likes (userDid)
         db.select({ count: sql<number>`count(*)::int` }).from(likesTable).where(eq(likesTable.userDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Reposts (userDid)
         db.select({ count: sql<number>`count(*)::int` }).from(repostsTable).where(eq(repostsTable.userDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Follows (followerDid)
         db.select({ count: sql<number>`count(*)::int` }).from(followsTable).where(eq(followsTable.followerDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Blocks (blockerDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(blocksTable).where(eq(blocksTable.blockerDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Mutes (muterDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(mutesTable).where(eq(mutesTable.muterDid, userDid)).then(r => r[0]?.count ?? 0),
+        // List Mutes (muterDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(listMutesTable).where(eq(listMutesTable.muterDid, userDid)).then(r => r[0]?.count ?? 0),
+        // List Blocks (blockerDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(listBlocksTable).where(eq(listBlocksTable.blockerDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Thread Mutes (muterDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(threadMutesTable).where(eq(threadMutesTable.muterDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Bookmarks (userDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(bookmarksTable).where(eq(bookmarksTable.userDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Notifications (recipientDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(notificationsTable).where(eq(notificationsTable.recipientDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Activity Subscriptions (subscriberDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(activitySubscriptionsTable).where(eq(activitySubscriptionsTable.subscriberDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Lists (creatorDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(listsTable).where(eq(listsTable.creatorDid, userDid)).then(r => r[0]?.count ?? 0),
+        // List Items (subjectDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(listItemsTable).where(eq(listItemsTable.subjectDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Feed Generators (creatorDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(feedGeneratorsTable).where(eq(feedGeneratorsTable.creatorDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Starter Packs (creatorDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(starterPacksTable).where(eq(starterPacksTable.creatorDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Labeler Services (creatorDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(labelerServicesTable).where(eq(labelerServicesTable.creatorDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Verifications (subjectDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(verificationsTable).where(eq(verificationsTable.subjectDid, userDid)).then(r => r[0]?.count ?? 0),
+        // Generic Records (authorDid)
+        db.select({ count: sql<number>`count(*)::int` }).from(genericRecordsTable).where(eq(genericRecordsTable.authorDid, userDid)).then(r => r[0]?.count ?? 0),
       ]);
+
+      const totalRecords = postsCount + likesCount + repostsCount + followsCount + 
+                         blocksCount + mutesCount + listMutesCount + listBlocksCount + 
+                         threadMutesCount + bookmarksCount + notificationsCount + 
+                         activitySubscriptionsCount + listsCount + listItemsCount + 
+                         feedGeneratorsCount + starterPacksCount + labelerServicesCount + 
+                         verificationsCount + genericRecordsCount;
 
       res.json({
         posts: postsCount,
         likes: likesCount,
         reposts: repostsCount,
         follows: followsCount,
-        totalRecords: postsCount + likesCount + repostsCount + followsCount,
+        blocks: blocksCount,
+        mutes: mutesCount,
+        listMutes: listMutesCount,
+        listBlocks: listBlocksCount,
+        threadMutes: threadMutesCount,
+        bookmarks: bookmarksCount,
+        notifications: notificationsCount,
+        activitySubscriptions: activitySubscriptionsCount,
+        lists: listsCount,
+        listItems: listItemsCount,
+        feedGenerators: feedGeneratorsCount,
+        starterPacks: starterPacksCount,
+        labelerServices: labelerServicesCount,
+        verifications: verificationsCount,
+        genericRecords: genericRecordsCount,
+        totalRecords: totalRecords,
       });
     } catch (error) {
       console.error("[USER_STATS] Error:", error);

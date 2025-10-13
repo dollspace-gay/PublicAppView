@@ -1,19 +1,14 @@
 import { Firehose, MemoryRunner } from "@atproto/sync";
 import { IdResolver } from "@atproto/identity";
 import { EventProcessor } from "./event-processor";
-import { createStorage, type IStorage } from "../storage";
-import { createDbPool } from "../db";
+import { storage } from "../storage";
 import { logCollector } from "./log-collector";
 
-// Create dedicated connection pool for backfill to prevent overwhelming main pool
-// Default to 2 connections (configurable via BACKFILL_DB_POOL_SIZE env var)
-// Keep total connections (main + backfill) within database limits
-const backfillPoolSize = parseInt(process.env.BACKFILL_DB_POOL_SIZE || '2');
-const backfillDb = createDbPool(backfillPoolSize, "backfill");
-const backfillStorage = createStorage(backfillDb);
+// Use the main application storage instead of creating a separate connection
+// This ensures backfilled records are stored in the same database as the web view
 
-// Create dedicated event processor for backfill that uses the backfill storage
-const backfillEventProcessor = new EventProcessor(backfillStorage);
+// Create dedicated event processor for backfill using main storage
+const backfillEventProcessor = new EventProcessor(storage);
 
 export interface BackfillProgress {
   startCursor: number | null;
@@ -454,7 +449,7 @@ export class BackfillService {
 
   private async saveProgress(): Promise<void> {
     try {
-      await backfillStorage.saveBackfillProgress({
+      await storage.saveBackfillProgress({
         currentCursor: this.progress.currentCursor?.toString() || null,
         eventsProcessed: this.progress.eventsProcessed,
         lastUpdateTime: this.progress.lastUpdateTime,
