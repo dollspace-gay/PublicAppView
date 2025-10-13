@@ -8,6 +8,7 @@ const keyset = {
   kid: 'appview-oauth-key'
 };
 
-writeFileSync('oauth-keyset.json', JSON.stringify(keyset, null, 2));
+// Write with restrictive file permissions (owner-only read/write)
+writeFileSync('oauth-keyset.json', JSON.stringify(keyset, null, 2), { mode: 0o600 });
 console.log('✅ OAuth keyset created successfully');
-console.log('Keyset file written to oauth-keyset.json');
+console.log('Keyset file written to oauth-keyset.json with secure permissions (0600)');

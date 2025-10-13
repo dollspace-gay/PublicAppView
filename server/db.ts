@@ -60,7 +60,9 @@ export function createDbPool(poolSize: number, label: string = "pool"): DbConnec
 //   - Neon Free: ~10 connections
 //   - Neon Pro: ~100 connections  
 //   - Self-hosted: depends on max_connections setting
-const mainPoolSize = parseInt(process.env.DB_POOL_SIZE || '4');
+const DEFAULT_DB_POOL_SIZE = 4;
+const parsedPoolSize = parseInt(process.env.DB_POOL_SIZE || String(DEFAULT_DB_POOL_SIZE), 10);
+const mainPoolSize = (Number.isInteger(parsedPoolSize) && parsedPoolSize > 0) ? parsedPoolSize : DEFAULT_DB_POOL_SIZE;
 
 // Create main database connection pool
 const db = createDbPool(mainPoolSize, isNeonDatabase ? "main (Neon)" : "main (PostgreSQL)");
