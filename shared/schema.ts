@@ -576,6 +576,21 @@ export const firehoseCursor = pgTable("firehose_cursor", {
   serviceIdx: uniqueIndex("idx_firehose_cursor_service").on(table.service),
 }));
 
+// Generic records table - stores custom/unknown record types
+export const genericRecords = pgTable("generic_records", {
+  uri: varchar("uri", { length: 512 }).primaryKey(),
+  cid: varchar("cid", { length: 255 }).notNull(),
+  authorDid: varchar("author_did", { length: 255 }).notNull(),
+  recordType: varchar("record_type", { length: 255 }).notNull(), // Full record type (e.g., com.whtwnd.blog.entry)
+  record: jsonb("record").notNull(), // The full record data
+  createdAt: timestamp("created_at").notNull(),
+  indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+}, (table) => ({
+  authorIdx: index("idx_generic_records_author").on(table.authorDid),
+  recordTypeIdx: index("idx_generic_records_type").on(table.recordType),
+  createdAtIdx: index("idx_generic_records_created_at").on(table.createdAt),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   posts: many(posts),
@@ -732,6 +747,7 @@ export const insertQuoteSchema = createInsertSchema(quotes).omit({ indexedAt: tr
 export const insertVerificationSchema = createInsertSchema(verifications).omit({ indexedAt: true });
 export const insertActivitySubscriptionSchema = createInsertSchema(activitySubscriptions).omit({ indexedAt: true });
 export const insertFirehoseCursorSchema = createInsertSchema(firehoseCursor).omit({ id: true, updatedAt: true });
+export const insertGenericRecordSchema = createInsertSchema(genericRecords).omit({ indexedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -802,3 +818,5 @@ export type ActivitySubscription = typeof activitySubscriptions.$inferSelect;
 export type InsertActivitySubscription = z.infer<typeof insertActivitySubscriptionSchema>;
 export type FirehoseCursor = typeof firehoseCursor.$inferSelect;
 export type InsertFirehoseCursor = z.infer<typeof insertFirehoseCursorSchema>;
+export type GenericRecord = typeof genericRecords.$inferSelect;
+export type InsertGenericRecord = z.infer<typeof insertGenericRecordSchema>;

@@ -1,4 +1,4 @@
-import { users, posts, likes, reposts, bookmarks, quotes, verifications, activitySubscriptions, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, postAggregations, postViewerStates, threadContexts, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type Quote, type InsertQuote, type Verification, type InsertVerification, type ActivitySubscription, type InsertActivitySubscription, type FeedItem, type InsertFeedItem, type PostAggregation, type InsertPostAggregation, type PostViewerState, type InsertPostViewerState, type ThreadContext, type InsertThreadContext } from "@shared/schema";
+import { users, posts, likes, reposts, bookmarks, quotes, verifications, activitySubscriptions, follows, blocks, mutes, listMutes, listBlocks, threadMutes, userPreferences, sessions, userSettings, labels, labelDefinitions, labelEvents, moderationReports, moderationActions, moderatorAssignments, notifications, lists, listItems, feedGenerators, starterPacks, labelerServices, pushSubscriptions, videoJobs, firehoseCursor, feedItems, postAggregations, postViewerStates, threadContexts, genericRecords, type User, type InsertUser, type Post, type InsertPost, type Like, type InsertLike, type Repost, type InsertRepost, type Follow, type InsertFollow, type Block, type InsertBlock, type Mute, type InsertMute, type ListMute, type InsertListMute, type ListBlock, type InsertListBlock, type ThreadMute, type InsertThreadMute, type UserPreferences, type InsertUserPreferences, type Session, type InsertSession, type UserSettings, type InsertUserSettings, type Label, type InsertLabel, type LabelDefinition, type InsertLabelDefinition, type LabelEvent, type InsertLabelEvent, type ModerationReport, type InsertModerationReport, type ModerationAction, type InsertModerationAction, type ModeratorAssignment, type InsertModeratorAssignment, type Notification, type InsertNotification, type List, type InsertList, type ListItem, type InsertListItem, type FeedGenerator, type InsertFeedGenerator, type StarterPack, type InsertStarterPack, type LabelerService, type InsertLabelerService, type PushSubscription, type InsertPushSubscription, type VideoJob, type InsertVideoJob, type FirehoseCursor, type InsertFirehoseCursor, type Bookmark, insertBookmarkSchema, type Quote, type InsertQuote, type Verification, type InsertVerification, type ActivitySubscription, type InsertActivitySubscription, type FeedItem, type InsertFeedItem, type PostAggregation, type InsertPostAggregation, type PostViewerState, type InsertPostViewerState, type ThreadContext, type InsertThreadContext, type GenericRecord, type InsertGenericRecord } from "@shared/schema";
 import { db, pool, type DbConnection } from "./db";
 import { eq, desc, and, or, sql, inArray, isNull } from "drizzle-orm";
 import { encryptionService } from "./services/encryption";
@@ -75,6 +75,11 @@ export interface IStorage {
   deleteVerification(uri: string): Promise<void>;
   getVerification(uri: string): Promise<Verification | undefined>;
   getVerificationBySubject(subjectDid: string): Promise<Verification | undefined>;
+
+  // Generic record operations
+  createGenericRecord(record: InsertGenericRecord): Promise<GenericRecord>;
+  deleteGenericRecord(uri: string): Promise<void>;
+  getGenericRecord(uri: string): Promise<GenericRecord | undefined>;
 
   // Activity subscription operations
   createActivitySubscription(subscription: InsertActivitySubscription): Promise<ActivitySubscription>;
@@ -1053,6 +1058,29 @@ export class DatabaseStorage implements IStorage {
       .where(eq(verifications.uri, uri))
       .limit(1);
     return row as Verification | undefined;
+  }
+
+  // Generic record operations
+  async createGenericRecord(record: InsertGenericRecord): Promise<GenericRecord> {
+    const [row] = await this.db
+      .insert(genericRecords)
+      .values(record)
+      .onConflictDoNothing()
+      .returning();
+    return row as GenericRecord;
+  }
+
+  async deleteGenericRecord(uri: string): Promise<void> {
+    await this.db.delete(genericRecords).where(eq(genericRecords.uri, uri));
+  }
+
+  async getGenericRecord(uri: string): Promise<GenericRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(genericRecords)
+      .where(eq(genericRecords.uri, uri))
+      .limit(1);
+    return row as GenericRecord | undefined;
   }
 
   async getVerificationBySubject(subjectDid: string): Promise<Verification | undefined> {
