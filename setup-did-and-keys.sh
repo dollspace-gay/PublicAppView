@@ -77,7 +77,6 @@ jq -n \
     "@context": [
       "https://www.w3.org/ns/did/v1",
       "https://w3id.org/security/multikey/v1",
-      "https://w3id.org/did/service/v1"
     ],
     id: $id,
     alsoKnownAs: ["at://\($domain)"],
@@ -91,6 +90,11 @@ jq -n \
     ],
     service: [
       {
+        id: "#bsky_notif",
+        type: "BskyNotificationServic",
+        serviceEndpoint: "https://\($domain)"
+      }
+	  {
         id: "#bsky_appview",
         type: "BskyAppView",
         serviceEndpoint: "https://\($domain)"
