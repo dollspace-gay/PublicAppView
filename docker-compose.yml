@@ -65,6 +65,9 @@ services:
       - ADMIN_DIDS=did:plc:abc123xyz,admin.bsky.social,did:plc:def456uvw
       - OSPREY_ENABLED=${OSPREY_ENABLED:-false}
       - ENHANCED_HYDRATION_ENABLED=true
+      - CONSTELLATION_ENABLED=${CONSTELLATION_ENABLED:-false}
+      - CONSTELLATION_URL=${CONSTELLATION_URL:-https://constellation.microcosm.blue}
+      - CONSTELLATION_CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
     depends_on:
       redis:
         condition: service_healthy
@@ -72,6 +75,32 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+
+  # Constellation Bridge - Enhanced interaction statistics
+  constellation-bridge:
+    build: ./microcosm-bridge/constellation-client
+    environment:
+      - CONSTELLATION_URL=${CONSTELLATION_URL:-https://constellation.microcosm.blue}
+      - CONSTELLATION_TIMEOUT=5000
+      - REDIS_URL=redis://redis:6379
+      - CACHE_ENABLED=true
+      - CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
+      - HEALTH_PORT=3003
+      - MAX_REQUESTS_PER_SECOND=10
+      - USER_AGENT=AppView-Constellation-Bridge/1.0 (@appview.bsky.social)
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - constellation
+      - microcosm
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
       interval: 30s
       timeout: 10s
       start_period: 40s

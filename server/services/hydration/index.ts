@@ -10,6 +10,7 @@ import { ViewerContextBuilder, ViewerContext } from './viewer-context';
 import { EmbedResolver } from './embed-resolver';
 import { LabelPropagator, Label } from './label-propagator';
 import { HydrationCache } from './cache';
+import { constellationIntegration } from '../constellation-integration';
 
 export interface HydrationState {
   posts: Map<string, any>;
@@ -86,6 +87,16 @@ export class EnhancedHydrator {
         quoteCount: agg.quoteCount,
         bookmarkCount: agg.bookmarkCount
       });
+    }
+
+    // Enrich with Constellation stats if enabled
+    if (constellationIntegration.isEnabled()) {
+      try {
+        await constellationIntegration.enrichAggregations(aggregationsMap, postUris);
+      } catch (error) {
+        console.error('[HYDRATION] Error enriching with Constellation stats:', error);
+        // Continue with local stats on error
+      }
     }
 
     // Fetch viewer states for posts
