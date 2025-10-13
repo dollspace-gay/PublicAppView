@@ -56,8 +56,28 @@ export default function AdminControlPanel() {
   const loginMutation = useMutation({
     mutationFn: (data: { handle: string }) => api.post<{ authUrl: string }>('/api/auth/login', data),
     onSuccess: (data) => {
-      // Redirect to PDS for OAuth authorization
-      window.location.href = data.authUrl;
+      // Validate authUrl before redirecting to prevent open redirect attacks
+      try {
+        const url = new URL(data.authUrl);
+        // Only allow https protocol
+        if (url.protocol !== 'https:') {
+          throw new Error('Invalid redirect URL protocol');
+        }
+        // Validate it's not redirecting to localhost or internal IPs
+        const hostname = url.hostname.toLowerCase();
+        if (hostname === 'localhost' || hostname.startsWith('127.') || hostname.startsWith('192.168.') || 
+            hostname.startsWith('10.') || hostname === '[::1]') {
+          throw new Error('Invalid redirect URL hostname');
+        }
+        // Redirect to PDS for OAuth authorization
+        window.location.href = data.authUrl;
+      } catch (error) {
+        toast({
+          title: "Login Failed",
+          description: "Invalid authentication URL returned from server",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({

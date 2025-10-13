@@ -20,11 +20,13 @@ export class Hydrator {
     const repostsData = await this.hydrateReposts(repostUris);
     
     // Hydrate profile viewers if viewer is authenticated
+    // Extract author DIDs from hydrated posts (not post URIs)
+    const authorDids = Array.from(new Set(
+      Array.from(postsData.values()).map((post: any) => post.author?.did).filter(Boolean)
+    ));
+    
     const profileViewers = viewerDid 
-      ? await this.hydrateProfileViewers(
-          Array.from(new Set(items.map(item => item.post.uri))),
-          viewerDid
-        )
+      ? await this.hydrateProfileViewers(authorDids, viewerDid)
       : new Map();
 
     return {

@@ -1122,7 +1122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Delete from local storage
       try {
-        await storage.deleteLike(uri);
+        await storage.deleteLike(uri, session.userDid);
       } catch (storageError) {
         // PDS delete succeeded but local delete failed - log for manual reconciliation
         console.error(
@@ -1260,7 +1260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Delete from local storage
       try {
-        await storage.deleteFollow(uri);
+        await storage.deleteFollow(uri, session.userDid);
       } catch (storageError) {
         // PDS delete succeeded but local delete failed - log for manual reconciliation
         console.error(

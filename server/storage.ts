@@ -42,7 +42,7 @@ export interface IStorage {
 
   // Like operations
   createLike(like: InsertLike): Promise<Like>;
-  deleteLike(uri: string): Promise<void>;
+  deleteLike(uri: string, userDid: string): Promise<void>;
   getLike(uri: string): Promise<Like | undefined>;
   getPostLikes(postUri: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
   getActorLikes(userDid: string, limit?: number, cursor?: string): Promise<{ likes: Like[], cursor?: string }>;
@@ -84,7 +84,7 @@ export interface IStorage {
 
   // Follow operations
   createFollow(follow: InsertFollow): Promise<Follow>;
-  deleteFollow(uri: string): Promise<void>;
+  deleteFollow(uri: string, userDid: string): Promise<void>;
   getFollows(followerDid: string, limit?: number): Promise<Follow[]>;
   getFollowers(followingDid: string, limit?: number): Promise<Follow[]>;
   isFollowing(followerDid: string, followingDid: string): Promise<boolean>;
@@ -326,37 +326,39 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const sanitized = sanitizeObject(insertUser);
     
-    // Check if user already exists to determine if this is a new user
-    const existingUser = await this.getUser(sanitized.did);
-    const isNewUser = !existingUser;
-    
-    const [user] = await this.db
+    // Try to insert first with onConflictDoNothing to detect new users atomically
+    const [insertedUser] = await this.db
       .insert(users)
       .values(sanitized)
-      .onConflictDoUpdate({
-        target: users.did,
-        set: {
-          handle: sanitized.handle,
-          displayName: sanitized.displayName,
-          avatarUrl: sanitized.avatarUrl,
-          description: sanitized.description,
-          profileRecord: sanitized.profileRecord,
-        },
-      })
+      .onConflictDoNothing()
       .returning();
     
-    // Update Redis counter for dashboard metrics (only if this was a new user)
-    if (isNewUser) {
+    // If insert succeeded, this is a new user - increment counter
+    if (insertedUser) {
       const { redisQueue } = await import("./services/redis-queue");
       await redisQueue.incrementRecordCount('users');
+      return insertedUser;
     }
     
-    return user;
+    // If insert was skipped due to conflict, update the existing user
+    const [updatedUser] = await this.db
+      .update(users)
+      .set({
+        handle: sanitized.handle,
+        displayName: sanitized.displayName,
+        avatarUrl: sanitized.avatarUrl,
+        description: sanitized.description,
+        profileRecord: sanitized.profileRecord,
+      })
+      .where(eq(users.did, sanitized.did))
+      .returning();
+    
+    return updatedUser;
   }
 
   async updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined> {
     const sanitized = sanitizeObject(data);
-    const [user] = await db
+    const [user] = await this.db
       .update(users)
       .set(sanitized)
       .where(eq(users.did, did))
@@ -365,23 +367,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUserHandle(did: string, handle: string): Promise<void> {
-    // Check if user already exists to determine if this is a new user
-    const existingUser = await this.getUser(did);
-    const isNewUser = !existingUser;
-    
-    await this.db
+    // Try to insert first with onConflictDoNothing to detect new users atomically
+    const [insertedUser] = await this.db
       .insert(users)
       .values({ did, handle })
-      .onConflictDoUpdate({
-        target: users.did,
-        set: { handle },
-      });
+      .onConflictDoNothing()
+      .returning();
     
-    // Update Redis counter for dashboard metrics (only if this was a new user)
-    if (isNewUser) {
+    // If insert succeeded, this is a new user - increment counter
+    if (insertedUser) {
       const { redisQueue } = await import("./services/redis-queue");
       await redisQueue.incrementRecordCount('users');
+      return;
     }
+    
+    // If insert was skipped due to conflict, update the existing user
+    await this.db
+      .update(users)
+      .set({ handle })
+      .where(eq(users.did, did));
   }
 
   async getUsers(dids: string[]): Promise<User[]> {
@@ -720,7 +724,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createFeedItem(feedItem: InsertFeedItem): Promise<FeedItem> {
-    const [result] = await db.insert(feedItems).values(feedItem).returning();
+    const [result] = await this.db.insert(feedItems).values(feedItem).returning();
     
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
@@ -730,7 +734,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteFeedItem(uri: string): Promise<void> {
-    await db.delete(feedItems).where(eq(feedItems.uri, uri));
+    await this.db.delete(feedItems).where(eq(feedItems.uri, uri));
     
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
@@ -785,8 +789,9 @@ export class DatabaseStorage implements IStorage {
     return newLike;
   }
 
-  async deleteLike(uri: string): Promise<void> {
-    await this.db.delete(likes).where(eq(likes.uri, uri));
+  async deleteLike(uri: string, userDid: string): Promise<void> {
+    // Verify ownership before deleting to prevent IDOR
+    await this.db.delete(likes).where(and(eq(likes.uri, uri), eq(likes.userDid, userDid)));
     
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
@@ -1112,8 +1117,9 @@ export class DatabaseStorage implements IStorage {
     return newFollow;
   }
 
-  async deleteFollow(uri: string): Promise<void> {
-    await this.db.delete(follows).where(eq(follows.uri, uri));
+  async deleteFollow(uri: string, userDid: string): Promise<void> {
+    // Verify ownership before deleting to prevent IDOR
+    await this.db.delete(follows).where(and(eq(follows.uri, uri), eq(follows.followerDid, userDid)));
     
     // Update Redis counter for dashboard metrics
     const { redisQueue } = await import("./services/redis-queue");
@@ -1121,7 +1127,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
-    return await db
+    return await this.db
       .select()
       .from(follows)
       .where(eq(follows.followerDid, followerDid))
@@ -1129,7 +1135,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getFollowers(followingDid: string, limit = 100): Promise<Follow[]> {
-    return await db
+    return await this.db
       .select()
       .from(follows)
       .where(eq(follows.followingDid, followingDid))
@@ -1422,7 +1428,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean> {
-    const [result] = await db
+    const [result] = await this.db
       .select()
       .from(threadMutes)
       .where(and(eq(threadMutes.muterDid, muterDid), eq(threadMutes.threadRootUri, threadRootUri)))
@@ -1445,7 +1451,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserPreferences(userDid: string, prefs: Partial<InsertUserPreferences>): Promise<UserPreferences | undefined> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(userPreferences)
       .set({ ...prefs, updatedAt: new Date() })
       .where(eq(userPreferences.userDid, userDid))
@@ -1697,8 +1703,8 @@ export class DatabaseStorage implements IStorage {
     try {
       return {
         ...session,
-        accessToken: encryptionService.decrypt(session.accessToken),
-        refreshToken: session.refreshToken ? encryptionService.decrypt(session.refreshToken) : null,
+        accessToken: await encryptionService.decrypt(session.accessToken),
+        refreshToken: session.refreshToken ? await encryptionService.decrypt(session.refreshToken) : null,
       };
     } catch (error) {
       // Decryption failed (corrupted data) - delete the session
@@ -1717,8 +1723,8 @@ export class DatabaseStorage implements IStorage {
       try {
         decryptedSessions.push({
           ...session,
-          accessToken: encryptionService.decrypt(session.accessToken),
-          refreshToken: session.refreshToken ? encryptionService.decrypt(session.refreshToken) : null,
+          accessToken: await encryptionService.decrypt(session.accessToken),
+          refreshToken: session.refreshToken ? await encryptionService.decrypt(session.refreshToken) : null,
         });
       } catch (error) {
         // Decryption failed - delete corrupted session
@@ -1736,16 +1742,16 @@ export class DatabaseStorage implements IStorage {
     // Encrypt tokens if provided
     const updateData: any = {};
     if (data.accessToken) {
-      updateData.accessToken = encryptionService.encrypt(data.accessToken);
+      updateData.accessToken = await encryptionService.encrypt(data.accessToken);
     }
     if (data.refreshToken !== undefined) {
-      updateData.refreshToken = data.refreshToken ? encryptionService.encrypt(data.refreshToken) : null;
+      updateData.refreshToken = data.refreshToken ? await encryptionService.encrypt(data.refreshToken) : null;
     }
     if (data.expiresAt) {
       updateData.expiresAt = data.expiresAt;
     }
 
-    const [updatedSession] = await db
+    const [updatedSession] = await this.db
       .update(sessions)
       .set(updateData)
       .where(eq(sessions.id, id))
@@ -1756,8 +1762,8 @@ export class DatabaseStorage implements IStorage {
     // Decrypt tokens before returning
     return {
       ...updatedSession,
-      accessToken: encryptionService.decrypt(updatedSession.accessToken),
-      refreshToken: updatedSession.refreshToken ? encryptionService.decrypt(updatedSession.refreshToken) : null,
+      accessToken: await encryptionService.decrypt(updatedSession.accessToken),
+      refreshToken: updatedSession.refreshToken ? await encryptionService.decrypt(updatedSession.refreshToken) : null,
     };
   }
 
@@ -1822,7 +1828,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserSettings(userDid: string, settings: Partial<InsertUserSettings>): Promise<UserSettings | undefined> {
-    const [updated] = await db
+    const [updated] = await this.db
       .update(userSettings)
       .set(settings)
       .where(eq(userSettings.userDid, userDid))
@@ -1840,14 +1846,14 @@ export class DatabaseStorage implements IStorage {
   async deleteUserData(userDid: string): Promise<void> {
     // Count records before deletion for Redis counter updates
     const [postCount, likeCount, repostCount, followCount, blockCount] = await Promise.all([
-      db.select({ count: sql<number>`count(*)::int` }).from(posts).where(eq(posts.authorDid, userDid)),
-      db.select({ count: sql<number>`count(*)::int` }).from(likes).where(eq(likes.userDid, userDid)),
-      db.select({ count: sql<number>`count(*)::int` }).from(reposts).where(eq(reposts.userDid, userDid)),
-      db.select({ count: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followerDid, userDid)),
-      db.select({ count: sql<number>`count(*)::int` }).from(blocks).where(eq(blocks.blockerDid, userDid)),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(posts).where(eq(posts.authorDid, userDid)),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(likes).where(eq(likes.userDid, userDid)),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(reposts).where(eq(reposts.userDid, userDid)),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followerDid, userDid)),
+      this.db.select({ count: sql<number>`count(*)::int` }).from(blocks).where(eq(blocks.blockerDid, userDid)),
     ]);
 
-    await db.transaction(async (tx) => {
+    await this.db.transaction(async (tx) => {
       // Delete all user-generated content
       await tx.delete(posts).where(eq(posts.authorDid, userDid));
       await tx.delete(likes).where(eq(likes.userDid, userDid));
@@ -2216,7 +2222,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createListItem(item: InsertListItem): Promise<ListItem> {
-    const [newItem] = await db
+    const [newItem] = await this.db
       .insert(listItems)
       .values(item)
       .onConflictDoNothing()
@@ -2229,7 +2235,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getListItems(listUri: string, limit = 100): Promise<ListItem[]> {
-    return await db
+    return await this.db
       .select()
       .from(listItems)
       .where(eq(listItems.listUri, listUri))
@@ -2251,7 +2257,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${posts.indexedAt} < ${new Date(cursor)}`);
     }
 
-    return await db
+    return await this.db
       .select()
       .from(posts)
       .where(and(...conditions))
@@ -2261,7 +2267,7 @@ export class DatabaseStorage implements IStorage {
 
   // Feed generator operations
   async createFeedGenerator(generator: InsertFeedGenerator): Promise<FeedGenerator> {
-    const [feedGen] = await db
+    const [feedGen] = await this.db
       .insert(feedGenerators)
       .values(generator)
       .onConflictDoUpdate({
@@ -2301,7 +2307,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${feedGenerators.indexedAt} < ${new Date(cursor)}`);
     }
 
-    const generators = await db
+    const generators = await this.db
       .select()
       .from(feedGenerators)
       .where(and(...conditions))
@@ -2375,7 +2381,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateFeedGenerator(uri: string, data: Partial<InsertFeedGenerator>): Promise<FeedGenerator | undefined> {
-    const [generator] = await db
+    const [generator] = await this.db
       .update(feedGenerators)
       .set(data)
       .where(eq(feedGenerators.uri, uri))
@@ -2385,7 +2391,7 @@ export class DatabaseStorage implements IStorage {
 
   // Starter pack operations
   async createStarterPack(pack: InsertStarterPack): Promise<StarterPack> {
-    const [starterPack] = await db
+    const [starterPack] = await this.db
       .insert(starterPacks)
       .values(pack)
       .onConflictDoUpdate({
@@ -2423,7 +2429,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(conditions.length ? and(...conditions) : undefined as any)
@@ -2440,7 +2446,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(and(...conditions))
@@ -2457,7 +2463,7 @@ export class DatabaseStorage implements IStorage {
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
-    const results = await db
+    const results = await this.db
       .select()
       .from(starterPacks)
       .where(and(...conditions))
@@ -2471,7 +2477,7 @@ export class DatabaseStorage implements IStorage {
 
   // Labeler service operations
   async createLabelerService(service: InsertLabelerService): Promise<LabelerService> {
-    const [labelerService] = await db
+    const [labelerService] = await this.db
       .insert(labelerServices)
       .values(service)
       .onConflictDoUpdate({

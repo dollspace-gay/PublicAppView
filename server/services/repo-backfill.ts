@@ -22,16 +22,39 @@ const didResolver = new IdResolver();
 
 /**
  * Generate a synthetic CID for backfilled records
- * Creates a deterministic CID based on the record content
+ * Creates a deterministic CID based on the record content using proper base32 encoding
  */
 function generateSyntheticCid(record: any, did: string, path: string): string {
   // Create a deterministic hash from the record content
   const recordString = JSON.stringify({ record, did, path });
-  const hash = createHash('sha256').update(recordString).digest();
+  const hashBuffer = createHash('sha256').update(recordString).digest();
   
-  // Format as CID v1 (base32-encoded)
-  // CID format: bafyrei + base32(hash)
-  const base32Hash = hash.toString('base64url').substring(0, 32);
+  // Convert to proper base32 encoding (RFC4648) for CID
+  // Base32 alphabet: ABCDEFGHIJKLMNOPQRSTUVWXYZ234567
+  const base32Encode = (buffer: Buffer): string => {
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+    let result = '';
+    let bits = 0;
+    let value = 0;
+    
+    for (let i = 0; i < buffer.length; i++) {
+      value = (value << 8) | buffer[i];
+      bits += 8;
+      
+      while (bits >= 5) {
+        result += alphabet[(value >>> (bits - 5)) & 31];
+        bits -= 5;
+      }
+    }
+    
+    if (bits > 0) {
+      result += alphabet[(value << (5 - bits)) & 31];
+    }
+    
+    return result;
+  };
+  
+  const base32Hash = base32Encode(hashBuffer);
   return `bafyrei${base32Hash}`;
 }
 

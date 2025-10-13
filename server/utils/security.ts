@@ -117,8 +117,10 @@ export function sanitizeUrlPath(url: string): string {
  * @returns true if the content type is safe to proxy
  */
 export function isContentTypeSafe(contentType: string | undefined): boolean {
+  // Treat undefined content-type as unsafe to prevent content sniffing attacks
+  // Default to application/octet-stream if needed
   if (!contentType) {
-    return true; // Allow if no content-type specified
+    return false;
   }
   
   const type = contentType.toLowerCase().split(';')[0].trim();
@@ -214,10 +216,21 @@ export function isValidCID(cid: string): boolean {
     return false;
   }
   
-  // CID is a base32 or base58 encoded string
-  // Typically starts with 'bafy' for base32 or 'Qm' for base58
-  const cidRegex = /^[a-zA-Z0-9]+$/;
-  return cidRegex.test(cid) && cid.length >= 10 && cid.length < 256;
+  // CID validation:
+  // - CIDv0: base58btc, starts with 'Qm', uses character set: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
+  // - CIDv1: typically base32, starts with 'b' (base32), uses lowercase a-z and 2-7
+  // More strict validation to prevent invalid CIDs
+  
+  // CIDv0 (base58btc): starts with Qm
+  const cidv0Regex = /^Qm[1-9A-HJ-NP-Za-km-z]{44,}$/;
+  
+  // CIDv1 (base32): starts with 'b' followed by base32 chars (a-z, 2-7)
+  const cidv1Regex = /^b[a-z2-7]{58,}$/;
+  
+  // Check if it matches either CIDv0 or CIDv1 format
+  const isValid = (cidv0Regex.test(cid) || cidv1Regex.test(cid)) && cid.length < 256;
+  
+  return isValid;
 }
 
 /**
@@ -276,26 +289,38 @@ export async function safeFetch(validatedUrl: string, options?: RequestInit): Pr
 
 /**
  * Sanitizes HTML content to prevent XSS attacks
- * This function ensures that HTML output is safe from script injection
- * by stripping dangerous patterns and validating the content.
+ * WARNING: This is a minimal sanitizer for trusted internal HTML transformations only
+ * For user-generated HTML content, use a robust library like DOMPurify
  * 
- * @param html The HTML content to sanitize
- * @returns Sanitized HTML safe for rendering
+ * This function is designed for Vite's transformIndexHtml output sanitization only.
+ * It strips minimal XSS patterns but is NOT comprehensive enough for untrusted input.
+ * 
+ * @param html The HTML content to sanitize (from trusted internal sources only)
+ * @returns Sanitized HTML with minimal dangerous patterns removed
  */
 export function sanitizeHtmlOutput(html: string): string {
-  // This function serves as a sanitization barrier for static analysis tools
-  // The HTML has already been processed through Vite's transformIndexHtml which is safe,
-  // but we add this wrapper to explicitly mark it as sanitized for SAST tools
+  // SECURITY NOTE: This is NOT a comprehensive HTML sanitizer
+  // This function only handles minimal XSS patterns for internal Vite HTML transformation
+  // For untrusted user content, use a library like DOMPurify
   
-  // Remove any potential script injections that could have been introduced
   let sanitized = html;
   
-  // Remove inline event handlers that might have been injected
+  // Remove dangerous tags
+  sanitized = sanitized.replace(/<script[^>]*>.*?<\/script>/gis, '');
+  sanitized = sanitized.replace(/<iframe[^>]*>.*?<\/iframe>/gis, '');
+  sanitized = sanitized.replace(/<object[^>]*>.*?<\/object>/gis, '');
+  sanitized = sanitized.replace(/<embed[^>]*>/gi, '');
+  
+  // Remove inline event handlers
   sanitized = sanitized.replace(/\son\w+\s*=\s*["'][^"']*["']/gi, '');
   
   // Remove javascript: protocol URLs
   sanitized = sanitized.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"');
+  sanitized = sanitized.replace(/src\s*=\s*["']javascript:[^"']*["']/gi, 'src=""');
   
-  // Return the sanitized HTML - this breaks the taint chain for static analysis
+  // Remove data: URIs that could contain malicious content
+  sanitized = sanitized.replace(/src\s*=\s*["']data:[^"']*["']/gi, 'src=""');
+  
+  // Return the sanitized HTML
   return sanitized;
 }

@@ -22,10 +22,12 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // In production, this isn't used (static files are served instead)
+  // For development, restrict to localhost and common dev environments
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
-    allowedHosts: true as const,
+    allowedHosts: ['localhost', '127.0.0.1', '::1', '.replit.dev', '.gitpod.io'],
   };
 
   const vite = await createViteServer({
@@ -82,10 +84,17 @@ export async function setupVite(app: Express, server: Server) {
       const safeHtml = sanitizeHtmlOutput(page);
       
       // Set security headers to prevent XSS
+      // Note: In development, Vite HMR requires 'unsafe-inline' and 'unsafe-eval'
+      // For production, these should be removed and replaced with nonces/hashes
+      const isDevelopment = process.env.NODE_ENV !== 'production';
+      const csp = isDevelopment
+        ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: data: blob:; img-src 'self' https: http: data: blob:; connect-src 'self' https: http: wss: ws:;"
+        : "default-src 'self' https: data: blob:; script-src 'self'; style-src 'self'; img-src 'self' https: data: blob:; connect-src 'self' https: wss:;";
+      
       res.status(200).set({ 
         "Content-Type": "text/html; charset=utf-8",
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: data: blob:; img-src 'self' https: http: data: blob:; connect-src 'self' https: http: wss: ws:;"
+        "Content-Security-Policy": csp
       }).end(safeHtml);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);

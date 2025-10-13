@@ -156,6 +156,8 @@ export class ContentFilterService {
 
   /**
    * Filter posts with custom rules
+   * WARNING: customRules MUST come from trusted sources only, never from user input
+   * Custom functions pose an RCE risk if not properly controlled
    */
   filterPostsWithRules(
     posts: Post[],
@@ -168,7 +170,7 @@ export class ContentFilterService {
       return filtered;
     }
 
-    // Apply custom rules
+    // Apply custom rules (only safe rule types - NO custom functions from untrusted sources)
     filtered = filtered.filter((post) => {
       for (const rule of customRules) {
         if (rule.action === "hide") {
@@ -181,8 +183,18 @@ export class ContentFilterService {
               return false;
             }
           } else if (rule.type === "custom" && typeof rule.value === "function") {
-            if (rule.value(post)) {
-              return false;
+            // SECURITY: Custom functions can execute arbitrary code (RCE risk)
+            // This should ONLY be used with rules from trusted, server-defined sources
+            // NEVER allow user-defined custom rules with function values
+            console.warn('[CONTENT_FILTER] WARNING: Executing custom filter function - ensure this is from a trusted source');
+            try {
+              if (rule.value(post)) {
+                return false;
+              }
+            } catch (error) {
+              console.error('[CONTENT_FILTER] Error executing custom filter function:', error);
+              // On error, fail safe by not filtering the post
+              return true;
             }
           }
         }
@@ -191,6 +203,36 @@ export class ContentFilterService {
     });
 
     return filtered;
+  }
+
+  /**
+   * Filter a single post using pre-computed labels (avoids redundant label fetches)
+   */
+  private filterPostWithPrecomputedLabels(
+    post: Post,
+    settings: UserSettings | null,
+    labelMap: Map<string, Label[]>
+  ): FilterResult {
+    // First apply basic filters (keywords, muted users)
+    const basicResult = this.filterPost(post, settings);
+    if (basicResult.filtered) {
+      return basicResult;
+    }
+
+    // Check labels
+    const postLabels = labelMap.get(post.uri) || [];
+    const authorLabels = labelMap.get(post.authorDid) || [];
+    const allLabels = [...postLabels, ...authorLabels];
+
+    if (allLabels.length > 0) {
+      const labelCheck = this.shouldFilterByLabels(allLabels);
+      if (labelCheck.filter) {
+        return { filtered: true, reason: labelCheck.reason, labels: allLabels };
+      }
+      return { filtered: false, labels: allLabels };
+    }
+
+    return { filtered: false };
   }
 
   /**
@@ -219,7 +261,7 @@ export class ContentFilterService {
     let byMutedUser = 0;
     let byLabel = 0;
 
-    // Batch fetch all labels
+    // Batch fetch all labels ONCE for all posts
     const subjects = new Set<string>();
     for (const post of posts) {
       subjects.add(post.uri);
@@ -227,9 +269,10 @@ export class ContentFilterService {
     }
     const labelMap = await this.checkLabels(Array.from(subjects));
 
+    // Now filter using pre-fetched labels (no redundant async calls)
     let filteredCount = 0;
     for (const post of posts) {
-      const result = await this.filterPostWithLabels(post, settings);
+      const result = this.filterPostWithPrecomputedLabels(post, settings, labelMap);
       if (result.filtered) {
         filteredCount++;
         if (result.reason?.includes("keyword")) {

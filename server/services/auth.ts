@@ -128,16 +128,16 @@ export class AuthService {
         userDid = payload.sub;
         
         // App password tokens from PDS: sub=userDID, aud=pdsDID, scope=com.atproto.appPassPrivileged
-        // These are pre-validated by the PDS and don't need cryptographic verification
+        // SECURITY: All JWTs MUST have their cryptographic signatures verified
+        // Even app password tokens need signature verification to prevent forgery
         const pdsDid = payload.aud;
         if (payload.scope === 'com.atproto.appPassPrivileged' && pdsDid && typeof pdsDid === 'string' && pdsDid.startsWith('did:')) {
-          console.log(`[AUTH] ✓ PDS app password token accepted for DID: ${payload.sub} (from PDS: ${pdsDid})`);
-          // Include scope so downstream checks can identify app password tokens
-          return { did: payload.sub, aud: pdsDid, scope: payload.scope };
+          // For app password tokens, the PDS is the issuer
+          signingDid = pdsDid;
+          console.log(`[AUTH] PDS app password token detected for DID: ${payload.sub} (from PDS: ${pdsDid}) - verifying signature`);
         }
-        
         // OAuth tokens with iss field need signature verification
-        if (payload.iss && typeof payload.iss === 'string') {
+        else if (payload.iss && typeof payload.iss === 'string') {
           signingDid = payload.iss;
         } else {
           console.log(`[AUTH] OAuth token missing iss field`);
@@ -420,7 +420,8 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     return res.status(401).json({ error: "No authentication token provided" });
   }
 
-  const payload = authService.verifySessionToken(token);
+  // Use verifyToken to support both local session tokens AND AT Protocol access tokens
+  const payload = await authService.verifyToken(token);
   if (!payload) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
