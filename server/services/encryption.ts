@@ -5,27 +5,30 @@
  * Uses AES-256-GCM for authenticated encryption
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, CipherGCM, DecipherGCM } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scrypt as _scrypt, CipherGCM, DecipherGCM } from 'crypto';
+import { promisify } from 'util';
+
+const scrypt = promisify(_scrypt);
 
 class EncryptionService {
   private algorithm = 'aes-256-gcm';
   private keyLength = 32; // 256 bits
-  private ivLength = 16; // 128 bits
+  private ivLength = 12; // 96 bits - recommended for GCM
   private authTagLength = 16; // 128 bits
   private saltLength = 32;
 
   /**
-   * Derives a 32-byte encryption key from the SESSION_SECRET
+   * Derives a 32-byte encryption key from the SESSION_SECRET (async)
    */
-  private deriveKey(secret: string, salt: Buffer): Buffer {
-    return scryptSync(secret, salt, this.keyLength);
+  private async deriveKey(secret: string, salt: Buffer): Promise<Buffer> {
+    return scrypt(secret, salt, this.keyLength) as Promise<Buffer>;
   }
 
   /**
    * Encrypts a string value
    * Returns: salt:iv:authTag:encryptedData (all hex encoded)
    */
-  encrypt(plaintext: string): string {
+  async encrypt(plaintext: string): Promise<string> {
     if (!process.env.SESSION_SECRET) {
       throw new Error('SESSION_SECRET not set - cannot encrypt data');
     }
@@ -35,7 +38,7 @@ class EncryptionService {
     const iv = randomBytes(this.ivLength);
     
     // Derive encryption key from SESSION_SECRET and salt
-    const key = this.deriveKey(process.env.SESSION_SECRET, salt);
+    const key = await this.deriveKey(process.env.SESSION_SECRET, salt);
     
     // Create cipher and encrypt
     const cipher = createCipheriv(this.algorithm, key, iv) as CipherGCM;
@@ -53,7 +56,7 @@ class EncryptionService {
    * Decrypts an encrypted string
    * Expects format: salt:iv:authTag:encryptedData (all hex encoded)
    */
-  decrypt(encryptedData: string): string {
+  async decrypt(encryptedData: string): Promise<string> {
     if (!process.env.SESSION_SECRET) {
       throw new Error('SESSION_SECRET not set - cannot decrypt data');
     }
@@ -78,7 +81,7 @@ class EncryptionService {
       }
       
       // Derive the same encryption key
-      const key = this.deriveKey(process.env.SESSION_SECRET, salt);
+      const key = await this.deriveKey(process.env.SESSION_SECRET, salt);
       
       // Create decipher and decrypt
       const decipher = createDecipheriv(this.algorithm, key, iv) as DecipherGCM;

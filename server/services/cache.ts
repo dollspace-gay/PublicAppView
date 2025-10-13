@@ -280,9 +280,27 @@ export class CacheService {
     if (!this.redis || !this.isInitialized) return;
 
     try {
-      const keys = await this.redis.keys(pattern);
-      if (keys.length > 0) {
-        await this.redis.del(...keys);
+      // Use SCAN instead of KEYS to avoid blocking Redis
+      let cursor = '0';
+      const keysToDelete: string[] = [];
+      
+      do {
+        const result = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = result[0];
+        const keys = result[1];
+        
+        if (keys.length > 0) {
+          keysToDelete.push(...keys);
+        }
+      } while (cursor !== '0');
+      
+      // Delete in batches to avoid command buffer issues
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < keysToDelete.length; i += BATCH_SIZE) {
+        const batch = keysToDelete.slice(i, i + BATCH_SIZE);
+        if (batch.length > 0) {
+          await this.redis.del(...batch);
+        }
       }
     } catch (error) {
       console.error("[CACHE] Error invalidating pattern:", error);
