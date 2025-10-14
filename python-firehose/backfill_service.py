@@ -416,6 +416,9 @@ class BackfillService:
         """Save backfill progress to database"""
         try:
             async with self.db_pool.acquire() as conn:
+                # Convert timezone-aware datetime to naive for PostgreSQL compatibility
+                last_update_naive = self.progress.last_update_time.replace(tzinfo=None) if self.progress.last_update_time.tzinfo else self.progress.last_update_time
+                
                 # Upsert progress to firehose_cursor table
                 await conn.execute("""
                     INSERT INTO firehose_cursor (service, cursor, last_event_time, updated_at)
@@ -428,7 +431,7 @@ class BackfillService:
                 """, 
                 "backfill", 
                 str(self.progress.current_cursor) if self.progress.current_cursor else None,
-                self.progress.last_update_time
+                last_update_naive
                 )
         except Exception as e:
             logger.error(f"[BACKFILL] Error saving progress: {e}")

@@ -414,11 +414,25 @@ class EventProcessor:
         # Extract avatar/banner CIDs
         avatar = record.get('avatar')
         if avatar and isinstance(avatar, dict):
-            avatar_url = avatar.get('ref', {}).get('$link') if isinstance(avatar.get('ref'), dict) else avatar.get('ref')
+            ref = avatar.get('ref')
+            if isinstance(ref, dict):
+                avatar_url = ref.get('$link')
+            else:
+                avatar_url = ref
+            # Convert CID objects to strings
+            if avatar_url and not isinstance(avatar_url, str):
+                avatar_url = str(avatar_url)
         
         banner = record.get('banner')
         if banner and isinstance(banner, dict):
-            banner_url = banner.get('ref', {}).get('$link') if isinstance(banner.get('ref'), dict) else banner.get('ref')
+            ref = banner.get('ref')
+            if isinstance(ref, dict):
+                banner_url = ref.get('$link')
+            else:
+                banner_url = ref
+            # Convert CID objects to strings
+            if banner_url and not isinstance(banner_url, str):
+                banner_url = str(banner_url)
         
         profile_json = json.dumps(record)
         
@@ -458,7 +472,14 @@ class EventProcessor:
         
         avatar = record.get('avatar')
         if avatar and isinstance(avatar, dict):
-            avatar_url = avatar.get('ref', {}).get('$link') if isinstance(avatar.get('ref'), dict) else avatar.get('ref')
+            ref = avatar.get('ref')
+            if isinstance(ref, dict):
+                avatar_url = ref.get('$link')
+            else:
+                avatar_url = ref
+            # Convert CID objects to strings
+            if avatar_url and not isinstance(avatar_url, str):
+                avatar_url = str(avatar_url)
         
         created_at = self.safe_date(record.get('createdAt'))
         
@@ -522,7 +543,14 @@ class EventProcessor:
         
         avatar = record.get('avatar')
         if avatar and isinstance(avatar, dict):
-            avatar_url = avatar.get('ref', {}).get('$link') if isinstance(avatar.get('ref'), dict) else avatar.get('ref')
+            ref = avatar.get('ref')
+            if isinstance(ref, dict):
+                avatar_url = ref.get('$link')
+            else:
+                avatar_url = ref
+            # Convert CID objects to strings
+            if avatar_url and not isinstance(avatar_url, str):
+                avatar_url = str(avatar_url)
         
         created_at = self.safe_date(record.get('createdAt'))
         
@@ -800,22 +828,24 @@ class EventProcessor:
         if not repo or not ops:
             return
         
-        # Acquire database connection and process in transaction
+        # Acquire database connection
         async with self.db.acquire() as conn:
-            async with conn.transaction():
-                for op in ops:
-                    action = op.get('action')
-                    path = op.get('path')
-                    record = op.get('record')
-                    cid = op.get('cid')
-                    
-                    if not path:
-                        continue
-                    
-                    collection = path.split("/")[0]
-                    uri = f"at://{repo}/{path}"
-                    
-                    try:
+            # Process each operation in its own transaction to prevent
+            # errors in one operation from aborting subsequent operations
+            for op in ops:
+                action = op.get('action')
+                path = op.get('path')
+                record = op.get('record')
+                cid = op.get('cid')
+                
+                if not path:
+                    continue
+                
+                collection = path.split("/")[0]
+                uri = f"at://{repo}/{path}"
+                
+                try:
+                    async with conn.transaction():
                         if action in ["create", "update"] and record:
                             record_type = record.get('$type')
                             
@@ -891,10 +921,12 @@ class EventProcessor:
                         
                         elif action == "delete":
                             await self.process_delete(conn, uri, collection)
-                    
-                    except Exception as e:
-                        logger.error(f"Error processing {action} {uri}: {e}")
-                        continue
+                
+                except Exception as e:
+                    # Log error and continue with next operation
+                    # Transaction will be automatically rolled back
+                    logger.error(f"Error processing {action} {uri}: {e}")
+                    continue
         
         self.event_count += 1
         if self.event_count % 1000 == 0:
