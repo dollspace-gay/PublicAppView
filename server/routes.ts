@@ -693,55 +693,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // TypeScript backfill is PERMANENTLY DISABLED
+  // Use Python backfill service instead: python-firehose/backfill_service.py
   app.post("/api/user/backfill", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
-    try {
-      if (!req.session) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-
-      const session = await storage.getSession(req.session.sessionId);
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-
-      const schema = z.object({
-        days: z.number().min(0).max(3650), // 0 = all data, max 10 years
-      });
-
-      const data = schema.parse(req.body);
-      const userDid = session.userDid;
-
-      if (data.days === 0 || data.days > 3) {
-        const { repoBackfillService } = await import("./services/repo-backfill");
-        
-        repoBackfillService.backfillSingleRepo(userDid, data.days).then(() => {
-          console.log(`[USER_BACKFILL] Completed repository backfill for ${userDid}`);
-        }).catch((error: Error) => {
-          console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
-        });
-        
-        const message = data.days === 0 
-          ? `Backfill started for ALL your data. Your complete repository is being imported from your PDS.`
-          : `Backfill started for the last ${data.days} days. Your repository is being imported from your PDS.`;
-        
-        res.json({ 
-          message,
-          type: "repository"
-        });
-      } else {
-        res.json({ 
-          message: `Recent data backfill (${data.days} days) will be handled by the firehose.`,
-          type: "firehose"
-        });
-      }
-
-      await storage.updateUserSettings(userDid, {
-        lastBackfillAt: new Date(),
-      });
-    } catch (error) {
-      console.error("[USER_BACKFILL] Error:", error);
-      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to start backfill" });
-    }
+    res.status(501).json({ 
+      error: "TypeScript backfill has been disabled. Please use the Python backfill service instead.",
+      info: "Set BACKFILL_DAYS environment variable and run the Python unified worker."
+    });
   });
 
   app.post("/api/user/delete-data", deletionLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
@@ -2182,32 +2140,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Backfill test endpoint - backfill a single repository
+  // TypeScript backfill test endpoint is PERMANENTLY DISABLED
+  // Use Python backfill service instead
   app.post("/api/backfill/repo", async (req, res) => {
-    try {
-      const schema = z.object({
-        did: z.string(),
-      });
-
-      const data = schema.parse(req.body);
-      const { repoBackfillService } = await import("./services/repo-backfill");
-      
-      console.log(`[API] Starting repo backfill for ${data.did}...`);
-      // Skip date check for test endpoint to allow testing even when BACKFILL_DAYS=0
-      await repoBackfillService.backfillSingleRepo(data.did);
-      
-      const progress = repoBackfillService.getProgress();
-      res.json({ 
-        success: true, 
-        did: data.did,
-        progress 
-      });
-    } catch (error) {
-      console.error("[API] Repo backfill error:", error);
-      res.status(500).json({ 
-        error: error instanceof Error ? error.message : "Failed to backfill repo" 
-      });
-    }
+    res.status(501).json({ 
+      error: "TypeScript backfill has been disabled. Please use the Python backfill service instead.",
+      info: "Set BACKFILL_DAYS environment variable and run the Python unified worker."
+    });
   });
 
   // XRPC API Endpoints

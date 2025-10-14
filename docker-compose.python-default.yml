@@ -1,0 +1,113 @@
+# Default Docker Compose - Python Unified Worker with Backfill
+# This is the recommended configuration that uses Python for all firehose processing
+# TypeScript backfill is permanently disabled
+
+services:
+  db:
+    image: postgres:14
+    command: postgres -c max_connections=500 -c shared_buffers=20GB -c effective_cache_size=42GB -c work_mem=256MB -c maintenance_work_mem=8GB -c max_parallel_workers=32 -c max_parallel_workers_per_gather=8 -c max_wal_size=8GB
+    environment:
+      POSTGRES_DB: atproto
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data,Z
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d atproto"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    shm_size: 10gb
+
+  # Python Unified Worker - Handles both firehose and backfill
+  # This is the PRIMARY worker that processes all AT Protocol events
+  python-worker:
+    build:
+      context: ./python-firehose
+      dockerfile: Dockerfile.unified
+    environment:
+      # Core configuration
+      - RELAY_URL=${RELAY_URL:-wss://bsky.network}
+      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-20}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # BACKFILL CONFIGURATION
+      # Set BACKFILL_DAYS to enable historical data import:
+      # - 0 = disabled (default)
+      # - -1 = total history (entire available rollback window)
+      # - N = specific number of days (e.g., 7, 30, 365)
+      - BACKFILL_DAYS=${BACKFILL_DAYS:-0}
+      
+      # Backfill resource throttling (optional - defaults are conservative)
+      - BACKFILL_BATCH_SIZE=${BACKFILL_BATCH_SIZE:-5}
+      - BACKFILL_BATCH_DELAY_MS=${BACKFILL_BATCH_DELAY_MS:-2000}
+      - BACKFILL_MAX_CONCURRENT=${BACKFILL_MAX_CONCURRENT:-2}
+      - BACKFILL_MAX_MEMORY_MB=${BACKFILL_MAX_MEMORY_MB:-512}
+      - BACKFILL_USE_IDLE=${BACKFILL_USE_IDLE:-true}
+      
+      # Worker identification
+      - WORKER_ID=0  # Primary worker - runs backfill
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:password@db:5432/atproto', timeout=5).close())\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-4G}
+        reservations:
+          memory: 1G
+
+  # Frontend/API server - TypeScript (backfill disabled)
+  app:
+    volumes:
+      - ./appview-signing-key.json:/app/appview-signing-key.json:ro,Z
+      - ./appview-private.pem:/app/appview-private.pem:ro,Z
+      - ./public/did.json:/app/public/did.json:ro,Z
+      - ./oauth-keyset.json:/app/oauth-keyset.json:ro,Z
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
+      - APPVIEW_DID=${APPVIEW_DID:-did:web:appview.dollspace.gay}
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-0}
+      - DB_POOL_SIZE=50
+      - PORT=5000
+      - NODE_ENV=production
+      - OAUTH_KEYSET_PATH=/app/oauth-keyset.json
+      - ADMIN_DIDS=${ADMIN_DIDS:-did:plc:abc123xyz,admin.bsky.social,did:plc:def456uvw}
+      
+      # TypeScript firehose and backfill are PERMANENTLY DISABLED
+      - FIREHOSE_ENABLED=false
+      - BACKFILL_DAYS=0  # Force disabled - Python handles all backfill
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+volumes:
+  postgres_data:
