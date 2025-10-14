@@ -810,7 +810,8 @@ class EventProcessor:
                 await conn.execute('DELETE FROM list_blocks WHERE uri = $1', uri)
             
             elif collection == "app.bsky.notification.declaration":
-                await conn.execute('DELETE FROM notification_declarations WHERE uri = $1', uri)
+                # This record type is not stored in our schema
+                logger.debug(f"Notification declaration deletion requested for {uri} - not stored")
             
             else:
                 # Unknown record type - try to delete from generic records

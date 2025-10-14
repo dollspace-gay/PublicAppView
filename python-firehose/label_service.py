@@ -226,12 +226,12 @@ class LabelService:
         async with self.db_pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO "labelDefinitions" (value, description, severity, "localizedStrings")
+                INSERT INTO label_definitions (value, description, severity, localized_strings)
                 VALUES ($1, $2, $3, $4::jsonb)
                 ON CONFLICT (value) DO UPDATE SET
                     description = EXCLUDED.description,
                     severity = EXCLUDED.severity,
-                    "localizedStrings" = EXCLUDED."localizedStrings"
+                    localized_strings = EXCLUDED.localized_strings
                 """,
                 value, description, severity, localized_strings or {}
             )
@@ -248,8 +248,8 @@ class LabelService:
         async with self.db_pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT value, description, severity, "localizedStrings"
-                FROM "labelDefinitions"
+                SELECT value, description, severity, localized_strings
+                FROM label_definitions
                 WHERE value = $1
                 """,
                 value
@@ -262,8 +262,8 @@ class LabelService:
         async with self.db_pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT value, description, severity, "localizedStrings"
-                FROM "labelDefinitions"
+                SELECT value, description, severity, localized_strings
+                FROM label_definitions
                 ORDER BY value
                 """
             )
