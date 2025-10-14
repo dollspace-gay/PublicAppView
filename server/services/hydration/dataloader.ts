@@ -489,11 +489,14 @@ export class HydrationDataLoader {
           const blockedBy = blockedByMap.has(key as string);
           const muted = muteMap.has(key as string);
 
+          // IMPORTANT: following, followedBy, and blocking must be string URIs or undefined
+          // (not null) to pass AT Protocol validation. When no relationship exists,
+          // use undefined instead of null.
           return {
-            following: followingUri || null,
-            followingUri: followingUri || null,
-            followedBy: followedByUri || null,
-            blocking: blockingUri || null,
+            following: followingUri || undefined,
+            followingUri: followingUri || undefined,
+            followedBy: followedByUri || undefined,
+            blocking: blockingUri || undefined,
             blockedBy,
             muted
           };
