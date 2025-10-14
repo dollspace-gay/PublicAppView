@@ -343,6 +343,10 @@ export class RepoBackfillService {
       // Disable PDS fetching during bulk import to prevent connection overload
       repoEventProcessor.setSkipPdsFetching(true);
       
+      // Disable data collection check for user-initiated backfills
+      // Users explicitly requesting their own data should bypass the dataCollectionForbidden setting
+      repoEventProcessor.setSkipDataCollectionCheck(true);
+      
       let recordsProcessed = 0;
       let recordsSkipped = 0;
       const collectionsFound = new Set<string>();
@@ -392,8 +396,9 @@ export class RepoBackfillService {
           console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
         }
       } finally {
-        // Always re-enable PDS fetching, even if there was an error
+        // Always re-enable PDS fetching and data collection checks, even if there was an error
         repoEventProcessor.setSkipPdsFetching(false);
+        repoEventProcessor.setSkipDataCollectionCheck(false);
       }
 
       // Update progress
