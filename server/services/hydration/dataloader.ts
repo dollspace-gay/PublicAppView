@@ -213,8 +213,8 @@ export class HydrationDataLoader {
           : [];
 
         // Also fetch likes, reposts, bookmarks for viewer
-        const postUris = [...new Set(queries.map(q => q.uri))];
-        const viewerDids = [...new Set(queries.map(q => q.viewerDid))];
+        const postUris = [...new Set(queries.map(q => q.uri).filter(Boolean))];
+        const viewerDids = [...new Set(queries.map(q => q.viewerDid).filter(Boolean))];
 
         const [likesResult, repostsResult, bookmarksResult] = await Promise.all([
           postUris.length > 0 && viewerDids.length > 0 
@@ -286,8 +286,8 @@ export class HydrationDataLoader {
 
         if (queries.length === 0) return [];
 
-        const actorDids = [...new Set(queries.map(q => q.actorDid))];
-        const viewerDids = [...new Set(queries.map(q => q.viewerDid))];
+        const actorDids = [...new Set(queries.map(q => q.actorDid).filter(Boolean))];
+        const viewerDids = [...new Set(queries.map(q => q.viewerDid).filter(Boolean))];
 
         // Fetch all relationship data in parallel
         const [followsResult, blocksResult, mutesResult] = await Promise.all([
