@@ -17,12 +17,15 @@ This directory contains bridge services that integrate Microcosm's AT Protocol s
 
 The Constellation integration provides **accurate, network-wide interaction statistics** for posts and profiles by querying Constellation's global backlink index.
 
+**✨ NEW: Phase 2 Available!** - Self-hosted local Constellation with Docker workers. [Jump to Phase 2 →](#phase-2-local-constellation)
+
 **Benefits:**
 - ✅ **Accurate counts** - Definitive interaction counts across the entire network
 - ✅ **Cross-app support** - Includes interactions from all AT Protocol apps, not just Bluesky
 - ✅ **Reduced compute** - Offloads expensive counting operations to external service
 - ✅ **Lower latency** - Constellation is optimized for fast backlink queries
 - ✅ **Automatic fallback** - Falls back to local counts if Constellation is unavailable
+- 🆕 **Self-hosted option** - Run your own Constellation instance (Phase 2)
 
 ### How It Works
 
@@ -90,6 +93,34 @@ The Constellation integration provides **accurate, network-wide interaction stat
 - **Integration Layer**: Lightweight, embedded in AppView, minimal dependencies
 
 For most use cases, the **Integration Layer** (already installed) is sufficient. The Bridge Service is available for advanced deployments.
+
+## Deployment Options
+
+### Phase 1: Remote Constellation (Current)
+
+Use the public Constellation API (already configured):
+- ✅ Zero setup required
+- ✅ Free to use
+- ✅ Best-effort uptime
+- ⚠️ Rate limited (10 req/s)
+- ⚠️ Higher latency (50-200ms)
+
+**Best for:** Development, testing, low-traffic instances
+
+### Phase 2: Local Constellation (NEW! 🌟)
+
+Run your own self-hosted Constellation instance:
+- ✅ **Full control** over data and infrastructure
+- ✅ **Zero rate limits** on API calls
+- ✅ **10x lower latency** (<10ms vs 50-200ms)
+- ✅ **Privacy** - all data stays local
+- ✅ **Production-ready** with Docker workers
+- ⚠️ Requires ~2GB/day storage
+- ⚠️ Initial setup: ~30 minutes
+
+**Best for:** Production deployments, high-traffic instances, privacy-sensitive applications
+
+[**→ Quick Start Guide for Phase 2**](../CONSTELLATION-PHASE2-QUICKSTART.md)
 
 ## Usage
 
@@ -233,56 +264,160 @@ The default configuration uses Constellation's public instance at `constellation
 - May have rate limiting
 - APIs may change (with notice)
 
-For production deployments, consider [self-hosting](#self-hosting-constellation-optional).
+For production deployments, consider [self-hosting (Phase 2)](#phase-2-local-constellation).
 
-## Self-Hosting Constellation (Optional)
+## Phase 2: Local Constellation
 
-For full control and guaranteed uptime, you can self-host Constellation.
+### What is Phase 2?
 
-### Prerequisites
+Phase 2 provides **automatic Docker-based deployment** of a local Constellation instance with:
 
-- Rust toolchain
-- ~2GB disk space per day
-- Jetstream connection (or AT Protocol firehose)
+- 🐳 **Docker workers** - Fully containerized setup
+- 🔄 **Automatic integration** - Zero configuration needed
+- 📦 **One-command deploy** - Interactive setup script
+- 🔧 **Auto-configuration** - Client automatically detects local instance
+- 🏥 **Health monitoring** - Built-in health checks and diagnostics
+- 📊 **Performance tuning** - Optimized for local deployment
 
 ### Quick Start
 
-```bash
-# Clone microcosm-rs
-cd /tmp
-git clone https://tangled.org/@microcosm.blue/microcosm-rs
-cd microcosm-rs/constellation
-
-# Build and run
-cargo build --release
-./target/release/constellation --jetstream us-east-1 --data ./constellation-data
-```
-
-### Add to Docker Compose
-
-```yaml
-  constellation:
-    build: ./microcosm-rs/constellation
-    volumes:
-      - constellation-data:/data
-    environment:
-      - JETSTREAM=us-east-1
-    ports:
-      - "8080:8080"
-    profiles:
-      - constellation-selfhosted
-    restart: unless-stopped
-
-volumes:
-  constellation-data:
-```
-
-### Configure AppView to Use Self-Hosted Instance
+**Single command deployment:**
 
 ```bash
-# Update .env
-CONSTELLATION_URL=http://constellation:8080
+./scripts/setup-constellation-local.sh
 ```
+
+This automated script:
+1. ✅ Checks system requirements
+2. ✅ Creates data directory
+3. ✅ Generates configuration
+4. ✅ Builds Docker image
+5. ✅ Starts services
+6. ✅ Integrates with AppView
+7. ✅ Runs health checks
+
+**Estimated time:** 30 minutes (10-15 min build, rest is automated)
+
+### Verify Installation
+
+```bash
+# Run comprehensive test suite
+./scripts/test-constellation-local.sh
+
+# Check service status
+docker-compose ps constellation-local
+
+# View logs
+docker-compose logs -f constellation-local
+
+# Test API
+curl http://localhost:8080/
+```
+
+### Manual Deployment
+
+If you prefer manual control:
+
+```bash
+# 1. Create data directory
+mkdir -p ./constellation-data
+
+# 2. Configure environment
+cp .env.constellation-local.example .env.constellation-local
+# Edit .env.constellation-local as needed
+
+# 3. Start services
+docker-compose -f docker-compose.yml -f docker-compose.constellation-local.yml up -d
+
+# 4. Update AppView .env
+cat >> .env << EOF
+CONSTELLATION_URL=http://constellation-local:8080
+CONSTELLATION_LOCAL=true
+CONSTELLATION_ENABLED=true
+EOF
+
+# 5. Restart AppView
+docker-compose restart app
+```
+
+### Architecture
+
+Phase 2 adds these components:
+
+```
+┌─────────────────────────────────────────┐
+│   AT Protocol Jetstream (Firehose)      │
+└───────────────┬─────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────┐
+│   Constellation Local (Rust Service)    │
+│   • RocksDB storage                     │
+│   • Real-time indexing                  │
+│   • HTTP API (port 8080)                │
+│   • ~2GB/day storage                    │
+└───────────────┬─────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────┐
+│   Constellation Client (Auto-detect)    │
+│   • Detects local vs remote             │
+│   • Disables rate limiting for local    │
+│   • Optimized caching (30s TTL)         │
+└───────────────┬─────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────┐
+│   AppView (Transparent Integration)     │
+└─────────────────────────────────────────┘
+```
+
+### Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.constellation-local.yml` | Docker service definitions |
+| `.env.constellation-local` | Local instance configuration |
+| `constellation-data/` | RocksDB data directory |
+| `microcosm-bridge/constellation/Dockerfile` | Constellation build |
+| `scripts/setup-constellation-local.sh` | Automated setup |
+| `scripts/test-constellation-local.sh` | Test suite |
+
+### Resource Requirements
+
+**Minimum (Development):**
+- CPU: 1 core
+- RAM: 512MB
+- Disk: 50GB (25 days)
+
+**Recommended (Production):**
+- CPU: 2+ cores
+- RAM: 2GB
+- Disk: 200GB+ (SSD recommended)
+
+**High-Traffic:**
+- CPU: 4+ cores
+- RAM: 4GB
+- Disk: 500GB+ (NVMe recommended)
+
+### What's Included
+
+Phase 2 provides:
+
+✅ **Dockerfile** - Multi-stage Rust build
+✅ **Docker Compose** - Service orchestration
+✅ **Setup Script** - Interactive configuration
+✅ **Test Suite** - 9 comprehensive tests
+✅ **Auto-detection** - Client automatically uses local instance
+✅ **Health Checks** - Built-in monitoring
+✅ **Documentation** - Complete guides and troubleshooting
+
+### Documentation
+
+- 📖 **Quick Start**: [`CONSTELLATION-PHASE2-QUICKSTART.md`](../CONSTELLATION-PHASE2-QUICKSTART.md)
+- 📚 **Full Guide**: [`constellation/README.md`](constellation/README.md)
+- 🧪 **Testing**: Run `./scripts/test-constellation-local.sh`
+- 🛠️ **Setup**: Run `./scripts/setup-constellation-local.sh`
 
 ## Monitoring
 

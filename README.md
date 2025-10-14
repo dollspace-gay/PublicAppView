@@ -26,6 +26,7 @@ A production-ready, self-hostable AT Protocol "App View" service that indexes re
 - **Content Filtering**: Keyword-based filtering and user muting applied to all feed endpoints
 - **OAuth 2.0 Authentication**: AT Protocol-compliant with DID verification, token encryption (AES-256-GCM), automatic refresh
 - **PDS Write Proxy**: All write operations proxied to user's PDS with rollback mechanisms
+- **🌟 Constellation Integration**: Self-hosted or remote backlink index for accurate network-wide interaction statistics (Phase 2)
 
 ### Monitoring Dashboard
 - **Real-time Metrics**: Events processed, DB records, API requests per minute
@@ -95,6 +96,64 @@ npm run dev
 
 The server starts on port 5000 with the dashboard at http://localhost:5000
 
+## Constellation Integration 🌌
+
+**NEW in Phase 2:** Self-hosted AT Protocol backlink index for accurate interaction statistics!
+
+### What is Constellation?
+
+Constellation provides **network-wide interaction statistics** (likes, reposts, replies, quotes, followers) by indexing the global AT Protocol firehose. Now integrated directly into docker-compose!
+
+### Quick Enable
+
+```bash
+# Copy environment file
+cp .env.example .env
+
+# Start with Constellation
+docker-compose --profile constellation up -d
+```
+
+**That's it!** You now have:
+- ✅ Local Constellation instance (self-hosted backlink index)
+- ✅ Automatic AppView integration
+- ✅ 10x faster than remote API (<10ms vs 50-200ms)
+- ✅ No rate limits (vs 10 req/s remote)
+- ✅ ~2GB/day storage for full network indexing
+
+### Configuration Options
+
+**Local Instance (Default):**
+```bash
+CONSTELLATION_ENABLED=true
+CONSTELLATION_URL=http://constellation-local:8080
+CONSTELLATION_LOCAL=true
+```
+
+**Remote API (No local instance needed):**
+```bash
+CONSTELLATION_ENABLED=true
+CONSTELLATION_URL=https://constellation.microcosm.blue
+CONSTELLATION_LOCAL=false
+```
+
+### Documentation
+
+- 📖 **Quick Start**: [CONSTELLATION-QUICKSTART.md](CONSTELLATION-QUICKSTART.md)
+- 🚀 **Full Phase 2 Guide**: [CONSTELLATION-PHASE2-QUICKSTART.md](CONSTELLATION-PHASE2-QUICKSTART.md)
+- 📚 **Complete Docs**: [microcosm-bridge/constellation/README.md](microcosm-bridge/constellation/README.md)
+
+### Benefits
+
+| Feature | Local | Remote |
+|---------|-------|--------|
+| Setup | One command | Zero setup |
+| Latency | <10ms | 50-200ms |
+| Rate Limits | None | 10 req/s |
+| Cost | Infrastructure only | Free |
+| Storage | ~2GB/day | None |
+| Privacy | Full control | Shared service |
+
 ## Docker Installation
 
 ### Building the Docker Image
@@ -133,19 +192,27 @@ docker run -d \
 A complete `docker-compose.yml` is included in the repository with:
 - **Redis** service (in-memory caching and metrics)
 - **PostgreSQL** service (database with production tuning)
+- **Python Firehose** services (high-performance event ingestion)
 - **App** service (AppView with all dependencies)
+- **Constellation** services (optional, via profile)
 
 Start all services:
 ```bash
+# Basic deployment
 docker-compose up -d
+
+# OR with Constellation for enhanced statistics (recommended)
+docker-compose --profile constellation up -d
 ```
 
 The docker-compose setup includes:
-- PostgreSQL 14 with 5000 max connections and 20GB shared buffers
-- Redis 7 with 8GB memory and LRU eviction
+- PostgreSQL 14 with optimized connection pooling and shared buffers
+- Redis 7 with 8GB memory and stream persistence
+- Python workers for high-throughput firehose processing
+- Optional Constellation local instance (Phase 2)
 - Health checks for all services
 - Automatic dependency ordering
-- Volume persistence for database
+- Volume persistence for database and Constellation data
 
 ### Monitoring Docker Services
 

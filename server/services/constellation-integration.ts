@@ -12,6 +12,7 @@ interface ConstellationConfig {
   url: string;
   cacheTTL: number;
   timeout: number;
+  isLocal?: boolean; // Whether using local or remote constellation
 }
 
 interface PostStats {
@@ -31,6 +32,7 @@ class ConstellationIntegration {
   private baseUrl: string;
   private cacheTTL: number;
   private timeout: number;
+  private isLocal: boolean; // Local vs remote constellation
   private redis: Redis | null = null;
   private statsRequested = 0;
   private cacheHits = 0;
@@ -47,10 +49,20 @@ class ConstellationIntegration {
     this.cacheTTL = config.cacheTTL;
     this.timeout = config.timeout;
     
+    // Detect if using local constellation (faster, no rate limits)
+    this.isLocal = config.isLocal ?? this.detectLocal(config.url);
+    
     // Rate limiting configuration from environment variables
-    this.requestDelay = parseInt(process.env.CONSTELLATION_REQUEST_DELAY || '100', 10);
-    this.maxRetries = parseInt(process.env.CONSTELLATION_MAX_RETRIES || '3', 10);
-    this.retryDelay = parseInt(process.env.CONSTELLATION_RETRY_DELAY || '1000', 10);
+    // For local instances, use much higher limits/no delay
+    if (this.isLocal) {
+      this.requestDelay = parseInt(process.env.CONSTELLATION_REQUEST_DELAY || '0', 10);
+      this.maxRetries = parseInt(process.env.CONSTELLATION_MAX_RETRIES || '2', 10);
+      this.retryDelay = parseInt(process.env.CONSTELLATION_RETRY_DELAY || '500', 10);
+    } else {
+      this.requestDelay = parseInt(process.env.CONSTELLATION_REQUEST_DELAY || '100', 10);
+      this.maxRetries = parseInt(process.env.CONSTELLATION_MAX_RETRIES || '3', 10);
+      this.retryDelay = parseInt(process.env.CONSTELLATION_RETRY_DELAY || '1000', 10);
+    }
 
     if (this.enabled) {
       const redisUrl = process.env.REDIS_URL;
@@ -73,8 +85,28 @@ class ConstellationIntegration {
         });
       }
 
-      console.log(`[CONSTELLATION] Integration enabled (URL: ${this.baseUrl})`);
+      const mode = this.isLocal ? 'LOCAL' : 'REMOTE';
+      console.log(`[CONSTELLATION] Integration enabled (${mode} - URL: ${this.baseUrl})`);
+      if (this.isLocal) {
+        console.log('[CONSTELLATION] Using local instance - rate limiting disabled');
+      }
     }
+  }
+
+  /**
+   * Detect if URL points to a local constellation instance
+   */
+  private detectLocal(url: string): boolean {
+    const localPatterns = [
+      'localhost',
+      '127.0.0.1',
+      'constellation-local',
+      '0.0.0.0',
+      '::1'
+    ];
+    
+    const urlLower = url.toLowerCase();
+    return localPatterns.some(pattern => urlLower.includes(pattern));
   }
 
   /**
@@ -365,6 +397,8 @@ class ConstellationIntegration {
 
     return {
       enabled: this.enabled,
+      isLocal: this.isLocal,
+      url: this.baseUrl,
       statsRequested: this.statsRequested,
       cacheHits: this.cacheHits,
       cacheMisses: this.cacheMisses,
@@ -390,6 +424,7 @@ const config: ConstellationConfig = {
   url: process.env.CONSTELLATION_URL || 'https://constellation.microcosm.blue',
   cacheTTL: parseInt(process.env.CONSTELLATION_CACHE_TTL || '60', 10),
   timeout: parseInt(process.env.CONSTELLATION_TIMEOUT || '10000', 10), // 10s default timeout
+  isLocal: process.env.CONSTELLATION_LOCAL === 'true',
 };
 
 export const constellationIntegration = new ConstellationIntegration(config);

@@ -1,0 +1,114 @@
+# Docker Compose configuration for local Constellation deployment
+# Phase 2: Self-hosted Constellation with automatic integration
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.constellation-local.yml up -d
+#
+# This will:
+# - Run a local Constellation indexer connected to the AT Protocol firehose
+# - Store backlink data locally in a volume
+# - Automatically configure the constellation-client to use the local instance
+# - Provide network-wide interaction statistics without relying on external services
+
+version: '3.8'
+
+services:
+  # Local Constellation Service
+  # Self-hosted backlink index for accurate interaction statistics
+  constellation-local:
+    build:
+      context: ./microcosm-bridge/constellation
+      dockerfile: Dockerfile
+      args:
+        CONSTELLATION_VERSION: ${CONSTELLATION_VERSION:-main}
+    container_name: constellation-local
+    environment:
+      # Jetstream connection (AT Protocol event stream)
+      - JETSTREAM_URL=${JETSTREAM_URL:-wss://jetstream2.us-east.bsky.network/subscribe}
+      
+      # API configuration
+      - BIND_ADDRESS=0.0.0.0:8080
+      - API_PORT=8080
+      
+      # Data storage
+      - DATA_PATH=/data
+      
+      # Performance tuning
+      - RUST_LOG=${CONSTELLATION_LOG_LEVEL:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-0}
+      
+      # Optional: Custom user agent for Jetstream
+      - USER_AGENT=Constellation-Local/1.0 (+https://github.com/microcosm-blue/microcosm-rs)
+    
+    volumes:
+      # Persistent storage for RocksDB index
+      # Constellation uses ~2GB/day for full network indexing
+      - constellation-data:/data
+    
+    ports:
+      - "${CONSTELLATION_PORT:-8080}:8080"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s  # Allow time for initial sync
+      retries: 3
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          memory: ${CONSTELLATION_MEMORY_LIMIT:-2G}
+        reservations:
+          memory: ${CONSTELLATION_MEMORY_RESERVATION:-512M}
+    
+    networks:
+      - default
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Override constellation-bridge to use local instance
+  constellation-bridge:
+    environment:
+      # Point to local instance instead of remote API
+      - CONSTELLATION_URL=http://constellation-local:8080
+      - CONSTELLATION_TIMEOUT=10000
+      - CONSTELLATION_LOCAL=true
+      
+      # Adjust cache settings for local instance (faster, more reliable)
+      - CACHE_TTL=${CONSTELLATION_CACHE_TTL:-30}  # Shorter TTL since local is fast
+      - MAX_REQUESTS_PER_SECOND=100  # No rate limiting for local instance
+    
+    depends_on:
+      constellation-local:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Override app service to use local constellation
+  app:
+    environment:
+      # Configure app to use local instance
+      - CONSTELLATION_URL=http://constellation-local:8080
+      - CONSTELLATION_TIMEOUT=10000
+      - CONSTELLATION_LOCAL=true
+
+# Volumes
+volumes:
+  constellation-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CONSTELLATION_DATA_PATH:-./constellation-data}
+
+networks:
+  default:
+    name: appview-network
+    driver: bridge
