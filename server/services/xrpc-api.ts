@@ -696,6 +696,48 @@ export class XRPCApi {
     return this.transformBlobToCdnUrl(cid, userDid, format, req);
   }
 
+  private transformEmbedUrls(embed: any, req?: Request): any {
+    if (!embed) return embed;
+    
+    const baseUrl = this.getBaseUrl(req);
+    
+    // Deep clone the embed to avoid mutating the original
+    const transformed = JSON.parse(JSON.stringify(embed));
+    
+    // Transform URLs based on embed type
+    if (transformed.$type === 'app.bsky.embed.images#view' && transformed.images) {
+      transformed.images = transformed.images.map((img: any) => ({
+        ...img,
+        thumb: img.thumb?.startsWith('/') ? `${baseUrl}${img.thumb}` : img.thumb,
+        fullsize: img.fullsize?.startsWith('/') ? `${baseUrl}${img.fullsize}` : img.fullsize
+      }));
+    } else if (transformed.$type === 'app.bsky.embed.external#view' && transformed.external?.thumb) {
+      if (typeof transformed.external.thumb === 'string' && transformed.external.thumb.startsWith('/')) {
+        transformed.external.thumb = `${baseUrl}${transformed.external.thumb}`;
+      }
+    } else if (transformed.$type === 'app.bsky.embed.record#view' && transformed.record) {
+      // Handle record embeds recursively
+      if (transformed.record.embeds && Array.isArray(transformed.record.embeds)) {
+        transformed.record.embeds = transformed.record.embeds.map((e: any) => this.transformEmbedUrls(e, req));
+      }
+      // Transform author avatar if it's a relative URL
+      if (transformed.record.author?.avatar?.startsWith('/')) {
+        transformed.record.author.avatar = `${baseUrl}${transformed.record.author.avatar}`;
+      }
+    } else if (transformed.$type === 'app.bsky.embed.recordWithMedia#view') {
+      if (transformed.media) {
+        transformed.media = this.transformEmbedUrls(transformed.media, req);
+      }
+      if (transformed.record) {
+        transformed.record = this.transformEmbedUrls(transformed.record, req);
+      }
+    } else if (transformed.$type === 'app.bsky.embed.video#view' && transformed.thumbnail?.startsWith('/')) {
+      transformed.thumbnail = `${baseUrl}${transformed.thumbnail}`;
+    }
+    
+    return transformed;
+  }
+
   // Helper to conditionally include avatar field only if URL is valid
   private maybeAvatar(avatarCid: string | null | undefined, did: string, req?: Request): { avatar: string } | {} {
     if (!avatarCid) return {};
@@ -871,7 +913,8 @@ export class XRPCApi {
       };
 
       if (hydratedEmbed) {
-        postView.embed = hydratedEmbed;
+        // Transform relative URLs in embeds to full URIs
+        postView.embed = this.transformEmbedUrls(hydratedEmbed, req);
       }
 
       return postView;
