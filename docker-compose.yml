@@ -121,10 +121,12 @@ services:
       - RELAY_URL=wss://bsky.network
       - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
       - APPVIEW_DID=${APPVIEW_DID:-did:web:appview.dollspace.gay}
-      - BACKFILL_DAYS=${BACKFILL_DAYS:-2}
+      # TypeScript backfill is PERMANENTLY DISABLED - use Python backfill instead
+      # See python-firehose/backfill_service.py
+      - BACKFILL_DAYS=0  # Force disabled - TypeScript backfill removed
       - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-0}
       - DB_POOL_SIZE=200
-      - BACKFILL_DB_POOL_SIZE=200
+      - BACKFILL_DB_POOL_SIZE=200  # Not used anymore
       - MAX_CONCURRENT_OPS=100
       - PORT=5000
       - NODE_ENV=production

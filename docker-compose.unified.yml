@@ -116,7 +116,9 @@ services:
       - REDIS_URL=redis://redis:6379
       - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-random-secret-in-production}
       - APPVIEW_DID=${APPVIEW_DID:-did:web:appview.dollspace.gay}
-      - BACKFILL_DAYS=${BACKFILL_DAYS:-0}
+      # TypeScript backfill is PERMANENTLY DISABLED - use Python backfill instead
+      # See python-firehose/backfill_service.py
+      - BACKFILL_DAYS=0  # Force disabled - TypeScript backfill removed
       - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-0}
       - DB_POOL_SIZE=50  # Reduced from 200 since no firehose processing
       - PORT=5000

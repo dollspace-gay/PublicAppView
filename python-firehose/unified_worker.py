@@ -2199,6 +2199,36 @@ async def main():
     logger.info(f"Database Pool:  {db_pool_size} connections")
     logger.info("=" * 60)
     
+    # Check if backfill is enabled (only on primary worker - worker 0)
+    worker_id = int(os.getenv("WORKER_ID", "0"))
+    backfill_days = int(os.getenv("BACKFILL_DAYS", "0"))
+    
+    if worker_id == 0 and backfill_days != 0:
+        # Start backfill service in the background
+        logger.info(f"[BACKFILL] Starting {backfill_days}-day historical backfill on primary worker...")
+        
+        # Import and start backfill service asynchronously
+        try:
+            from backfill_service import BackfillService
+            backfill = BackfillService(database_url, relay_url)
+            await backfill.initialize()
+            
+            # Start backfill in background task
+            async def run_backfill():
+                try:
+                    await backfill.start()
+                except Exception as e:
+                    logger.error(f"[BACKFILL] Failed to start: {e}", exc_info=True)
+            
+            asyncio.create_task(run_backfill())
+            logger.info("[BACKFILL] Backfill service started in background")
+        except Exception as e:
+            logger.error(f"[BACKFILL] Failed to initialize backfill service: {e}", exc_info=True)
+    elif backfill_days != 0:
+        logger.info(f"[BACKFILL] Skipped on worker {worker_id} (only runs on primary worker)")
+    else:
+        logger.info("[BACKFILL] Disabled (BACKFILL_DAYS=0 or not set)")
+    
     # Create worker
     worker = UnifiedWorker(
         relay_url=relay_url,
