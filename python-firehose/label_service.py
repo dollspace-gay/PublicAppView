@@ -37,7 +37,7 @@ class LabelService:
                 # Create label
                 await conn.execute(
                     """
-                    INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
+                    INSERT INTO labels (uri, src, subject, val, neg, created_at)
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (uri) DO NOTHING
                     """,
@@ -47,7 +47,7 @@ class LabelService:
                 # Create label event
                 await conn.execute(
                     """
-                    INSERT INTO "labelEvents" ("labelUri", action, "createdAt")
+                    INSERT INTO label_events (label_uri, action, created_at)
                     VALUES ($1, $2, NOW())
                     """,
                     uri, 'created'
@@ -85,7 +85,7 @@ class LabelService:
                     # Create label event
                     await conn.execute(
                         """
-                        INSERT INTO "labelEvents" ("labelUri", action, "createdAt")
+                        INSERT INTO label_events (label_uri, action, created_at)
                         VALUES ($1, $2, NOW())
                         """,
                         uri, 'deleted'
@@ -107,10 +107,10 @@ class LabelService:
         async with self.db_pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT uri, src, subject, val, neg, "createdAt"
+                SELECT uri, src, subject, val, neg, created_at
                 FROM labels
                 WHERE subject = $1
-                ORDER BY "createdAt" ASC
+                ORDER BY created_at ASC
                 """,
                 subject
             )
@@ -122,10 +122,10 @@ class LabelService:
         async with self.db_pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT uri, src, subject, val, neg, "createdAt"
+                SELECT uri, src, subject, val, neg, created_at
                 FROM labels
                 WHERE subject = ANY($1::text[])
-                ORDER BY "createdAt" ASC
+                ORDER BY created_at ASC
                 """,
                 subjects
             )
@@ -170,10 +170,10 @@ class LabelService:
         params.append(limit)
         
         query = f"""
-            SELECT uri, src, subject, val, neg, "createdAt"
+            SELECT uri, src, subject, val, neg, created_at
             FROM labels
             WHERE {where_clause}
-            ORDER BY "createdAt" DESC
+            ORDER BY created_at DESC
             LIMIT ${param_idx}
         """
         

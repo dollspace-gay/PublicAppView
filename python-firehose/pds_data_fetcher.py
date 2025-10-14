@@ -160,7 +160,7 @@ class PDSDataFetcher:
                             async with self.db_pool.acquire() as conn:
                                 await conn.execute(
                                     """
-                                    INSERT INTO users (did, handle, "createdAt")
+                                    INSERT INTO users (did, handle, created_at)
                                     VALUES ($1, $2, NOW())
                                     ON CONFLICT (did) DO UPDATE SET handle = EXCLUDED.handle
                                     """,
@@ -253,7 +253,7 @@ class PDSDataFetcher:
                         async with self.db_pool.acquire() as conn:
                             await conn.execute(
                                 """
-                                INSERT INTO users (did, handle, "createdAt")
+                                INSERT INTO users (did, handle, created_at)
                                 VALUES ($1, $2, NOW())
                                 ON CONFLICT (did) DO UPDATE SET handle = EXCLUDED.handle
                                 """,
@@ -287,14 +287,14 @@ class PDSDataFetcher:
                     async with self.db_pool.acquire() as conn:
                         await conn.execute(
                             """
-                            INSERT INTO users (did, handle, "displayName", description, "avatarUrl", "bannerUrl", "createdAt")
+                            INSERT INTO users (did, handle, display_name, description, avatar_url, banner_url, created_at)
                             VALUES ($1, $2, $3, $4, $5, $6, NOW())
                             ON CONFLICT (did) DO UPDATE SET
                                 handle = EXCLUDED.handle,
-                                "displayName" = EXCLUDED."displayName",
+                                display_name = EXCLUDED.display_name,
                                 description = EXCLUDED.description,
-                                "avatarUrl" = EXCLUDED."avatarUrl",
-                                "bannerUrl" = EXCLUDED."bannerUrl"
+                                avatar_url = EXCLUDED.avatar_url,
+                                banner_url = EXCLUDED.banner_url
                             """,
                             did, handle or did, profile.get('displayName'), profile.get('description'), avatar_cid, banner_cid
                         )

@@ -517,7 +517,7 @@ class EventProcessor:
             try:
                 await conn.execute(
                     """
-                    INSERT INTO "listItems" (uri, cid, "listUri", "subjectDid", "createdAt")
+                    INSERT INTO list_items (uri, cid, list_uri, subject_did, created_at)
                     VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (uri) DO NOTHING
                     """,
@@ -581,7 +581,7 @@ class EventProcessor:
         try:
             # First check if user exists - quick DB query
             user = await conn.fetchrow(
-                "SELECT did, \"avatarUrl\", \"displayName\" FROM users WHERE did = $1",
+                "SELECT did, avatar_url, display_name FROM users WHERE did = $1",
                 did
             )
             
@@ -606,12 +606,12 @@ class EventProcessor:
                     # Create user with fallback handle - will be updated when profile is fetched
                     # This keeps the DB operation fast
                     try:
-                        await conn.execute(
-                            """
-                            INSERT INTO users (did, handle, "createdAt")
-                            VALUES ($1, $2, NOW())
-                            ON CONFLICT (did) DO NOTHING
-                            """,
+            await conn.execute(
+                """
+                INSERT INTO users (did, handle, created_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (did) DO NOTHING
+                """,
                             did,
                             INVALID_HANDLE
                         )
@@ -701,7 +701,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO notifications (uri, "recipientDid", "authorDid", reason, "reasonSubject", cid, "isRead", "createdAt")
+                INSERT INTO notifications (uri, recipient_did, author_did, reason, reason_subject, cid, is_read, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, false, $7)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -727,12 +727,12 @@ class EventProcessor:
             param_idx = 3
             
             if like_uri:
-                updates.append(f'"likeUri" = ${param_idx}')
+                updates.append(f'like_uri = ${param_idx}')
                 params.append(like_uri)
                 param_idx += 1
             
             if repost_uri:
-                updates.append(f'"repostUri" = ${param_idx}')
+                updates.append(f'repost_uri = ${param_idx}')
                 params.append(repost_uri)
                 param_idx += 1
             
@@ -742,10 +742,10 @@ class EventProcessor:
             # Insert or update
             await conn.execute(
                 f"""
-                INSERT INTO "postViewerStates" ("postUri", "viewerDid", "likeUri", "repostUri", bookmarked, "threadMuted", "replyDisabled", "embeddingDisabled", pinned)
+                INSERT INTO post_viewer_states (post_uri, viewer_did, like_uri, repost_uri, bookmarked, thread_muted, reply_disabled, embedding_disabled, pinned)
                 VALUES ($1, $2, ${3 if like_uri else 'NULL'}, ${4 if repost_uri else 'NULL'}, ${'true' if bookmarked else 'false'}, false, false, false, false)
-                ON CONFLICT ("postUri", "viewerDid") DO UPDATE SET
-                    {', '.join(updates) if updates else '"likeUri" = "postViewerStates"."likeUri"'}
+                ON CONFLICT (post_uri, viewer_did) DO UPDATE SET
+                    {', '.join(updates) if updates else 'like_uri = post_viewer_states.like_uri'}
                 """.replace('${', '$'),
                 *params[:2], *(params[2:] if updates else [])
             )
@@ -805,7 +805,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO posts (uri, cid, "authorDid", text, "parentUri", "rootUri", embed, facets, "createdAt")
+                INSERT INTO posts (uri, cid, author_did, text, parent_uri, root_uri, embed, facets, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -815,9 +815,9 @@ class EventProcessor:
             # Create post aggregation
             await conn.execute(
                 """
-                INSERT INTO "postAggregations" ("postUri", "likeCount", "repostCount", "replyCount", "bookmarkCount", "quoteCount")
+                INSERT INTO post_aggregations (post_uri, like_count, repost_count, reply_count, bookmark_count, quote_count)
                 VALUES ($1, 0, 0, 0, 0, 0)
-                ON CONFLICT ("postUri") DO NOTHING
+                ON CONFLICT (post_uri) DO NOTHING
                 """,
                 uri
             )
@@ -825,7 +825,7 @@ class EventProcessor:
             # Create feed item
             await conn.execute(
                 """
-                INSERT INTO "feedItems" (uri, "postUri", "originatorDid", type, "sortAt", cid, "createdAt")
+                INSERT INTO feed_items (uri, post_uri, originator_did, type, sort_at, cid, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -835,34 +835,34 @@ class EventProcessor:
             # Handle reply - increment parent reply count and create thread context
             if parent_uri:
                 await conn.execute(
-                    'UPDATE "postAggregations" SET "replyCount" = "replyCount" + 1 WHERE "postUri" = $1',
+                    'UPDATE post_aggregations SET reply_count = reply_count + 1 WHERE post_uri = $1',
                     parent_uri
                 )
                 
                 # Create thread context
                 if root_uri:
-                    root_post = await conn.fetchrow('SELECT "authorDid" FROM posts WHERE uri = $1', root_uri)
+                    root_post = await conn.fetchrow('SELECT author_did FROM posts WHERE uri = $1', root_uri)
                     if root_post:
                         # Check if root author liked this post
                         root_author_like = await conn.fetchrow(
-                            'SELECT uri FROM likes WHERE "userDid" = $1 AND "postUri" = $2',
-                            root_post['authorDid'], uri
+                            'SELECT uri FROM likes WHERE user_did = $1 AND post_uri = $2',
+                            root_post['author_did'], uri
                         )
                         
                         await conn.execute(
                             """
-                            INSERT INTO "threadContexts" ("postUri", "rootAuthorLikeUri")
+                            INSERT INTO thread_contexts (post_uri, root_author_like_uri)
                             VALUES ($1, $2)
-                            ON CONFLICT ("postUri") DO NOTHING
+                            ON CONFLICT (post_uri) DO NOTHING
                             """,
                             uri, root_author_like['uri'] if root_author_like else None
                         )
                 
                 # Create reply notification
-                parent_post = await conn.fetchrow('SELECT "authorDid" FROM posts WHERE uri = $1', parent_uri)
-                if parent_post and parent_post['authorDid'] != author_did:
+                parent_post = await conn.fetchrow('SELECT author_did FROM posts WHERE uri = $1', parent_uri)
+                if parent_post and parent_post['author_did'] != author_did:
                     notif_uri = f"{uri}#notification/reply"
-                    await self.create_notification(conn, notif_uri, parent_post['authorDid'], author_did, 'reply', uri, cid, created_at)
+                    await self.create_notification(conn, notif_uri, parent_post['author_did'], author_did, 'reply', uri, cid, created_at)
             
             # Handle mentions
             mentions = re.findall(r'@([a-zA-Z0-9.-]+)', text)
@@ -901,7 +901,7 @@ class EventProcessor:
                 quote_uri = f"{uri}#quote"
                 await conn.execute(
                     """
-                    INSERT INTO quotes (uri, cid, "postUri", "quotedUri", "quotedCid", "createdAt")
+                    INSERT INTO quotes (uri, cid, post_uri, quoted_uri, quoted_cid, created_at)
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (uri) DO NOTHING
                     """,
@@ -910,15 +910,15 @@ class EventProcessor:
                 
                 # Increment quote count
                 await conn.execute(
-                    'UPDATE "postAggregations" SET "quoteCount" = "quoteCount" + 1 WHERE "postUri" = $1',
+                    'UPDATE post_aggregations SET quote_count = quote_count + 1 WHERE post_uri = $1',
                     quoted_uri
                 )
                 
                 # Create quote notification
-                quoted_post = await conn.fetchrow('SELECT "authorDid" FROM posts WHERE uri = $1', quoted_uri)
-                if quoted_post and quoted_post['authorDid'] != author_did:
+                quoted_post = await conn.fetchrow('SELECT author_did FROM posts WHERE uri = $1', quoted_uri)
+                if quoted_post and quoted_post['author_did'] != author_did:
                     notif_uri = f"{uri}#notification/quote"
-                    await self.create_notification(conn, notif_uri, quoted_post['authorDid'], author_did, 'quote', uri, cid, created_at)
+                    await self.create_notification(conn, notif_uri, quoted_post['author_did'], author_did, 'quote', uri, cid, created_at)
             
             # Flush any pending operations waiting for this post
             await self.flush_pending_ops(conn, uri)
@@ -942,7 +942,7 @@ class EventProcessor:
         """Internal method to create like (used by both direct and pending processing)"""
         await conn.execute(
             """
-            INSERT INTO likes (uri, "userDid", "postUri", "createdAt")
+            INSERT INTO likes (uri, user_did, post_uri, created_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (uri) DO NOTHING
             """,
@@ -951,7 +951,7 @@ class EventProcessor:
         
         # Increment like count
         await conn.execute(
-            'UPDATE "postAggregations" SET "likeCount" = "likeCount" + 1 WHERE "postUri" = $1',
+            'UPDATE post_aggregations SET like_count = like_count + 1 WHERE post_uri = $1',
             post_uri
         )
         
@@ -959,10 +959,10 @@ class EventProcessor:
         await self.create_post_viewer_state(conn, post_uri, user_did, like_uri=uri)
         
         # Create like notification
-        post = await conn.fetchrow('SELECT "authorDid" FROM posts WHERE uri = $1', post_uri)
-        if post and post['authorDid'] != user_did:
+        post = await conn.fetchrow('SELECT author_did FROM posts WHERE uri = $1', post_uri)
+        if post and post['author_did'] != user_did:
             notif_uri = f"{uri}#notification"
-            await self.create_notification(conn, notif_uri, post['authorDid'], user_did, 'like', post_uri, cid, created_at)
+            await self.create_notification(conn, notif_uri, post['author_did'], user_did, 'like', post_uri, cid, created_at)
     
     async def process_like(
         self,
@@ -1019,7 +1019,7 @@ class EventProcessor:
         """Internal method to create repost"""
         await conn.execute(
             """
-            INSERT INTO reposts (uri, "userDid", "postUri", "createdAt")
+            INSERT INTO reposts (uri, user_did, post_uri, created_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (uri) DO NOTHING
             """,
@@ -1028,7 +1028,7 @@ class EventProcessor:
         
         # Increment repost count
         await conn.execute(
-            'UPDATE "postAggregations" SET "repostCount" = "repostCount" + 1 WHERE "postUri" = $1',
+            'UPDATE post_aggregations SET repost_count = repost_count + 1 WHERE post_uri = $1',
             post_uri
         )
         
@@ -1038,7 +1038,7 @@ class EventProcessor:
         # Create feed item
         await conn.execute(
             """
-            INSERT INTO "feedItems" (uri, "postUri", "originatorDid", type, "sortAt", cid, "createdAt")
+            INSERT INTO feed_items (uri, post_uri, originator_did, type, sort_at, cid, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (uri) DO NOTHING
             """,
@@ -1046,10 +1046,10 @@ class EventProcessor:
         )
         
         # Create repost notification
-        post = await conn.fetchrow('SELECT "authorDid" FROM posts WHERE uri = $1', post_uri)
-        if post and post['authorDid'] != user_did:
+        post = await conn.fetchrow('SELECT author_did FROM posts WHERE uri = $1', post_uri)
+        if post and post['author_did'] != user_did:
             notif_uri = f"{uri}#notification"
-            await self.create_notification(conn, notif_uri, post['authorDid'], user_did, 'repost', post_uri, cid, created_at)
+            await self.create_notification(conn, notif_uri, post['author_did'], user_did, 'repost', post_uri, cid, created_at)
     
     async def process_repost(
         self,
@@ -1098,7 +1098,7 @@ class EventProcessor:
         """Internal method to create follow"""
         await conn.execute(
             """
-            INSERT INTO follows (uri, "followerDid", "followingDid", "createdAt")
+            INSERT INTO follows (uri, follower_did, following_did, created_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (uri) DO NOTHING
             """,
@@ -1154,7 +1154,7 @@ class EventProcessor:
         """Internal method to create block"""
         await conn.execute(
             """
-            INSERT INTO blocks (uri, "blockerDid", "blockedDid", "createdAt")
+            INSERT INTO blocks (uri, blocker_did, blocked_did, created_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (uri) DO NOTHING
             """,
@@ -1203,7 +1203,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO bookmarks (uri, "userDid", "postUri", "createdAt")
+                INSERT INTO bookmarks (uri, user_did, post_uri, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1212,7 +1212,7 @@ class EventProcessor:
             
             # Increment bookmark count
             await conn.execute(
-                'UPDATE "postAggregations" SET "bookmarkCount" = "bookmarkCount" + 1 WHERE "postUri" = $1',
+                'UPDATE post_aggregations SET bookmark_count = bookmark_count + 1 WHERE post_uri = $1',
                 post_uri
             )
             
@@ -1250,14 +1250,14 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO users (did, handle, "displayName", description, "avatarUrl", "bannerUrl", "profileRecord", "createdAt")
+                INSERT INTO users (did, handle, display_name, description, avatar_url, banner_url, profile_record, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
                 ON CONFLICT (did) DO UPDATE SET
-                    "displayName" = EXCLUDED."displayName",
+                    display_name = EXCLUDED.display_name,
                     description = EXCLUDED.description,
-                    "avatarUrl" = EXCLUDED."avatarUrl",
-                    "bannerUrl" = EXCLUDED."bannerUrl",
-                    "profileRecord" = EXCLUDED."profileRecord"
+                    avatar_url = EXCLUDED.avatar_url,
+                    banner_url = EXCLUDED.banner_url,
+                    profile_record = EXCLUDED.profile_record
                 """,
                 did, 'handle.invalid', display_name, description, avatar_cid, banner_cid, profile_json
             )
@@ -1289,7 +1289,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO lists (uri, cid, "creatorDid", name, purpose, description, "avatarUrl", "createdAt")
+                INSERT INTO lists (uri, cid, creator_did, name, purpose, description, avatar_url, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1335,7 +1335,7 @@ class EventProcessor:
             
             await conn.execute(
                 """
-                INSERT INTO "listItems" (uri, cid, "listUri", "subjectDid", "createdAt")
+                INSERT INTO list_items (uri, cid, list_uri, subject_did, created_at)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1371,7 +1371,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "feedGenerators" (uri, cid, "creatorDid", did, "displayName", description, "avatarUrl", "createdAt")
+                INSERT INTO feed_generators (uri, cid, creator_did, did, display_name, description, avatar_url, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1425,7 +1425,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "starterPacks" (uri, cid, "creatorDid", name, description, "listUri", feeds, "createdAt")
+                INSERT INTO starter_packs (uri, cid, creator_did, name, description, list_uri, feeds, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1470,7 +1470,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "labelerServices" (uri, cid, "creatorDid", policies, "createdAt")
+                INSERT INTO labeler_services (uri, cid, creator_did, policies, created_at)
                 VALUES ($1, $2, $3, $4::jsonb, $5)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1505,7 +1505,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO verifications (uri, cid, "subjectDid", handle, "verifiedAt", "createdAt")
+                INSERT INTO verifications (uri, cid, subject_did, handle, verified_at, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1548,7 +1548,7 @@ class EventProcessor:
                 # Fallback to direct DB insert (for backwards compatibility)
                 await conn.execute(
                     """
-                    INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
+                    INSERT INTO labels (uri, src, subject, val, neg, created_at)
                     VALUES ($1, $2, $3, $4, $5, $6)
                     ON CONFLICT (uri) DO NOTHING
                     """,
@@ -1588,7 +1588,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "genericRecords" (uri, cid, "authorDid", "recordType", record, "createdAt")
+                INSERT INTO generic_records (uri, cid, author_did, record_type, record, created_at)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -1683,7 +1683,7 @@ class EventProcessor:
             try:
                 await conn.execute(
                     """
-                    INSERT INTO users (did, handle, "createdAt")
+                    INSERT INTO users (did, handle, created_at)
                     VALUES ($1, $2, NOW())
                     ON CONFLICT (did) DO UPDATE SET handle = EXCLUDED.handle
                     """,
@@ -1727,60 +1727,60 @@ class EventProcessor:
         try:
             if collection == "app.bsky.feed.post":
                 await conn.execute("DELETE FROM posts WHERE uri = $1", uri)
-                await conn.execute('DELETE FROM "feedItems" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM feed_items WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.like":
                 like = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM likes WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM likes WHERE uri = $1',
                     uri
                 )
                 if like:
                     await conn.execute("DELETE FROM likes WHERE uri = $1", uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "likeCount" = GREATEST("likeCount" - 1, 0) WHERE "postUri" = $1',
-                        like['postUri']
+                        'UPDATE post_aggregations SET like_count = GREATEST(like_count - 1, 0) WHERE post_uri = $1',
+                        like['post_uri']
                     )
                     await conn.execute(
-                        'DELETE FROM "postViewerStates" WHERE "postUri" = $1 AND "viewerDid" = $2',
-                        like['postUri'], like['userDid']
+                        'DELETE FROM post_viewer_states WHERE post_uri = $1 AND viewer_did = $2',
+                        like['post_uri'], like['user_did']
                     )
             
             elif collection == "app.bsky.feed.repost":
                 repost = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM reposts WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM reposts WHERE uri = $1',
                     uri
                 )
                 if repost:
                     await conn.execute("DELETE FROM reposts WHERE uri = $1", uri)
-                    await conn.execute('DELETE FROM "feedItems" WHERE uri = $1', uri)
+                    await conn.execute('DELETE FROM feed_items WHERE uri = $1', uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "repostCount" = GREATEST("repostCount" - 1, 0) WHERE "postUri" = $1',
-                        repost['postUri']
+                        'UPDATE post_aggregations SET repost_count = GREATEST(repost_count - 1, 0) WHERE post_uri = $1',
+                        repost['post_uri']
                     )
                     await conn.execute(
-                        'DELETE FROM "postViewerStates" WHERE "postUri" = $1 AND "viewerDid" = $2',
-                        repost['postUri'], repost['userDid']
+                        'DELETE FROM post_viewer_states WHERE post_uri = $1 AND viewer_did = $2',
+                        repost['post_uri'], repost['user_did']
                     )
             
             elif collection == "app.bsky.bookmark":
                 bookmark = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM bookmarks WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM bookmarks WHERE uri = $1',
                     uri
                 )
                 if bookmark:
                     await conn.execute("DELETE FROM bookmarks WHERE uri = $1", uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "bookmarkCount" = GREATEST("bookmarkCount" - 1, 0) WHERE "postUri" = $1',
-                        bookmark['postUri']
+                        'UPDATE post_aggregations SET bookmark_count = GREATEST(bookmark_count - 1, 0) WHERE post_uri = $1',
+                        bookmark['post_uri']
                     )
                     await conn.execute(
-                        'DELETE FROM "postViewerStates" WHERE "postUri" = $1 AND "viewerDid" = $2',
-                        bookmark['postUri'], bookmark['userDid']
+                        'DELETE FROM post_viewer_states WHERE post_uri = $1 AND viewer_did = $2',
+                        bookmark['post_uri'], bookmark['user_did']
                     )
             
             elif collection == "app.bsky.graph.follow":
                 # Try to get followerDid, with fallback to extracting from URI
-                follow = await conn.fetchrow('SELECT "followerDid" FROM follows WHERE uri = $1', uri)
+                follow = await conn.fetchrow('SELECT follower_did FROM follows WHERE uri = $1', uri)
                 if follow:
                     await conn.execute('DELETE FROM follows WHERE uri = $1', uri)
                 else:
@@ -1800,16 +1800,16 @@ class EventProcessor:
                 await conn.execute("DELETE FROM lists WHERE uri = $1", uri)
             
             elif collection == "app.bsky.graph.listitem":
-                await conn.execute('DELETE FROM "listItems" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM list_items WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.generator":
-                await conn.execute('DELETE FROM "feedGenerators" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM feed_generators WHERE uri = $1', uri)
             
             elif collection == "app.bsky.graph.starterpack":
-                await conn.execute('DELETE FROM "starterPacks" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM starter_packs WHERE uri = $1', uri)
             
             elif collection == "app.bsky.labeler.service":
-                await conn.execute('DELETE FROM "labelerServices" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM labeler_services WHERE uri = $1', uri)
             
             elif collection == "com.atproto.label.label":
                 await conn.execute("DELETE FROM labels WHERE uri = $1", uri)
@@ -1833,7 +1833,7 @@ class EventProcessor:
             
             else:
                 # Unknown record type - try to delete from generic records
-                await conn.execute('DELETE FROM "genericRecords" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM generic_records WHERE uri = $1', uri)
             
             logger.debug(f"Deleted {collection}: {uri}")
         except Exception as e:
@@ -2063,6 +2063,7 @@ class UnifiedWorker:
         self.event_processor: Optional[EventProcessor] = None
         self.client: Optional[FirehoseSubscribeReposClient] = None
         self.running = False
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
         
         self.event_count = 0
         self.start_time = time.time()
@@ -2070,6 +2071,9 @@ class UnifiedWorker:
     async def initialize(self):
         """Initialize database connection pool and services"""
         logger.info("Initializing unified worker...")
+        
+        # Store event loop reference
+        self.loop = asyncio.get_event_loop()
         
         # Create database pool
         self.db_pool = DatabasePool(self.database_url, self.db_pool_size)
@@ -2105,8 +2109,12 @@ class UnifiedWorker:
             
             # Handle Commit messages (posts, likes, follows, etc.)
             if isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Commit):
-                # Schedule async processing
-                asyncio.create_task(self.event_processor.process_commit(commit))
+                # Schedule async processing using the event loop
+                if self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self.event_processor.process_commit(commit),
+                        self.loop
+                    )
             
             # Handle Identity messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Identity):
@@ -2114,7 +2122,11 @@ class UnifiedWorker:
                     'did': commit.did,
                     'handle': commit.handle,
                 }
-                asyncio.create_task(self.event_processor.process_identity(event_data))
+                if self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self.event_processor.process_identity(event_data),
+                        self.loop
+                    )
             
             # Handle Account messages
             elif isinstance(commit, models.ComAtprotoSyncSubscribeRepos.Account):
@@ -2122,7 +2134,11 @@ class UnifiedWorker:
                     'did': commit.did,
                     'active': commit.active,
                 }
-                asyncio.create_task(self.event_processor.process_account(event_data))
+                if self.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self.event_processor.process_account(event_data),
+                        self.loop
+                    )
             
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
