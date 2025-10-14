@@ -1,0 +1,32 @@
+# Unified Python Worker Dockerfile
+# Replaces 32 TypeScript workers with a single Python process
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy unified worker
+COPY unified_worker.py .
+
+# Set environment defaults
+ENV RELAY_URL=wss://bsky.network
+ENV DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+ENV DB_POOL_SIZE=20
+ENV LOG_LEVEL=INFO
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD python -c "import asyncpg; import asyncio; asyncio.run(asyncpg.connect('${DATABASE_URL}', timeout=5).close())" || exit 1
+
+# Run unified worker
+CMD ["python", "-u", "unified_worker.py"]

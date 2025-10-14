@@ -99,13 +99,15 @@ export class RepoBackfillService {
     const backfillDuration = days !== undefined ? days : this.backfillDays;
 
     // Set cutoff date if needed
+    // days === 0 means "all time" (no date filter)
+    // days > 0 means "last N days"
     if (backfillDuration > 0) {
       this.cutoffDate = new Date();
       this.cutoffDate.setDate(this.cutoffDate.getDate() - backfillDuration);
       console.log(`[REPO_BACKFILL] Cutoff date for ${did}: ${this.cutoffDate.toISOString()} (${backfillDuration} days)`);
     } else {
       this.cutoffDate = null;
-      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (fetching all records)`);
+      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (importing all records)`);
     }
 
     console.log(`[REPO_BACKFILL] Fetching complete repository for ${did}...`);

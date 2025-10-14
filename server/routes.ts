@@ -123,62 +123,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const workerId = parseInt(process.env.NODE_APP_INSTANCE || '0');
   const totalWorkers = parseInt(process.env.PM2_INSTANCES || '1');
   
-  // Check if firehose is enabled (default: true)
-  const firehoseEnabled = process.env.FIREHOSE_ENABLED !== 'false';
+  // Check if firehose is enabled (default: false - Python handles it)
+  const firehoseEnabled = process.env.FIREHOSE_ENABLED === 'true';
   
-  // ONLY worker 0 connects to firehose and pushes to Redis
+  // Check if TypeScript workers are enabled (default: false - Python workers handle it)
+  const typescriptWorkersEnabled = process.env.TYPESCRIPT_WORKERS_ENABLED === 'true';
+  
+  // ONLY worker 0 connects to firehose and pushes to Redis (if enabled)
   if (firehoseEnabled && workerId === 0) {
-    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Primary worker ingesting firehose → Redis`);
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - TypeScript firehose writer (firehose → Redis)`);
     firehoseClient.connect(workerId, totalWorkers);
   } else if (!firehoseEnabled) {
-    console.log(`[FIREHOSE] Disabled (FIREHOSE_ENABLED=false)`);
+    console.log(`[FIREHOSE] TypeScript firehose disabled (using Python firehose)`);
   } else {
-    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Consumer worker (Redis → PostgreSQL)`);
+    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Non-primary worker (no firehose connection)`);
   }
   
-  // ALL workers consume from Redis queue in parallel
+  // Check if TypeScript workers should consume from Redis
+  if (!typescriptWorkersEnabled) {
+    console.log(`[WORKERS] TypeScript workers disabled (using Python workers for Redis → PostgreSQL)`);
+    console.log(`[WORKERS] This instance will serve API requests only`);
+  } else {
+    console.log(`[WORKERS] TypeScript workers enabled - consuming from Redis`);
+  }
+  
   const consumerId = `worker-${workerId}`;
-  console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
   
-  // Start multiple parallel consumer pipelines per worker for maximum throughput
-  const { eventProcessor } = await import("./services/event-processor");
-  const PARALLEL_PIPELINES = 5; // Run 5 concurrent consumer loops per worker
-  
-  const processEvent = async (event: any) => {
-    let success = false;
-    try {
-      if (event.type === "commit") {
-        await eventProcessor.processCommit(event.data);
-      } else if (event.type === "identity") {
-        await eventProcessor.processIdentity(event.data);
-      } else if (event.type === "account") {
-        await eventProcessor.processAccount(event.data);
-      }
-      success = true;
-    } catch (error: any) {
-      if (error?.code === '23505' || error?.code === '23503') {
-        // Duplicate key or foreign key violation - treat as success
-        success = true;
-      } else {
-        console.error(`[REDIS] Worker ${workerId} error processing ${event.type}:`, error);
-        // Don't acknowledge - message will be retried
-      }
-    }
+  // Only start TypeScript worker consumption if enabled
+  if (typescriptWorkersEnabled) {
+    console.log(`[REDIS] Worker ${workerId} starting consumer loop: ${consumerId}`);
     
-    // Acknowledge ONLY after successful processing
-    if (success) {
-      // Update cluster-wide metrics (buffered, flushed every 500ms)
-      const metricType = event.type === "commit" ? "#commit" 
-        : event.type === "identity" ? "#identity" 
-        : "#account";
-      redisQueue.incrementClusterMetric(metricType);
+    // Start multiple parallel consumer pipelines per worker for maximum throughput
+    const { eventProcessor } = await import("./services/event-processor");
+    const PARALLEL_PIPELINES = 5; // Run 5 concurrent consumer loops per worker
+    
+    const processEvent = async (event: any) => {
+      let success = false;
+      try {
+        if (event.type === "commit") {
+          await eventProcessor.processCommit(event.data);
+        } else if (event.type === "identity") {
+          await eventProcessor.processIdentity(event.data);
+        } else if (event.type === "account") {
+          await eventProcessor.processAccount(event.data);
+        }
+        success = true;
+      } catch (error: any) {
+        if (error?.code === '23505' || error?.code === '23503') {
+          // Duplicate key or foreign key violation - treat as success
+          success = true;
+        } else {
+          console.error(`[REDIS] Worker ${workerId} error processing ${event.type}:`, error);
+          // Don't acknowledge - message will be retried
+        }
+      }
       
-      await redisQueue.ack(event.messageId);
-    }
-  };
-  
-  // Launch parallel consumer pipelines
-  const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
+      // Acknowledge ONLY after successful processing
+      if (success) {
+        // Update cluster-wide metrics (buffered, flushed every 500ms)
+        const metricType = event.type === "commit" ? "#commit" 
+          : event.type === "identity" ? "#identity" 
+          : "#account";
+        redisQueue.incrementClusterMetric(metricType);
+        
+        await redisQueue.ack(event.messageId);
+      }
+    };
+    
+    // Launch parallel consumer pipelines
+    const consumerPipelines = Array.from({ length: PARALLEL_PIPELINES }, (_, pipelineId) => {
       return (async () => {
         const pipelineConsumerId = `${consumerId}-p${pipelineId}`;
         let iterationCount = 0;
@@ -226,19 +239,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     // Run all pipelines concurrently (don't await - let them run in background)
-  Promise.allSettled(consumerPipelines);
-  
-  // Start periodic retry mechanism for pending operations
-  setInterval(async () => {
-    try {
-      const retriedCount = await eventProcessor.retryPendingOperations();
-      if (retriedCount > 0) {
-        console.log(`[REDIS] Retried ${retriedCount} pending operations`);
+    Promise.allSettled(consumerPipelines);
+    
+    // Start periodic retry mechanism for pending operations
+    setInterval(async () => {
+      try {
+        const retriedCount = await eventProcessor.retryPendingOperations();
+        if (retriedCount > 0) {
+          console.log(`[REDIS] Retried ${retriedCount} pending operations`);
+        }
+      } catch (error) {
+        console.error(`[REDIS] Error during retry cycle:`, error);
       }
-    } catch (error) {
-      console.error(`[REDIS] Error during retry cycle:`, error);
-    }
-  }, 30000); // Retry every 30 seconds
+    }, 30000); // Retry every 30 seconds
+  }
 
   // WebDID endpoint - Serve DID document for did:web resolution
   const serveDIDDocument = async (_req: Request, res: Response) => {
@@ -711,13 +725,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const schema = z.object({
-        days: z.number().min(1).max(365),
+        days: z.number().min(0).max(3650), // 0 = all data, max 10 years
       });
 
       const data = schema.parse(req.body);
       const userDid = session.userDid;
 
-      if (data.days > 3) {
+      if (data.days === 0 || data.days > 3) {
         const { repoBackfillService } = await import("./services/repo-backfill");
         
         repoBackfillService.backfillSingleRepo(userDid, data.days).then(() => {
@@ -726,8 +740,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
         });
         
+        const message = data.days === 0 
+          ? `Backfill started for ALL your data. Your complete repository is being imported from your PDS.`
+          : `Backfill started for the last ${data.days} days. Your repository is being imported from your PDS.`;
+        
         res.json({ 
-          message: `Backfill started for ${data.days} days. Your complete repository is being imported from your PDS.`,
+          message,
           type: "repository"
         });
       } else {

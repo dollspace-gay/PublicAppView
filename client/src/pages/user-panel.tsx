@@ -27,7 +27,7 @@ interface UserStats {
 export default function UserPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [backfillDays, setBackfillDays] = useState<string>("30");
+  const [backfillDays, setBackfillDays] = useState<string>("0");
 
   const { data: sessionData, isLoading: isSessionLoading } = useQuery<{ session?: { userDid: string } }>({
     queryKey: ['/api/auth/session'],
@@ -122,19 +122,19 @@ export default function UserPanel() {
 
   const handleBackfill = () => {
     const days = parseInt(backfillDays);
-    if (isNaN(days) || days < 1) {
+    if (isNaN(days) || days < 0) {
       toast({
         title: "Invalid Days",
-        description: "Please enter a valid number of days (1 or more)",
+        description: "Please enter a valid number (0 for all data, or 1+ for recent days)",
         variant: "destructive",
       });
       return;
     }
 
-    if (days > 365) {
+    if (days > 3650) {
       toast({
         title: "Too Many Days",
-        description: "Maximum backfill is 365 days",
+        description: "Maximum backfill is 3650 days (10 years)",
         variant: "destructive",
       });
       return;
@@ -237,21 +237,23 @@ export default function UserPanel() {
 
           <div className="flex items-end space-x-4">
             <div className="flex-1 space-y-2">
-              <Label htmlFor="backfill-days">Number of Days</Label>
+              <Label htmlFor="backfill-days">Number of Days (0 = all time)</Label>
               <Input
                 id="backfill-days"
                 type="number"
-                min="1"
-                max="365"
+                min="0"
+                max="3650"
                 value={backfillDays}
                 onChange={(e) => setBackfillDays(e.target.value)}
-                placeholder="30"
+                placeholder="0"
                 data-testid="input-backfill-days"
               />
               <p className="text-xs text-muted-foreground">
-                {parseInt(backfillDays) > 3 
-                  ? "Will fetch your complete repository (CAR file) from your PDS"
-                  : "Will fetch recent data from the firehose"}
+                {parseInt(backfillDays) === 0
+                  ? "Will import ALL your data from your PDS (no date filter)"
+                  : parseInt(backfillDays) > 3 
+                    ? `Will import data from the last ${backfillDays} days from your PDS`
+                    : "Will fetch recent data from the firehose"}
               </p>
             </div>
             <Button
