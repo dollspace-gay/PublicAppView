@@ -61,10 +61,12 @@ export class EmbedResolver {
       postsData = loadedPosts.filter(Boolean);
     } else {
       // Fallback to direct database query
-      postsData = await db
-        .select()
-        .from(posts)
-        .where(inArray(posts.uri, uncachedUris));
+      postsData = uncachedUris.length > 0 
+        ? await db
+            .select()
+            .from(posts)
+            .where(inArray(posts.uri, uncachedUris))
+        : [];
     }
 
     const result = new Map<string, ResolvedEmbed | null>();

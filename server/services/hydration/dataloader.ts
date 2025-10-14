@@ -111,6 +111,8 @@ export class HydrationDataLoader {
   private createPostLoader() {
     return new DataLoader<string, any>(
       async (uris) => {
+        if (uris.length === 0) return [];
+        
         const result = await db
           .select()
           .from(posts)
@@ -132,6 +134,8 @@ export class HydrationDataLoader {
   private createUserLoader() {
     return new DataLoader<string, any>(
       async (dids) => {
+        if (dids.length === 0) return [];
+        
         const result = await db
           .select()
           .from(users)
@@ -153,6 +157,8 @@ export class HydrationDataLoader {
   private createAggregationLoader() {
     return new DataLoader<string, any>(
       async (uris) => {
+        if (uris.length === 0) return [];
+        
         const result = await db
           .select()
           .from(postAggregations)
@@ -199,34 +205,42 @@ export class HydrationDataLoader {
           )
         );
 
-        const result = await db
-          .select()
-          .from(postViewerStates)
-          .where(or(...conditions)!);
+        const result = conditions.length > 0 
+          ? await db
+              .select()
+              .from(postViewerStates)
+              .where(or(...conditions)!)
+          : [];
 
         // Also fetch likes, reposts, bookmarks for viewer
         const postUris = [...new Set(queries.map(q => q.uri))];
         const viewerDids = [...new Set(queries.map(q => q.viewerDid))];
 
         const [likesResult, repostsResult, bookmarksResult] = await Promise.all([
-          db.select()
-            .from(likes)
-            .where(and(
-              inArray(likes.postUri, postUris),
-              inArray(likes.userDid, viewerDids)
-            )),
-          db.select()
-            .from(reposts)
-            .where(and(
-              inArray(reposts.postUri, postUris),
-              inArray(reposts.userDid, viewerDids)
-            )),
-          db.select()
-            .from(bookmarks)
-            .where(and(
-              inArray(bookmarks.postUri, postUris),
-              inArray(bookmarks.userDid, viewerDids)
-            ))
+          postUris.length > 0 && viewerDids.length > 0 
+            ? db.select()
+                .from(likes)
+                .where(and(
+                  inArray(likes.postUri, postUris),
+                  inArray(likes.userDid, viewerDids)
+                ))
+            : [],
+          postUris.length > 0 && viewerDids.length > 0
+            ? db.select()
+                .from(reposts)
+                .where(and(
+                  inArray(reposts.postUri, postUris),
+                  inArray(reposts.userDid, viewerDids)
+                ))
+            : [],
+          postUris.length > 0 && viewerDids.length > 0
+            ? db.select()
+                .from(bookmarks)
+                .where(and(
+                  inArray(bookmarks.postUri, postUris),
+                  inArray(bookmarks.userDid, viewerDids)
+                ))
+            : []
         ]);
 
         // Create lookup maps
@@ -277,30 +291,36 @@ export class HydrationDataLoader {
 
         // Fetch all relationship data in parallel
         const [followsResult, blocksResult, mutesResult] = await Promise.all([
-          db.select()
-            .from(follows)
-            .where(and(
-              inArray(follows.followedDid, actorDids),
-              inArray(follows.followerDid, viewerDids)
-            )),
-          db.select()
-            .from(blocks)
-            .where(or(
-              and(
-                inArray(blocks.blockedDid, actorDids),
-                inArray(blocks.blockerDid, viewerDids)
-              ),
-              and(
-                inArray(blocks.blockedDid, viewerDids),
-                inArray(blocks.blockerDid, actorDids)
-              )
-            )!),
-          db.select()
-            .from(mutes)
-            .where(and(
-              inArray(mutes.mutedDid, actorDids),
-              inArray(mutes.muterDid, viewerDids)
-            ))
+          actorDids.length > 0 && viewerDids.length > 0
+            ? db.select()
+                .from(follows)
+                .where(and(
+                  inArray(follows.followedDid, actorDids),
+                  inArray(follows.followerDid, viewerDids)
+                ))
+            : [],
+          actorDids.length > 0 && viewerDids.length > 0
+            ? db.select()
+                .from(blocks)
+                .where(or(
+                  and(
+                    inArray(blocks.blockedDid, actorDids),
+                    inArray(blocks.blockerDid, viewerDids)
+                  ),
+                  and(
+                    inArray(blocks.blockedDid, viewerDids),
+                    inArray(blocks.blockerDid, actorDids)
+                  )
+                )!)
+            : [],
+          actorDids.length > 0 && viewerDids.length > 0
+            ? db.select()
+                .from(mutes)
+                .where(and(
+                  inArray(mutes.mutedDid, actorDids),
+                  inArray(mutes.muterDid, viewerDids)
+                ))
+            : []
         ]);
 
         // Create lookup maps
@@ -341,6 +361,8 @@ export class HydrationDataLoader {
   private createThreadGateLoader() {
     return new DataLoader<string, any>(
       async (uris) => {
+        if (uris.length === 0) return [];
+        
         const result = await db
           .select()
           .from(threadGates)
@@ -362,6 +384,8 @@ export class HydrationDataLoader {
   private createPostGateLoader() {
     return new DataLoader<string, any>(
       async (uris) => {
+        if (uris.length === 0) return [];
+        
         const result = await db
           .select()
           .from(postGates)
@@ -383,6 +407,8 @@ export class HydrationDataLoader {
   private createLabelLoader() {
     return new DataLoader<string, any[]>(
       async (uris) => {
+        if (uris.length === 0) return [];
+        
         const result = await db
           .select()
           .from(labelsTable)
