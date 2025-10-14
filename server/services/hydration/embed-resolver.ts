@@ -334,8 +334,8 @@ export class EmbedResolver {
     // Check for the string "undefined" which can happen with improper data extraction
     if (!cid || cid === 'undefined') return '';
     
-    // Always use Bluesky CDN for image hosting
-    return `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@jpeg`;
+    // Use local image proxy to fetch from Bluesky CDN
+    return `/img/${preset}/plain/${did}/${cid}@jpeg`;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL
@@ -343,8 +343,8 @@ export class EmbedResolver {
     // Check for falsy values and the literal string "undefined"
     if (!cid || cid === 'undefined') return '';
     
-    // Always use Bluesky CDN for image hosting
-    return `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@jpeg`;
+    // Use local image proxy to fetch from Bluesky CDN
+    return `/img/${preset}/plain/${did}/${cid}@jpeg`;
   }
 
   /**

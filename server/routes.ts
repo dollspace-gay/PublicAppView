@@ -305,7 +305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/.well-known/did.json", serveDIDDocument);
   app.get("/did.json", serveDIDDocument);
 
-  // Blob Proxy Endpoint - Fetch and serve blobs from user's PDS
+  // Blob Proxy Endpoint - Fetch and serve blobs from Bluesky CDN
   // Pattern: /img/{preset}/plain/{did}/{cid}@{format}
   app.get("/img/:preset/plain/:did/:cidWithFormat", async (req: Request, res: Response) => {
     try {
@@ -331,33 +331,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).type('text/plain').send('Invalid CID format');
       }
 
-      // Resolve DID to PDS endpoint
-      const pdsUrl = await didResolver.resolveDIDToPDS(did);
+      // Construct URL to Bluesky CDN
+      const cdnUrl = `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@${format}`;
       
-      if (!pdsUrl) {
-        console.error(`[BLOB_PROXY] Could not resolve PDS for DID: ${did}`);
-        return res.status(404).type('text/plain').send("Could not resolve user's PDS");
-      }
+      console.log(`[BLOB_PROXY] Fetching from Bluesky CDN: ${cdnUrl}`);
 
-      // Build safe URL to prevent SSRF attacks
-      const blobUrl = buildSafeBlobUrl(pdsUrl, did, cid);
-      
-      if (!blobUrl) {
-        console.error(`[BLOB_PROXY] Failed to build safe blob URL for PDS: ${pdsUrl}`);
-        return res.status(400).type('text/plain').send('Invalid PDS endpoint');
-      }
-      
-      // Additional validation: Ensure the constructed URL is safe to fetch from
-      // This validates the URL is not targeting internal/private networks
-      if (!isUrlSafeToFetch(blobUrl)) {
-        console.error(`[BLOB_PROXY] URL failed safety validation: ${blobUrl}`);
-        return res.status(400).type('text/plain').send('Invalid or unsafe blob URL');
-      }
-      
-      console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
-
-      // Use safeFetch wrapper to ensure SSRF protection is recognized by static analysis
-      const response = await safeFetch(blobUrl, {
+      // Fetch from Bluesky CDN
+      const response = await safeFetch(cdnUrl, {
         headers: {
           'Accept': 'image/*,*/*',
           'User-Agent': 'AT-Protocol-AppView/1.0'
@@ -365,11 +345,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       if (!response.ok) {
-        console.error(`[BLOB_PROXY] PDS returned ${response.status}: ${response.statusText}`);
-        return res.status(response.status).type('text/plain').send(`Blob not found (PDS returned ${response.status})`);
+        console.error(`[BLOB_PROXY] CDN returned ${response.status}: ${response.statusText}`);
+        return res.status(response.status).type('text/plain').send(`Blob not found (CDN returned ${response.status})`);
       }
 
-      // Get content type from PDS response or default to image/jpeg
+      // Get content type from CDN response or default to image/jpeg
       const contentType = response.headers.get('content-type') || 'image/jpeg';
       
       // Stream the blob to the client with caching headers
