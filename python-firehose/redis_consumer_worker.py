@@ -146,14 +146,19 @@ class EventProcessor:
             return False
     
     def safe_date(self, value: Optional[str]) -> datetime:
-        """Parse date safely, returning current time if invalid"""
+        """Parse date safely, returning current time if invalid
+        
+        Returns naive datetime in UTC (without timezone info) to match PostgreSQL's
+        timestamp type which is 'timestamp without time zone'.
+        """
         if not value:
-            return datetime.now(timezone.utc)
+            return datetime.now(timezone.utc).replace(tzinfo=None)
         try:
             dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            return dt
+            # Convert to naive datetime in UTC for PostgreSQL compatibility
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
         except Exception:
-            return datetime.now(timezone.utc)
+            return datetime.now(timezone.utc).replace(tzinfo=None)
     
     async def process_post(
         self,

@@ -648,14 +648,19 @@ class EventProcessor:
             return False
     
     def safe_date(self, value: Optional[str]) -> datetime:
-        """Parse date safely, returning current time if invalid"""
+        """Parse date safely, returning current time if invalid
+        
+        Returns naive datetime in UTC (without timezone info) to match PostgreSQL's
+        timestamp type which is 'timestamp without time zone'.
+        """
         if not value:
-            return datetime.now(timezone.utc)
+            return datetime.now(timezone.utc).replace(tzinfo=None)
         try:
             dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            return dt
+            # Convert to naive datetime in UTC for PostgreSQL compatibility
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
         except Exception:
-            return datetime.now(timezone.utc)
+            return datetime.now(timezone.utc).replace(tzinfo=None)
     
     def extract_blob_cid(self, blob: Any) -> Optional[str]:
         """Extract CID from blob reference"""
@@ -1530,7 +1535,7 @@ class EventProcessor:
         if cid_attr and created_at_attr:
             created_at = self.safe_date(created_at_attr)
         else:
-            created_at = datetime.now(timezone.utc)
+            created_at = datetime.now(timezone.utc).replace(tzinfo=None)
         
         if not subject or not val:
             return
