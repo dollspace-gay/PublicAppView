@@ -40,6 +40,10 @@ export class FeedGeneratorDiscovery {
     failed: 0,
     skipped: 0,
   };
+  
+  // Track when we last scanned each user to avoid duplicate scans
+  private lastScanned = new Map<string, number>();
+  private readonly SCAN_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Discover all users who have published feed generators
@@ -314,6 +318,54 @@ export class FeedGeneratorDiscovery {
    */
   isDiscoveryRunning(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Auto-discover all feed generators from a creator when we encounter one
+   * This runs in the background and won't block the firehose
+   */
+  async autoDiscoverFromCreator(creatorDid: string): Promise<void> {
+    try {
+      // Check if we've scanned this user recently
+      const lastScan = this.lastScanned.get(creatorDid);
+      if (lastScan && Date.now() - lastScan < this.SCAN_COOLDOWN_MS) {
+        // Already scanned recently, skip
+        return;
+      }
+
+      // Mark as scanned
+      this.lastScanned.set(creatorDid, Date.now());
+
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Auto-discovering feeds from creator: ${creatorDid}`);
+
+      // Discover all feeds from this creator in the background
+      const feeds = await this.discoverFromUserRepository(creatorDid);
+      
+      // Index each discovered feed
+      for (const feed of feeds) {
+        await this.indexFeedGenerator(feed);
+      }
+
+      if (feeds.length > 0) {
+        smartConsole.log(`[FEEDGEN_DISCOVERY] Auto-discovered ${feeds.length} feeds from ${creatorDid}`);
+      }
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error auto-discovering from ${creatorDid}:`, error);
+    }
+  }
+
+  /**
+   * Clear scan cooldown for a specific user (for manual refreshes)
+   */
+  clearScanCooldown(creatorDid: string): void {
+    this.lastScanned.delete(creatorDid);
+  }
+
+  /**
+   * Clear all scan cooldowns
+   */
+  clearAllScanCooldowns(): void {
+    this.lastScanned.clear();
   }
 }
 
