@@ -161,16 +161,33 @@ export class EmbedResolver {
         if (!post) continue;
         
         // Build author object - omit fields that are missing rather than using empty strings
+        // Use handle.invalid as fallback (matches Bluesky's approach)
+        const handle = author?.handle || 'handle.invalid';
+        
         const authorView: any = {
-          did: author?.did || post.authorDid
+          did: author?.did || post.authorDid,
+          handle: handle
         };
-        if (author?.handle) authorView.handle = author.handle;
-        if (author?.displayName) authorView.displayName = author.displayName;
+        
+        // displayName must be a string if present, or use handle as fallback
+        if (author?.displayName && typeof author.displayName === 'string') {
+          authorView.displayName = author.displayName;
+        } else {
+          authorView.displayName = handle;
+        }
+        
+        // Only include avatar if we can generate a valid URI
         if (author?.avatarUrl) {
-          // Transform avatar CID to CDN URL (avatarUrl is already just the CID string from database)
-          authorView.avatar = author.avatarUrl.startsWith('http') 
-            ? author.avatarUrl 
-            : this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
+          let avatarUri: string | undefined;
+          if (author.avatarUrl.startsWith('http')) {
+            avatarUri = author.avatarUrl;
+          } else {
+            avatarUri = this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
+          }
+          // Only include avatar field if we got a valid URI (not empty string)
+          if (avatarUri && avatarUri.length > 0) {
+            authorView.avatar = avatarUri;
+          }
         }
         
         // Construct full record value following app.bsky.feed.post schema

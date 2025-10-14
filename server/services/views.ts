@@ -109,13 +109,18 @@ export class Views {
       ? this.transformBlobToCdnUrl(authorProfile.avatarUrl, authorDid, 'avatar')
       : undefined;
 
+    // Ensure displayName is always a string
+    const displayName = (authorProfile.displayName && typeof authorProfile.displayName === 'string')
+      ? authorProfile.displayName
+      : authorProfile.handle;
+    
     return {
       $type: 'app.bsky.feed.defs#reasonPin',
       by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: authorDid,
         handle: authorProfile.handle,
-        displayName: authorProfile.displayName ?? authorProfile.handle,
+        displayName: displayName,
         pronouns: authorProfile.pronouns,
         ...(avatarUrl && { avatar: avatarUrl }),
         associated: {
@@ -157,13 +162,18 @@ export class Views {
       ? this.transformBlobToCdnUrl(reposterProfile.avatarUrl, repost.userDid, 'avatar')
       : undefined;
 
+    // Ensure displayName is always a string
+    const displayName = (reposterProfile.displayName && typeof reposterProfile.displayName === 'string')
+      ? reposterProfile.displayName
+      : reposterProfile.handle;
+
     return {
       $type: 'app.bsky.feed.defs#reasonRepost',
       by: {
         $type: 'app.bsky.actor.defs#profileViewBasic',
         did: repost.userDid,
         handle: reposterProfile.handle,
-        displayName: reposterProfile.displayName ?? reposterProfile.handle,
+        displayName: displayName,
         pronouns: reposterProfile.pronouns,
         ...(avatarUrl && { avatar: avatarUrl }),
         associated: {
