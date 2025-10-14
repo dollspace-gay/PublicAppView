@@ -36,12 +36,21 @@ class ConstellationIntegration {
   private cacheHits = 0;
   private cacheMisses = 0;
   private apiErrors = 0;
+  private lastRequestTime = 0;
+  private requestDelay = 100; // Minimum delay between requests in ms
+  private maxRetries = 3;
+  private retryDelay = 1000; // Initial retry delay in ms
 
   constructor(config: ConstellationConfig) {
     this.enabled = config.enabled;
     this.baseUrl = config.url.replace(/\/$/, '');
     this.cacheTTL = config.cacheTTL;
     this.timeout = config.timeout;
+    
+    // Rate limiting configuration from environment variables
+    this.requestDelay = parseInt(process.env.CONSTELLATION_REQUEST_DELAY || '100', 10);
+    this.maxRetries = parseInt(process.env.CONSTELLATION_MAX_RETRIES || '3', 10);
+    this.retryDelay = parseInt(process.env.CONSTELLATION_RETRY_DELAY || '1000', 10);
 
     if (this.enabled) {
       const redisUrl = process.env.REDIS_URL;
@@ -109,9 +118,31 @@ class ConstellationIntegration {
   }
 
   /**
-   * Make HTTP request with timeout
+   * Sleep for specified milliseconds
    */
-  private async fetchWithTimeout(url: string): Promise<Response> {
+  private async sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Rate limit requests
+   */
+  private async rateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.requestDelay) {
+      await this.sleep(this.requestDelay - timeSinceLastRequest);
+    }
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Make HTTP request with timeout and retry logic
+   */
+  private async fetchWithTimeout(url: string, retryCount = 0): Promise<Response> {
+    // Apply rate limiting
+    await this.rateLimit();
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -124,6 +155,19 @@ class ConstellationIntegration {
       });
 
       clearTimeout(timeoutId);
+
+      // Handle rate limiting (429 errors)
+      if (response.status === 429 && retryCount < this.maxRetries) {
+        const retryAfter = response.headers.get('retry-after');
+        const delay = retryAfter 
+          ? parseInt(retryAfter, 10) * 1000 
+          : this.retryDelay * Math.pow(2, retryCount); // Exponential backoff
+        
+        console.log(`[CONSTELLATION] Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${this.maxRetries})`);
+        await this.sleep(delay);
+        return this.fetchWithTimeout(url, retryCount + 1);
+      }
+
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
@@ -151,6 +195,9 @@ class ConstellationIntegration {
     try {
       const response = await this.fetchWithTimeout(url);
       if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error(`Constellation API rate limit exceeded: ${response.status}`);
+        }
         throw new Error(`Constellation API error: ${response.status}`);
       }
 
@@ -177,11 +224,18 @@ class ConstellationIntegration {
       return count;
     } catch (error) {
       this.apiErrors++;
-      // Only log timeout errors at debug level (expected when API is slow)
-      if (error instanceof Error && error.message.includes('timeout')) {
-        // Silently fail on timeout - enrichAggregations will fall back to local counts
-      } else {
-        console.error('[CONSTELLATION] Error fetching count:', error);
+      // Handle different types of errors appropriately
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          // Silently fail on timeout - enrichAggregations will fall back to local counts
+        } else if (error.message.includes('rate limit')) {
+          // Log rate limit errors but don't spam the logs
+          if (this.apiErrors % 10 === 1) {
+            console.warn('[CONSTELLATION] Rate limit exceeded. Will use cached/local data.');
+          }
+        } else {
+          console.error('[CONSTELLATION] Error fetching count:', error);
+        }
       }
       throw error;
     }
@@ -202,14 +256,13 @@ class ConstellationIntegration {
       return cached;
     }
 
-    // Fetch from Constellation API with parallel requests
+    // Fetch from Constellation API with sequential requests to avoid rate limiting
     try {
-      const [likes, reposts, replies, quotes] = await Promise.all([
-        this.getLinksCount(postUri, 'app.bsky.feed.like', '.subject.uri'),
-        this.getLinksCount(postUri, 'app.bsky.feed.repost', '.subject.uri'),
-        this.getLinksCount(postUri, 'app.bsky.feed.post', '.reply.parent.uri'),
-        this.getLinksCount(postUri, 'app.bsky.feed.post', '.embed.record.uri'),
-      ]);
+      // Sequential requests instead of parallel to reduce load on API
+      const likes = await this.getLinksCount(postUri, 'app.bsky.feed.like', '.subject.uri');
+      const reposts = await this.getLinksCount(postUri, 'app.bsky.feed.repost', '.subject.uri');
+      const replies = await this.getLinksCount(postUri, 'app.bsky.feed.post', '.reply.parent.uri');
+      const quotes = await this.getLinksCount(postUri, 'app.bsky.feed.post', '.embed.record.uri');
 
       const stats: PostStats = { likes, reposts, replies, quotes };
 
@@ -233,13 +286,14 @@ class ConstellationIntegration {
   ): Promise<void> {
     if (!this.enabled) return;
 
-    // Process posts in batches for better performance
-    const batchSize = 5;
+    // Process posts in smaller batches with rate limiting
+    const batchSize = 2; // Reduced batch size to avoid rate limiting
     for (let i = 0; i < postUris.length; i += batchSize) {
       const batch = postUris.slice(i, i + batchSize);
       
-      await Promise.all(
-        batch.map(async (uri) => {
+      // Process batch items sequentially to respect rate limits
+      for (const uri of batch) {
+        try {
           const constellationStats = await this.getPostStats(uri);
           
           if (constellationStats) {
@@ -261,8 +315,11 @@ class ConstellationIntegration {
               bookmarkCount: existing.bookmarkCount, // Constellation doesn't track bookmarks
             });
           }
-        })
-      );
+        } catch (error) {
+          // Log error but continue processing other posts
+          console.error(`[CONSTELLATION] Error fetching stats for ${uri}:`, error);
+        }
+      }
     }
   }
 
