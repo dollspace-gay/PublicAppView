@@ -5,6 +5,7 @@ import { contentFilter } from "./content-filter";
 import { feedAlgorithm } from "./feed-algorithm";
 import { feedGeneratorClient } from "./feed-generator-client";
 import { pdsClient } from "./pds-client";
+import { pdsDataFetcher } from "./pds-data-fetcher";
 import { labelService } from "./label";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
@@ -1099,11 +1100,13 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
 
-      // Debug: Check user's follows and total posts in database
-      const followList = await storage.getFollows(userDid);
-      const totalPosts = await storage.getStats();
+      // Debug: Check user's follow count and their posts
+      const [followCount, userPostCount] = await Promise.all([
+        storage.getUserFollowingCount(userDid),
+        storage.getUserPostCount(userDid)
+      ]);
       
-      console.log(`[TIMELINE_DEBUG] User ${userDid} has ${followList.length} follows, ${totalPosts.totalPosts} total posts in DB`);
+      console.log(`[TIMELINE_DEBUG] User ${userDid} is following ${followCount} accounts, has ${userPostCount} posts`);
 
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
       
@@ -1223,7 +1226,7 @@ export class XRPCApi {
       );
 
       // Get all reposter DIDs for profile fetching
-      const reposterDids = Array.from(repostsByUri.values()).map(r => r.repostedByDid);
+      const reposterDids = Array.from(repostsByUri.values()).map(r => r.userDid);
       const reposters = await Promise.all(
         reposterDids.map(did => storage.getUser(did))
       );
@@ -1261,7 +1264,7 @@ export class XRPCApi {
           // Handle repost reason
           else if (item.repost) {
             const repost = repostsByUri.get(item.repost.uri);
-            const reposter = repost ? repostersByDid.get(repost.repostedByDid) : null;
+            const reposter = repost ? repostersByDid.get(repost.userDid) : null;
             
             if (repost && reposter) {
               reason = {
@@ -3837,12 +3840,19 @@ export class XRPCApi {
       const postUris = likes.map((like) => like.postUri);
       const posts = await storage.getPosts(postUris);
       
-      // Log if there's a mismatch between liked posts and fetched posts
+      // Log if there's a mismatch between liked posts and fetched posts (for debugging)
       if (posts.length !== postUris.length) {
-        console.warn(`[XRPC] getActorLikes: Expected ${postUris.length} posts, but only found ${posts.length}`);
         const foundUris = new Set(posts.map(p => p.uri));
         const missingUris = postUris.filter(uri => !foundUris.has(uri));
-        console.warn(`[XRPC] Missing posts:`, missingUris);
+        console.log(`[XRPC] getActorLikes: ${missingUris.length} liked posts not yet imported (from other users)`);
+        
+        // Queue missing posts for PDS fetching
+        for (const missingUri of missingUris) {
+          const didMatch = missingUri.match(/^at:\/\/(did:[^\/]+)/);
+          if (didMatch) {
+            pdsDataFetcher.markIncomplete('post', didMatch[1], missingUri);
+          }
+        }
       }
       
       const serializedPosts = await this.serializePosts(
