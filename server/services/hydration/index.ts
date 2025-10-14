@@ -82,31 +82,47 @@ export class EnhancedHydrator {
 
     // Fetch parent and root posts for replies
     if (replyParentUris.size > 0 || replyRootUris.size > 0) {
-      const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
-      const replyPostsData = await db
-        .select()
-        .from(posts)
-        .where(inArray(posts.uri, replyUris));
+      try {
+        const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
+        console.log(`[HYDRATION] Fetching ${replyUris.length} reply parent/root posts`);
+        
+        const replyPostsData = await db
+          .select()
+          .from(posts)
+          .where(inArray(posts.uri, replyUris));
 
-      for (const post of replyPostsData) {
-        // Only add if not already in the map
-        if (!postsMap.has(post.uri)) {
-          postsMap.set(post.uri, {
-            uri: post.uri,
-            cid: post.cid,
-            authorDid: post.authorDid,
-            text: post.text,
-            createdAt: post.createdAt.toISOString(),
-            indexedAt: post.indexedAt.toISOString(),
-            embed: post.embed,
-            reply: post.parentUri ? {
-              parent: { uri: post.parentUri },
-              root: { uri: post.rootUri || post.parentUri }
-            } : undefined,
-            tags: post.tags
-          });
-          actorDids.add(post.authorDid);
+        console.log(`[HYDRATION] Found ${replyPostsData.length} reply posts in database`);
+
+        for (const post of replyPostsData) {
+          // Only add if not already in the map
+          if (!postsMap.has(post.uri)) {
+            postsMap.set(post.uri, {
+              uri: post.uri,
+              cid: post.cid,
+              authorDid: post.authorDid,
+              text: post.text,
+              createdAt: post.createdAt.toISOString(),
+              indexedAt: post.indexedAt.toISOString(),
+              embed: post.embed,
+              reply: post.parentUri ? {
+                parent: { uri: post.parentUri },
+                root: { uri: post.rootUri || post.parentUri }
+              } : undefined,
+              tags: post.tags
+            });
+            actorDids.add(post.authorDid);
+          }
         }
+        
+        // Log missing reply posts
+        const foundReplyUris = new Set(replyPostsData.map(p => p.uri));
+        const missingReplyUris = replyUris.filter(uri => !foundReplyUris.has(uri));
+        if (missingReplyUris.length > 0) {
+          console.warn(`[HYDRATION] ${missingReplyUris.length} reply posts not found in database:`, missingReplyUris);
+        }
+      } catch (error) {
+        console.error('[HYDRATION] Error fetching reply posts:', error);
+        // Continue without reply posts rather than crashing
       }
     }
 
