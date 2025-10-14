@@ -85,6 +85,14 @@ export class Views {
     let root = this.maybePost(post.reply.root?.uri, state);
     let parent = this.maybePost(post.reply.parent?.uri, state);
 
+    // Only return reply if both root and parent are successfully loaded
+    // This prevents returning { root: undefined, parent: undefined } which causes
+    // "Cannot read properties of undefined" errors on the client
+    if (!root || !parent) {
+      console.warn(`[VIEWS] Missing reply posts for ${uri}: parent=${post.reply.parent?.uri}, root=${post.reply.root?.uri}`);
+      return;
+    }
+
     return {
       root,
       parent,
