@@ -1686,7 +1686,7 @@ export class DatabaseStorage implements IStorage {
 
   async getTimeline(userDid: string, limit = 50, cursor?: string): Promise<Post[]> {
     const followList = await this.getFollows(userDid);
-    const followingDids = followList.map(f => f.followingDid);
+    const followingDids = followList.follows.map(f => f.followingDid);
     
     console.log(`[STORAGE_DEBUG] getTimeline for ${userDid}: ${followingDids.length} follows`);
     
