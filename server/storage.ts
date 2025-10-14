@@ -677,33 +677,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAuthorFeed(actorDid: string, limit = 50, cursor?: string, feedType?: string): Promise<{ items: FeedItem[], cursor?: string }> {
-    let builder = db
-      .select()
-      .from(feedItems)
-      .leftJoin(posts, eq(posts.uri, feedItems.postUri))
-      .where(eq(feedItems.originatorDid, actorDid));
+    // Build all conditions to apply them together with AND
+    const conditions: any[] = [eq(feedItems.originatorDid, actorDid)];
 
     // Apply feed type filtering
     if (feedType === 'posts_no_replies') {
-      builder = builder.where(
+      conditions.push(
         and(
           eq(feedItems.type, 'post'),
           isNull(posts.parentUri)
         ).or(eq(feedItems.type, 'repost'))
       );
     } else if (feedType === 'posts_with_media') {
-      builder = builder
-        .where(eq(feedItems.type, 'post'))
-        .where(sql`${posts.embed} IS NOT NULL 
-          AND ${posts.embed}->>'$type' IN ('app.bsky.embed.images', 'app.bsky.embed.external')`);
+      conditions.push(
+        and(
+          eq(feedItems.type, 'post'),
+          sql`${posts.embed} IS NOT NULL 
+            AND ${posts.embed}->>'$type' IN ('app.bsky.embed.images', 'app.bsky.embed.external')`
+        )
+      );
     } else if (feedType === 'posts_with_video') {
-      builder = builder
-        .where(eq(feedItems.type, 'post'))
-        .where(sql`${posts.embed} IS NOT NULL 
-          AND ${posts.embed}->>'$type' = 'app.bsky.embed.recordWithMedia'
-          AND ${posts.embed}->'media'->>'$type' = 'app.bsky.embed.video'`);
+      conditions.push(
+        and(
+          eq(feedItems.type, 'post'),
+          sql`${posts.embed} IS NOT NULL 
+            AND ${posts.embed}->>'$type' = 'app.bsky.embed.recordWithMedia'
+            AND ${posts.embed}->'media'->>'$type' = 'app.bsky.embed.video'`
+        )
+      );
     } else if (feedType === 'posts_and_author_threads') {
-      builder = builder.where(
+      conditions.push(
         eq(feedItems.type, 'repost')
           .or(eq(feedItems.type, 'post').and(isNull(posts.parentUri)))
           .or(sql`${posts.rootUri} LIKE ${`at://${actorDid}/%`}`)
@@ -711,10 +714,14 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (cursor) {
-      builder = builder.where(sql`${feedItems.sortAt} < ${cursor}`);
+      conditions.push(sql`${feedItems.sortAt} < ${cursor}`);
     }
 
-    const feedItemsData = await builder
+    const feedItemsData = await db
+      .select()
+      .from(feedItems)
+      .leftJoin(posts, eq(posts.uri, feedItems.postUri))
+      .where(and(...conditions))
       .orderBy(desc(feedItems.sortAt))
       .limit(limit)
       .execute();
