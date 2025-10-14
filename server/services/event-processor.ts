@@ -1446,6 +1446,19 @@ export class EventProcessor {
     }
 
     const followingDid = record.subject;
+    
+    // CRITICAL FIX: Ensure the user being followed also exists
+    // This is especially important for CAR file imports where users may be created
+    // out of order. Without this, follows won't show up in knownFollowers queries
+    // because the INNER JOIN on users table will exclude follows where the
+    // following user doesn't exist.
+    const followingReady = await this.ensureUser(followingDid);
+    if (!followingReady) {
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - following user not ready, enqueuing`);
+      this.enqueuePendingUserCreationOp(followingDid, repo, op);
+      return;
+    }
+    
     const follow: InsertFollow = {
       uri,
       followerDid,
@@ -1498,6 +1511,16 @@ export class EventProcessor {
     }
 
     const blockedDid = record.subject;
+    
+    // CRITICAL FIX: Ensure the user being blocked also exists
+    // This is especially important for CAR file imports where users may be created
+    // out of order. Without this, blocks may reference non-existent users.
+    const blockedReady = await this.ensureUser(blockedDid);
+    if (!blockedReady) {
+      smartConsole.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocked user not ready`);
+      return;
+    }
+    
     const block: InsertBlock = {
       uri,
       blockerDid,
