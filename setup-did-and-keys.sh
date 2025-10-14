@@ -76,28 +76,28 @@ jq -n \
   '{
     "@context": [
       "https://www.w3.org/ns/did/v1",
-      "https://w3id.org/security/multikey/v1",
+      "https://w3id.org/security/multikey/v1"
     ],
-    id: $id,
-    alsoKnownAs: ["at://\($domain)"],
-    verificationMethod: [
+    "id": $id,
+    "alsoKnownAs": ["at://\($domain)"],
+    "verificationMethod": [
       {
-        id: "\($id)#atproto",
-        type: "Multikey",
-        controller: $id,
-        publicKeyMultibase: $pubkey
+        "id": "\($id)#atproto",
+        "type": "Multikey",
+        "controller": $id,
+        "publicKeyMultibase": $pubkey
       }
     ],
-    service: [
+    "service": [
       {
-        id: "#bsky_notif",
-        type: "BskyNotificationServic",
-        serviceEndpoint: "https://\($domain)"
-      }
-	  {
-        id: "#bsky_appview",
-        type: "BskyAppView",
-        serviceEndpoint: "https://\($domain)"
+        "id": "#bsky_notif",
+        "type": "BskyNotificationService",
+        "serviceEndpoint": "https://\($domain)"
+      },
+      {
+        "id": "#bsky_appview",
+        "type": "BskyAppView",
+        "serviceEndpoint": "https://\($domain)"
       }
     ]
   }' > public/did.json
