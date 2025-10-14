@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
 import { Views } from "./views";
-import { enhancedHydrator } from "./hydration/index";
+import { enhancedHydrator, optimizedHydrator } from "./hydration/index";
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -790,10 +790,17 @@ export class XRPCApi {
 
     const postUris = posts.map((p) => p.uri);
     
-    const state = await enhancedHydrator.hydratePosts(postUris, viewerDid);
+    // Use optimized hydrator for better performance
+    const state = await optimizedHydrator.hydratePosts(postUris, viewerDid);
     
     const hydrationTime = performance.now() - startTime;
-    console.log(`[ENHANCED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`);
+    console.log(`[OPTIMIZED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`);
+    console.log(`[OPTIMIZED_HYDRATION] Stats:`, {
+      cacheHits: state.stats.cacheHits,
+      cacheMisses: state.stats.cacheMisses,
+      queryTime: `${state.stats.queryTime.toFixed(2)}ms`,
+      totalTime: `${state.stats.totalTime.toFixed(2)}ms`
+    });
 
     const serializedPosts = posts.map((post) => {
       const hydratedPost = state.posts.get(post.uri);
@@ -804,6 +811,8 @@ export class XRPCApi {
       const labels = state.labels.get(post.uri) || [];
       const authorLabels = state.labels.get(post.authorDid) || [];
       const hydratedEmbed = state.embeds.get(post.uri);
+      const threadGate = state.threadGates?.get(post.uri);
+      const postGate = state.postGates?.get(post.uri);
 
       // Handle must always be a valid handle string
       // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
@@ -930,6 +939,29 @@ export class XRPCApi {
           pinned: viewerState.pinned || false,
         } : {},
       };
+      
+      // Add thread gate if present
+      if (threadGate) {
+        postView.threadgate = {
+          $type: 'app.bsky.feed.defs#threadgateView',
+          uri: post.uri,
+          cid: hydratedPost?.cid || post.cid,
+          record: {
+            $type: 'app.bsky.feed.threadgate',
+            post: post.uri,
+            allow: [
+              ...(threadGate.allowMentions ? [{ $type: 'app.bsky.feed.threadgate#mentionRule' }] : []),
+              ...(threadGate.allowFollowing ? [{ $type: 'app.bsky.feed.threadgate#followingRule' }] : []),
+              ...(threadGate.allowListUris?.map((uri: string) => ({ 
+                $type: 'app.bsky.feed.threadgate#listRule',
+                list: uri 
+              })) || [])
+            ],
+            createdAt: threadGate.createdAt || post.createdAt.toISOString()
+          },
+          lists: threadGate.allowListUris || []
+        };
+      }
 
       if (hydratedEmbed) {
         // Transform relative URLs in embeds to full URIs

@@ -17,8 +17,9 @@ export interface ViewerContext {
   blocking: Set<string>;
   blockedBy: Set<string>;
   muting: Set<string>;
-  mutedByLists: Map<string, string>; // did -> list URI
+  mutedByLists: Map<string, string[]>; // did -> list URIs
   threadMutes: Set<string>; // thread URIs
+  listMemberships: Map<string, string[]>; // list URI -> member DIDs
   preferences?: any;
 }
 
@@ -35,6 +36,7 @@ export class ViewerContextBuilder {
       blockedByData,
       mutingData,
       threadMutesData,
+      listMutesData,
       preferencesData
     ] = await Promise.all([
       // Following
@@ -67,12 +69,43 @@ export class ViewerContextBuilder {
         .from(threadMutes)
         .where(eq(threadMutes.muterDid, viewerDid)),
       
+      // List mutes
+      db.select({ listUri: listMutes.listUri })
+        .from(listMutes)
+        .where(eq(listMutes.muterDid, viewerDid)),
+      
       // Preferences
       db.select()
         .from(userPreferences)
         .where(eq(userPreferences.userDid, viewerDid))
         .limit(1)
     ]);
+
+    // Build mutedByLists map by fetching list members
+    const mutedByLists = new Map<string, string[]>();
+    const listMemberships = new Map<string, string[]>();
+    
+    if (listMutesData.length > 0) {
+      const mutedListUris = listMutesData.map(l => l.listUri);
+      const listMembersData = await db
+        .select({ listUri: sql<string>`list_uri`, memberDid: sql<string>`member_did` })
+        .from(sql`list_members`)
+        .where(inArray(sql`list_uri`, mutedListUris));
+      
+      // Group members by list
+      for (const member of listMembersData) {
+        if (!listMemberships.has(member.listUri)) {
+          listMemberships.set(member.listUri, []);
+        }
+        listMemberships.get(member.listUri)!.push(member.memberDid);
+        
+        // Also build reverse mapping for muted actors
+        if (!mutedByLists.has(member.memberDid)) {
+          mutedByLists.set(member.memberDid, []);
+        }
+        mutedByLists.get(member.memberDid)!.push(member.listUri);
+      }
+    }
 
     return {
       did: viewerDid,
@@ -81,8 +114,9 @@ export class ViewerContextBuilder {
       blocking: new Set(blockingData.map(b => b.blockedDid)),
       blockedBy: new Set(blockedByData.map(b => b.blockerDid)),
       muting: new Set(mutingData.map(m => m.mutedDid)),
-      mutedByLists: new Map(), // TODO: implement list-based muting
+      mutedByLists,
       threadMutes: new Set(threadMutesData.map(t => t.threadRootUri)),
+      listMemberships,
       preferences: preferencesData[0]
     };
   }

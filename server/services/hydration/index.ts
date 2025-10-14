@@ -311,6 +311,9 @@ export class EnhancedHydrator {
 // Export singleton instance
 export const enhancedHydrator = new EnhancedHydrator();
 
+// Export optimized hydrator
+export { optimizedHydrator, OptimizedHydrationState } from './optimized-hydrator';
+
 // Re-export classes
 export { ViewerContextBuilder } from './viewer-context';
 export { EmbedResolver } from './embed-resolver';
