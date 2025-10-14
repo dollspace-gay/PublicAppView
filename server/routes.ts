@@ -33,6 +33,7 @@ import {
   deletionLimiter,
 } from "./middleware/rate-limit";
 import { xrpcProxyMiddleware } from "./middleware/xrpc-proxy";
+import { dataLoaderMiddleware } from "./middleware/dataloader";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // NOTE: Using HTTP server here is intentional for local development and deployment.
@@ -73,6 +74,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apply general rate limiting to all /api and /xrpc endpoints
   app.use('/api', apiLimiter);
   app.use('/xrpc', xrpcLimiter);
+  
+  // Apply DataLoader middleware to all XRPC endpoints for optimized batching
+  app.use('/xrpc', dataLoaderMiddleware);
 
   // Initialize Redis queue connection
   const { redisQueue } = await import("./services/redis-queue");
