@@ -336,25 +336,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).type('text/plain').send('Invalid CID format');
       }
 
-      // Construct URL to Bluesky CDN
+      // Try fetching from Bluesky CDN first (fast path)
       const cdnUrl = `https://cdn.bsky.app/img/${preset}/plain/${did}/${cid}@${format}`;
       
       console.log(`[BLOB_PROXY] Fetching from Bluesky CDN: ${cdnUrl}`);
 
-      // Fetch from Bluesky CDN
-      const response = await safeFetch(cdnUrl, {
+      let response = await safeFetch(cdnUrl, {
         headers: {
           'Accept': 'image/*,*/*',
           'User-Agent': 'AT-Protocol-AppView/1.0'
         }
       });
 
-      if (!response.ok) {
-        console.error(`[BLOB_PROXY] CDN returned ${response.status}: ${response.statusText}`);
-        return res.status(response.status).type('text/plain').send(`Blob not found (CDN returned ${response.status})`);
+      // If CDN returns 404, fallback to fetching from user's PDS
+      if (!response.ok && response.status === 404) {
+        console.log(`[BLOB_PROXY] CDN returned 404, trying PDS fallback for ${did}`);
+        
+        try {
+          // Resolve DID to PDS endpoint
+          const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
+          
+          if (pdsEndpoint) {
+            // Build safe URL to fetch blob from PDS
+            const blobUrl = buildSafeBlobUrl(pdsEndpoint, did, cid);
+            
+            if (blobUrl && isUrlSafeToFetch(blobUrl)) {
+              console.log(`[BLOB_PROXY] Fetching from PDS: ${blobUrl}`);
+              
+              const pdsResponse = await safeFetch(blobUrl, {
+                headers: {
+                  'Accept': 'image/*,*/*',
+                  'User-Agent': 'AT-Protocol-AppView/1.0'
+                }
+              });
+              
+              if (pdsResponse.ok) {
+                console.log(`[BLOB_PROXY] Successfully fetched from PDS`);
+                response = pdsResponse;
+              } else {
+                console.warn(`[BLOB_PROXY] PDS also returned ${pdsResponse.status}`);
+              }
+            } else {
+              console.warn(`[BLOB_PROXY] Failed to build safe blob URL for PDS: ${pdsEndpoint}`);
+            }
+          } else {
+            console.warn(`[BLOB_PROXY] Could not resolve PDS endpoint for ${did}`);
+          }
+        } catch (pdsError) {
+          console.error(`[BLOB_PROXY] PDS fallback error:`, pdsError);
+          // Continue with original CDN error
+        }
       }
 
-      // Get content type from CDN response or default to image/jpeg
+      if (!response.ok) {
+        console.error(`[BLOB_PROXY] Final status ${response.status}: ${response.statusText}`);
+        return res.status(response.status).type('text/plain').send(`Blob not found (returned ${response.status})`);
+      }
+
+      // Get content type from response or default to image/jpeg
       const contentType = response.headers.get('content-type') || 'image/jpeg';
       
       // Stream the blob to the client with caching headers
