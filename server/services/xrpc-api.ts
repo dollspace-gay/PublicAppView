@@ -696,6 +696,48 @@ export class XRPCApi {
     return this.transformBlobToCdnUrl(cid, userDid, format, req);
   }
 
+  private transformEmbedUrls(embed: any, req?: Request): any {
+    if (!embed) return embed;
+    
+    const baseUrl = this.getBaseUrl(req);
+    
+    // Deep clone the embed to avoid mutating the original
+    const transformed = JSON.parse(JSON.stringify(embed));
+    
+    // Transform URLs based on embed type
+    if (transformed.$type === 'app.bsky.embed.images#view' && transformed.images) {
+      transformed.images = transformed.images.map((img: any) => ({
+        ...img,
+        thumb: img.thumb?.startsWith('/') ? `${baseUrl}${img.thumb}` : img.thumb,
+        fullsize: img.fullsize?.startsWith('/') ? `${baseUrl}${img.fullsize}` : img.fullsize
+      }));
+    } else if (transformed.$type === 'app.bsky.embed.external#view' && transformed.external?.thumb) {
+      if (typeof transformed.external.thumb === 'string' && transformed.external.thumb.startsWith('/')) {
+        transformed.external.thumb = `${baseUrl}${transformed.external.thumb}`;
+      }
+    } else if (transformed.$type === 'app.bsky.embed.record#view' && transformed.record) {
+      // Handle record embeds recursively
+      if (transformed.record.embeds && Array.isArray(transformed.record.embeds)) {
+        transformed.record.embeds = transformed.record.embeds.map((e: any) => this.transformEmbedUrls(e, req));
+      }
+      // Transform author avatar if it's a relative URL
+      if (transformed.record.author?.avatar?.startsWith('/')) {
+        transformed.record.author.avatar = `${baseUrl}${transformed.record.author.avatar}`;
+      }
+    } else if (transformed.$type === 'app.bsky.embed.recordWithMedia#view') {
+      if (transformed.media) {
+        transformed.media = this.transformEmbedUrls(transformed.media, req);
+      }
+      if (transformed.record) {
+        transformed.record = this.transformEmbedUrls(transformed.record, req);
+      }
+    } else if (transformed.$type === 'app.bsky.embed.video#view' && transformed.thumbnail?.startsWith('/')) {
+      transformed.thumbnail = `${baseUrl}${transformed.thumbnail}`;
+    }
+    
+    return transformed;
+  }
+
   // Helper to conditionally include avatar field only if URL is valid
   private maybeAvatar(avatarCid: string | null | undefined, did: string, req?: Request): { avatar: string } | {} {
     if (!avatarCid) return {};
@@ -795,17 +837,28 @@ export class XRPCApi {
                 }
               }
             }));
-          } else if (embedData.$type === 'app.bsky.embed.external' && embedData.external?.thumb?.ref?.$link) {
-            transformedEmbed.external = {
-              ...embedData.external,
-              thumb: {
-                ...embedData.external.thumb,
-                ref: {
-                  ...embedData.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
-                }
+          } else if (embedData.$type === 'app.bsky.embed.external') {
+            // Handle external embeds
+            const external = { ...embedData.external };
+            
+            // Only transform thumbnail if it exists and has a valid ref
+            if (embedData.external?.thumb?.ref?.$link) {
+              const thumbUrl = this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
+              if (thumbUrl) {
+                external.thumb = {
+                  ...embedData.external.thumb,
+                  ref: {
+                    ...embedData.external.thumb.ref,
+                    link: thumbUrl
+                  }
+                };
+              } else {
+                // Remove invalid thumb
+                delete external.thumb;
               }
-            };
+            }
+            
+            transformedEmbed.external = external;
           }
           
           record.embed = transformedEmbed;
@@ -860,7 +913,8 @@ export class XRPCApi {
       };
 
       if (hydratedEmbed) {
-        postView.embed = hydratedEmbed;
+        // Transform relative URLs in embeds to full URIs
+        postView.embed = this.transformEmbedUrls(hydratedEmbed, req);
       }
 
       return postView;
@@ -1024,18 +1078,28 @@ export class XRPCApi {
                 }
               }
             }));
-          } else if (post.embed.$type === 'app.bsky.embed.external' && post.embed.external?.thumb?.ref?.$link) {
-            // Handle external embeds with thumbnails
-            transformedEmbed.external = {
-              ...post.embed.external,
-              thumb: {
-                ...post.embed.external.thumb,
-                ref: {
-                  ...post.embed.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
-                }
+          } else if (post.embed.$type === 'app.bsky.embed.external') {
+            // Handle external embeds
+            const external = { ...post.embed.external };
+            
+            // Only transform thumbnail if it exists and has a valid ref
+            if (post.embed.external?.thumb?.ref?.$link) {
+              const thumbUrl = this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
+              if (thumbUrl) {
+                external.thumb = {
+                  ...post.embed.external.thumb,
+                  ref: {
+                    ...post.embed.external.thumb.ref,
+                    link: thumbUrl
+                  }
+                };
+              } else {
+                // Remove invalid thumb
+                delete external.thumb;
               }
-            };
+            }
+            
+            transformedEmbed.external = external;
           }
           
           record.embed = transformedEmbed;
@@ -1146,10 +1210,16 @@ export class XRPCApi {
       // Filter out any null entries (defensive - shouldn't happen with handle.invalid fallback)
       const validPosts = serializedPosts.filter(post => post !== null);
       
-      res.json({
+      // Ensure we always return a valid response structure
+      const response = {
         cursor: oldestPost ? oldestPost.indexedAt.toISOString() : undefined,
         feed: validPosts.map((post) => ({ post })),
-      });
+      };
+      
+      // Log the response structure for debugging
+      console.log(`[TIMELINE_DEBUG] Sending response with ${response.feed.length} posts`);
+      
+      res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getTimeline');
     }
