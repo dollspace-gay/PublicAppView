@@ -95,7 +95,7 @@ class EventProcessor:
                 try:
                     await conn.execute(
                         """
-                        INSERT INTO users (did, handle, "createdAt")
+                        INSERT INTO users (did, handle, created_at)
                         VALUES ($1, $2, NOW())
                         ON CONFLICT (did) DO NOTHING
                         """,
@@ -152,7 +152,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO posts (uri, cid, "authorDid", text, "parentUri", "rootUri", embed, facets, "createdAt")
+                INSERT INTO posts (uri, cid, author_did, text, parent_uri, root_uri, embed, facets, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -162,9 +162,9 @@ class EventProcessor:
             # Create post aggregation
             await conn.execute(
                 """
-                INSERT INTO "postAggregations" ("postUri", "likeCount", "repostCount", "replyCount", "bookmarkCount", "quoteCount")
+                INSERT INTO post_aggregations (post_uri, like_count, repost_count, reply_count, bookmark_count, quote_count)
                 VALUES ($1, 0, 0, 0, 0, 0)
-                ON CONFLICT ("postUri") DO NOTHING
+                ON CONFLICT (post_uri) DO NOTHING
                 """,
                 uri
             )
@@ -172,7 +172,7 @@ class EventProcessor:
             # Create feed item
             await conn.execute(
                 """
-                INSERT INTO "feedItems" (uri, "postUri", "originatorDid", type, "sortAt", cid, "createdAt")
+                INSERT INTO feed_items (uri, post_uri, originator_did, type, sort_at, cid, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -199,7 +199,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO likes (uri, "userDid", "postUri", "createdAt")
+                INSERT INTO likes (uri, user_did, post_uri, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -209,9 +209,9 @@ class EventProcessor:
             # Increment like count
             await conn.execute(
                 """
-                UPDATE "postAggregations"
-                SET "likeCount" = "likeCount" + 1
-                WHERE "postUri" = $1
+                UPDATE post_aggregations
+                SET like_count = like_count + 1
+                WHERE post_uri = $1
                 """,
                 post_uri
             )
@@ -237,7 +237,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO reposts (uri, "userDid", "postUri", "createdAt")
+                INSERT INTO reposts (uri, user_did, post_uri, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -247,9 +247,9 @@ class EventProcessor:
             # Increment repost count
             await conn.execute(
                 """
-                UPDATE "postAggregations"
-                SET "repostCount" = "repostCount" + 1
-                WHERE "postUri" = $1
+                UPDATE post_aggregations
+                SET repost_count = repost_count + 1
+                WHERE post_uri = $1
                 """,
                 post_uri
             )
@@ -257,7 +257,7 @@ class EventProcessor:
             # Create feed item
             await conn.execute(
                 """
-                INSERT INTO "feedItems" (uri, "postUri", "originatorDid", type, "sortAt", cid, "createdAt")
+                INSERT INTO feed_items (uri, post_uri, originator_did, type, sort_at, cid, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -285,7 +285,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO follows (uri, "followerDid", "followingDid", "createdAt")
+                INSERT INTO follows (uri, follower_did, following_did, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -312,7 +312,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO blocks (uri, "blockerDid", "blockedDid", "createdAt")
+                INSERT INTO blocks (uri, blocker_did, blocked_did, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -338,7 +338,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO bookmarks (uri, "userDid", "postUri", "createdAt")
+                INSERT INTO bookmarks (uri, user_did, post_uri, created_at)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -348,9 +348,9 @@ class EventProcessor:
             # Increment bookmark count
             await conn.execute(
                 """
-                UPDATE "postAggregations"
-                SET "bookmarkCount" = "bookmarkCount" + 1
-                WHERE "postUri" = $1
+                UPDATE post_aggregations
+                SET bookmark_count = bookmark_count + 1
+                WHERE post_uri = $1
                 """,
                 post_uri
             )
@@ -387,14 +387,14 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO users (did, handle, "displayName", description, "avatarUrl", "bannerUrl", "profileRecord", "createdAt")
+                INSERT INTO users (did, handle, display_name, description, avatar_url, banner_url, profile_record, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
                 ON CONFLICT (did) DO UPDATE SET
-                    "displayName" = EXCLUDED."displayName",
+                    display_name = EXCLUDED.display_name,
                     description = EXCLUDED.description,
-                    "avatarUrl" = EXCLUDED."avatarUrl",
-                    "bannerUrl" = EXCLUDED."bannerUrl",
-                    "profileRecord" = EXCLUDED."profileRecord"
+                    avatar_url = EXCLUDED.avatar_url,
+                    banner_url = EXCLUDED.banner_url,
+                    profile_record = EXCLUDED.profile_record
                 """,
                 did, 'handle.invalid', display_name, description, avatar_url, banner_url, profile_json
             )
@@ -427,7 +427,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO lists (uri, cid, "creatorDid", name, purpose, description, "avatarUrl", "createdAt")
+                INSERT INTO lists (uri, cid, creator_did, name, purpose, description, avatar_url, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -454,7 +454,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "listItems" (uri, cid, "listUri", "subjectDid", "createdAt")
+                INSERT INTO list_items (uri, cid, list_uri, subject_did, created_at)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -491,7 +491,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "feedGenerators" (uri, cid, "creatorDid", did, "displayName", description, "avatarUrl", "createdAt")
+                INSERT INTO feed_generators (uri, cid, creator_did, did, display_name, description, avatar_url, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -524,7 +524,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "starterPacks" (uri, cid, "creatorDid", name, description, "listUri", feeds, "createdAt")
+                INSERT INTO starter_packs (uri, cid, creator_did, name, description, list_uri, feeds, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -554,7 +554,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "labelerServices" (uri, cid, "creatorDid", policies, "createdAt")
+                INSERT INTO labeler_services (uri, cid, creator_did, policies, created_at)
                 VALUES ($1, $2, $3, $4::jsonb, $5)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -585,7 +585,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
+                INSERT INTO labels (uri, src, subject, val, neg, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -616,7 +616,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO verifications (uri, cid, "subjectDid", handle, "verifiedAt", "createdAt")
+                INSERT INTO verifications (uri, cid, subject_did, handle, verified_at, created_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (uri) DO NOTHING
                 """,
