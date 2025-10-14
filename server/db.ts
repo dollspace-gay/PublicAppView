@@ -54,15 +54,19 @@ export function createDbPool(poolSize: number, label: string = "pool"): DbConnec
 }
 
 // Main application pool size
-// Default: 4 connections for Neon serverless (respects connection limits)
-// For self-hosted PostgreSQL, increase via DB_POOL_SIZE env var
-// Note: Total connections (main + backfill) must stay within database limits:
-//   - Neon Free: ~10 connections
-//   - Neon Pro: ~100 connections  
-//   - Self-hosted: depends on max_connections setting
-const DEFAULT_DB_POOL_SIZE = 4;
+// Optimized defaults based on database type:
+//   - Neon serverless: 10 connections (respects connection limits while allowing good concurrency)
+//   - Self-hosted PostgreSQL: 20 connections (better performance for dedicated servers)
+// Override via DB_POOL_SIZE env var
+// Note: Total connections (main + backfill + workers) must stay within database limits:
+//   - Neon Free: ~10 connections total
+//   - Neon Pro: ~100 connections total
+//   - Self-hosted: depends on max_connections setting (typically 100-200)
+const DEFAULT_DB_POOL_SIZE = isNeonDatabase ? 10 : 20;
 const parsedPoolSize = parseInt(process.env.DB_POOL_SIZE || String(DEFAULT_DB_POOL_SIZE), 10);
 const mainPoolSize = (Number.isInteger(parsedPoolSize) && parsedPoolSize > 0) ? parsedPoolSize : DEFAULT_DB_POOL_SIZE;
+
+console.log(`[DB] Using connection pool size: ${mainPoolSize} (type: ${isNeonDatabase ? 'Neon' : 'PostgreSQL'})`);
 
 // Create main database connection pool
 const db = createDbPool(mainPoolSize, isNeonDatabase ? "main (Neon)" : "main (PostgreSQL)");
