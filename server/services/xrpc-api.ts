@@ -398,6 +398,20 @@ export class XRPCApi {
   }
 
   /**
+   * Get the base URL from the request
+   * Falls back to localhost if headers are not available
+   */
+  private getBaseUrl(req?: Request): string {
+    if (!req) {
+      return process.env.PUBLIC_URL || 'http://localhost:3000';
+    }
+    
+    const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+    const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
+    return `${protocol}://${host}`;
+  }
+
+  /**
    * Check if preferences cache entry is expired
    */
   private isPreferencesCacheExpired(cached: { preferences: any[]; timestamp: number }): boolean {
@@ -665,32 +679,33 @@ export class XRPCApi {
     return (json?.['cid'] ?? '') as string;
   }
 
-  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
-    // Check for falsy values and the literal string "undefined"
-    if (!blobCid || blobCid === 'undefined') return undefined;
+  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize', req?: Request): string | undefined {
+    // Check for falsy values, empty strings, and the literal string "undefined"
+    if (!blobCid || blobCid === 'undefined' || blobCid.trim() === '') return undefined;
     
     // Use local image proxy to fetch from Bluesky CDN
-    const proxyUrl = `/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    const baseUrl = this.getBaseUrl(req);
+    const proxyUrl = `${baseUrl}/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${proxyUrl}`);
     return proxyUrl;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name
-  private directCidToCdnUrl(cid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize'): string | undefined {
-    return this.transformBlobToCdnUrl(cid, userDid, format);
+  private directCidToCdnUrl(cid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize', req?: Request): string | undefined {
+    return this.transformBlobToCdnUrl(cid, userDid, format, req);
   }
 
   // Helper to conditionally include avatar field only if URL is valid
-  private maybeAvatar(avatarCid: string | null | undefined, did: string): { avatar: string } | {} {
+  private maybeAvatar(avatarCid: string | null | undefined, did: string, req?: Request): { avatar: string } | {} {
     if (!avatarCid) return {};
-    const url = this.transformBlobToCdnUrl(avatarCid, did, 'avatar');
+    const url = this.transformBlobToCdnUrl(avatarCid, did, 'avatar', req);
     return url ? { avatar: url } : {};
   }
 
   // Helper to conditionally include banner field only if URL is valid
-  private maybeBanner(bannerCid: string | null | undefined, did: string): { banner: string } | {} {
+  private maybeBanner(bannerCid: string | null | undefined, did: string, req?: Request): { banner: string } | {} {
     if (!bannerCid) return {};
-    const url = this.transformBlobToCdnUrl(bannerCid, did, 'banner');
+    const url = this.transformBlobToCdnUrl(bannerCid, did, 'banner', req);
     return url ? { banner: url } : {};
   }
 
@@ -722,7 +737,7 @@ export class XRPCApi {
     };
   }
 
-  private async serializePostsEnhanced(posts: any[], viewerDid?: string) {
+  private async serializePostsEnhanced(posts: any[], viewerDid?: string, req?: Request) {
     const startTime = performance.now();
     
     if (posts.length === 0) {
@@ -775,7 +790,7 @@ export class XRPCApi {
                 ...img.image,
                 ref: {
                   ...img.image.ref,
-                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize')
+                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize', req)
                 }
               }
             }));
@@ -786,7 +801,7 @@ export class XRPCApi {
                 ...embedData.external.thumb,
                 ref: {
                   ...embedData.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail')
+                  link: this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
                 }
               }
             };
@@ -800,7 +815,7 @@ export class XRPCApi {
 
       const avatarUrl = author?.avatarUrl;
       const avatarCdn = avatarUrl 
-        ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar'))
+        ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req))
         : undefined;
 
       const postView: any = {
@@ -849,11 +864,11 @@ export class XRPCApi {
     return serializedPosts.filter(post => post !== null);
   }
 
-  private async serializePosts(posts: any[], viewerDid?: string) {
+  private async serializePosts(posts: any[], viewerDid?: string, req?: Request) {
     const useEnhancedHydration = process.env.ENHANCED_HYDRATION_ENABLED === 'true';
     
     if (useEnhancedHydration) {
-      return this.serializePostsEnhanced(posts, viewerDid);
+      return this.serializePostsEnhanced(posts, viewerDid, req);
     }
 
     if (posts.length === 0) {
@@ -999,7 +1014,7 @@ export class XRPCApi {
                 ...img.image,
                 ref: {
                   ...img.image.ref,
-                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize')
+                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize', req)
                 }
               }
             }));
@@ -1011,7 +1026,7 @@ export class XRPCApi {
                 ...post.embed.external.thumb,
                 ref: {
                   ...post.embed.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail')
+                  link: this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
                 }
               }
             };
@@ -1031,7 +1046,7 @@ export class XRPCApi {
         uri: post.uri,
         cid: post.cid,
         author: (() => {
-          const avatarUrl = author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar') : undefined;
+          const avatarUrl = author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar', req) : undefined;
           return {
             $type: 'app.bsky.actor.defs#profileViewBasic',
             did: post.authorDid,
@@ -1114,7 +1129,7 @@ export class XRPCApi {
             )
           : null;
 
-      const serializedPosts = await this.serializePosts(rankedPosts, userDid);
+      const serializedPosts = await this.serializePosts(rankedPosts, userDid, req);
 
       // Filter out any null entries (defensive - shouldn't happen with handle.invalid fallback)
       const validPosts = serializedPosts.filter(post => post !== null);
@@ -1226,7 +1241,7 @@ export class XRPCApi {
       }
 
       // Serialize posts with enhanced hydration (when flag is enabled)
-      const serializedPosts = await this.serializePosts(filteredPosts, viewerDid);
+      const serializedPosts = await this.serializePosts(filteredPosts, viewerDid, req);
       const postsByUri = new Map(serializedPosts.map(p => [p.uri, p]));
 
       // Build feed with reposts and pinned posts
@@ -1256,7 +1271,7 @@ export class XRPCApi {
                   did: reposter.did,
                   handle: reposter.handle,
                   displayName: reposter.displayName,
-                  ...this.maybeAvatar(reposter.avatarUrl, reposter.did),
+                  ...this.maybeAvatar(reposter.avatarUrl, reposter.did, req),
                 },
                 indexedAt: repost.indexedAt.toISOString(),
               };
@@ -1305,6 +1320,7 @@ export class XRPCApi {
       const serializedPosts = await this.serializePosts(
         postsToSerialize,
         viewerDid || undefined,
+        req,
       );
       const serializedPostsByUri = new Map(
         serializedPosts.map((p) => [p.uri, p]),
@@ -1514,7 +1530,7 @@ export class XRPCApi {
                 if (f.avatarUrl) {
                   follower.avatar = f.avatarUrl.startsWith('http')
                     ? f.avatarUrl
-                    : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar');
+                    : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar', req);
                 }
                 return follower;
               }),
@@ -1543,8 +1559,8 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...this.maybeAvatar(user.avatarUrl, user.did),
-          ...this.maybeBanner(user.bannerUrl, user.did),
+          ...this.maybeAvatar(user.avatarUrl, user.did, req),
+          ...this.maybeBanner(user.bannerUrl, user.did, req),
           followersCount: followersCounts.get(did) || 0,
           followsCount: followingCounts.get(did) || 0,
           postsCount: postsCounts.get(did) || 0,
@@ -1712,7 +1728,7 @@ export class XRPCApi {
           did: actorDid,
           handle: actor?.handle || actorDid,
           displayName: actor?.displayName || actor?.handle || actorDid,
-          ...this.maybeAvatar(actor?.avatarUrl, actor?.did),
+          ...this.maybeAvatar(actor?.avatarUrl, actor?.did, req),
           indexedAt: actor?.indexedAt?.toISOString(),
           viewer: {
             muted: false,
@@ -1743,7 +1759,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...this.maybeAvatar(user.avatarUrl, user.did),
+              ...this.maybeAvatar(user.avatarUrl, user.did, req),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1780,7 +1796,7 @@ export class XRPCApi {
           did: actorDid,
           handle: actor?.handle || actorDid,
           displayName: actor?.displayName || actor?.handle || actorDid,
-          ...this.maybeAvatar(actor?.avatarUrl, actor?.did),
+          ...this.maybeAvatar(actor?.avatarUrl, actor?.did, req),
           indexedAt: actor?.indexedAt?.toISOString(),
           viewer: {
             muted: false,
@@ -1811,7 +1827,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...this.maybeAvatar(user.avatarUrl, user.did),
+              ...this.maybeAvatar(user.avatarUrl, user.did, req),
               indexedAt: user.indexedAt.toISOString(),
               viewer: viewer,
             };
@@ -1838,7 +1854,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...this.maybeAvatar(user.avatarUrl, user.did),
+          ...this.maybeAvatar(user.avatarUrl, user.did, req),
         })),
       });
     } catch (error) {
@@ -1872,7 +1888,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...this.maybeAvatar(user.avatarUrl, user.did),
+              ...this.maybeAvatar(user.avatarUrl, user.did, req),
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
@@ -1912,7 +1928,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...this.maybeAvatar(user.avatarUrl, user.did),
+              ...this.maybeAvatar(user.avatarUrl, user.did, req),
               viewer: {
                 muted: true,
               },
@@ -2089,7 +2105,7 @@ export class XRPCApi {
           did: actorDid,
           handle: actor?.handle || params.actor,
           displayName: actor?.displayName || actor?.handle || params.actor,
-          ...this.maybeAvatar(actor?.avatarUrl, actor?.did),
+          ...this.maybeAvatar(actor?.avatarUrl, actor?.did, req),
           indexedAt: actor?.indexedAt?.toISOString(),
           viewer: {
             muted: false,
@@ -2105,7 +2121,7 @@ export class XRPCApi {
           did: user.did,
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-          ...this.maybeAvatar(user.avatarUrl, user.did),
+          ...this.maybeAvatar(user.avatarUrl, user.did, req),
           indexedAt: user.indexedAt?.toISOString(),
           viewer: {
             muted: false,
@@ -2139,7 +2155,7 @@ export class XRPCApi {
           handle: user.handle,
           displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
           ...(user.description && { description: user.description }),
-          ...this.maybeAvatar(user.avatarUrl, user.did),
+          ...this.maybeAvatar(user.avatarUrl, user.did, req),
         })),
       });
     } catch (error) {
@@ -2278,7 +2294,7 @@ export class XRPCApi {
               handle: author.handle,
               displayName: author.displayName ?? author.handle,
               pronouns: author?.pronouns,
-              ...this.maybeAvatar(author?.avatarUrl, author?.did),
+              ...this.maybeAvatar(author?.avatarUrl, author?.did, req),
               associated: {
                 $type: 'app.bsky.actor.defs#profileAssociated',
                 lists: 0,
@@ -2356,7 +2372,7 @@ export class XRPCApi {
       const creatorView: any = {
         did: generator.creatorDid,
         handle: creator.handle,
-        ...this.maybeAvatar(creator?.avatarUrl, creator?.did),
+        ...this.maybeAvatar(creator?.avatarUrl, creator?.did, req),
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
 
@@ -2368,7 +2384,7 @@ export class XRPCApi {
         displayName: generator.displayName,
         likeCount: generator.likeCount,
         indexedAt: generator.indexedAt.toISOString(),
-        ...this.maybeAvatar(generator.avatarUrl, generator.creatorDid),
+        ...this.maybeAvatar(generator.avatarUrl, generator.creatorDid, req),
       };
       if (generator.description) view.description = generator.description;
 
@@ -2406,7 +2422,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const view: any = {
             uri: generator.uri,
@@ -2418,7 +2434,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
 
           return view;
         }),
@@ -2464,7 +2480,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const view: any = {
             uri: generator.uri,
@@ -2476,7 +2492,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
 
           return view;
         }),
@@ -2515,7 +2531,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const view: any = {
             uri: generator.uri,
@@ -2527,7 +2543,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
 
           return view;
         }),
@@ -2608,7 +2624,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const view: any = {
             uri: generator.uri,
@@ -2620,7 +2636,7 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar');
+          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
 
           return view;
         }),
@@ -2665,7 +2681,7 @@ export class XRPCApi {
         handle: creator.handle,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
       const record: any = {
         name: pack.name,
@@ -2727,7 +2743,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const record: any = {
             name: pack.name,
@@ -2800,7 +2816,7 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar');
+          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
 
           const view: any = {
             uri: service.uri,
@@ -3180,7 +3196,7 @@ export class XRPCApi {
       const postUris = bookmarks.map(b => b.postUri);
       const viewerDid = await this.getAuthenticatedDid(req) || undefined;
       const posts = await storage.getPosts(postUris);
-      const serialized = await this.serializePosts(posts, viewerDid);
+      const serialized = await this.serializePosts(posts, viewerDid, req);
       const byUri = new Map(serialized.map(p => [p.uri, p]));
       res.json({
         cursor: nextCursor,
@@ -3201,7 +3217,7 @@ export class XRPCApi {
       const params = getPostThreadV2Schema.parse(req.query);
       const posts = await storage.getPostThread(params.anchor);
       const viewerDid = await this.getAuthenticatedDid(req);
-      const serialized = await this.serializePosts(posts, viewerDid || undefined);
+      const serialized = await this.serializePosts(posts, viewerDid || undefined, req);
       res.json({ hasOtherReplies: false, thread: serialized.length ? { $type: 'app.bsky.unspecced.defs#threadItemPost', post: serialized[0] } : null, threadgate: null });
     } catch (error) {
       this._handleError(res, error, 'getPostThreadV2');
@@ -3223,7 +3239,7 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did) })) });
+      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did, req) })) });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -3255,7 +3271,7 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did) })) });
+      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did, req) })) });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -3379,7 +3395,7 @@ export class XRPCApi {
         params.cursor,
         viewerDid || undefined,
       );
-      const serialized = await this.serializePosts(posts as any, viewerDid || undefined);
+      const serialized = await this.serializePosts(posts as any, viewerDid || undefined, req);
       res.json({ posts: serialized, cursor });
     } catch (error) {
       this._handleError(res, error, 'searchPosts');
@@ -3405,7 +3421,7 @@ export class XRPCApi {
             did: u.did,
             handle: u.handle,
             displayName: u.displayName,
-            ...this.maybeAvatar(u.avatarUrl, u.did),
+            ...this.maybeAvatar(u.avatarUrl, u.did, req),
           };
         })
         .filter(Boolean);
@@ -3517,7 +3533,7 @@ export class XRPCApi {
             handle: author.handle,
             displayName: author.displayName ?? author.handle,
             pronouns: author.pronouns,
-            ...this.maybeAvatar(author.avatarUrl, author.did),
+            ...this.maybeAvatar(author.avatarUrl, author.did, req),
             associated: {
               $type: 'app.bsky.actor.defs#profileAssociated',
               lists: 0,
@@ -3638,6 +3654,7 @@ export class XRPCApi {
       const serialized = await this.serializePosts(
         posts,
         viewerDid || undefined,
+        req,
       );
       const oldest = posts.length ? posts[posts.length - 1] : null;
       res.json({
@@ -3656,6 +3673,7 @@ export class XRPCApi {
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
+        req,
       );
       res.json({ posts: serializedPosts });
     } catch (error) {
@@ -3705,7 +3723,7 @@ export class XRPCApi {
                 did: user.did,
                 handle: user.handle,
                 displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-                ...this.maybeAvatar(user.avatarUrl, user.did),
+                ...this.maybeAvatar(user.avatarUrl, user.did, req),
                 viewer,
               },
               createdAt: like.createdAt.toISOString(),
@@ -3760,7 +3778,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              ...this.maybeAvatar(user.avatarUrl, user.did),
+              ...this.maybeAvatar(user.avatarUrl, user.did, req),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };
@@ -3783,6 +3801,7 @@ export class XRPCApi {
       const serialized = await this.serializePosts(
         posts,
         viewerDid || undefined,
+        req,
       );
       const oldest = posts.length ? posts[posts.length - 1] : null;
       res.json({
@@ -3829,6 +3848,7 @@ export class XRPCApi {
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
+        req,
       );
 
       // Log if posts were filtered out during serialization (e.g., due to invalid handles)
