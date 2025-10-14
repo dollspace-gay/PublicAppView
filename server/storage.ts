@@ -91,8 +91,8 @@ export interface IStorage {
   createFollow(follow: InsertFollow): Promise<Follow>;
   deleteFollow(uri: string, userDid: string): Promise<void>;
   getFollow(uri: string): Promise<Follow | undefined>;
-  getFollows(followerDid: string, limit?: number): Promise<Follow[]>;
-  getFollowers(followingDid: string, limit?: number): Promise<Follow[]>;
+  getFollows(followerDid: string, limit?: number, cursor?: string): Promise<{ follows: Follow[], cursor?: string }>;
+  getFollowers(followingDid: string, limit?: number, cursor?: string): Promise<{ followers: Follow[], cursor?: string }>;
   isFollowing(followerDid: string, followingDid: string): Promise<boolean>;
 
   // Block operations
@@ -1164,20 +1164,52 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getFollows(followerDid: string, limit = 100): Promise<Follow[]> {
-    return await this.db
+  async getFollows(followerDid: string, limit = 50, cursor?: string): Promise<{ follows: Follow[], cursor?: string }> {
+    const whereConditions = cursor
+      ? and(
+          eq(follows.followerDid, followerDid),
+          sql`${follows.indexedAt} < ${cursor}`
+        )
+      : eq(follows.followerDid, followerDid);
+
+    const results = await this.db
       .select()
       .from(follows)
-      .where(eq(follows.followerDid, followerDid))
-      .limit(limit);
+      .where(whereConditions)
+      .orderBy(desc(follows.indexedAt))
+      .limit(limit + 1); // Fetch one extra to determine if there are more results
+
+    const hasMore = results.length > limit;
+    const follows_list = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore && follows_list.length > 0 
+      ? follows_list[follows_list.length - 1].indexedAt.toISOString() 
+      : undefined;
+
+    return { follows: follows_list, cursor: nextCursor };
   }
 
-  async getFollowers(followingDid: string, limit = 100): Promise<Follow[]> {
-    return await this.db
+  async getFollowers(followingDid: string, limit = 50, cursor?: string): Promise<{ followers: Follow[], cursor?: string }> {
+    const whereConditions = cursor
+      ? and(
+          eq(follows.followingDid, followingDid),
+          sql`${follows.indexedAt} < ${cursor}`
+        )
+      : eq(follows.followingDid, followingDid);
+
+    const results = await this.db
       .select()
       .from(follows)
-      .where(eq(follows.followingDid, followingDid))
-      .limit(limit);
+      .where(whereConditions)
+      .orderBy(desc(follows.indexedAt))
+      .limit(limit + 1); // Fetch one extra to determine if there are more results
+
+    const hasMore = results.length > limit;
+    const followers_list = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore && followers_list.length > 0 
+      ? followers_list[followers_list.length - 1].indexedAt.toISOString() 
+      : undefined;
+
+    return { followers: followers_list, cursor: nextCursor };
   }
 
   async isFollowing(followerDid: string, followingDid: string): Promise<boolean> {
