@@ -30,6 +30,11 @@ export interface ActorViewerStateKey {
 /**
  * DataLoader-based hydration service that batches and caches database queries
  * to eliminate N+1 query problems and improve performance
+ * 
+ * REDESIGNED APPROACH:
+ * - Simplified batching logic to avoid complex SQL generation
+ * - Fetch all matching rows and filter in memory
+ * - More reliable and maintainable
  */
 export class HydrationDataLoader {
   private postLoader: DataLoader<string, any>;
@@ -185,66 +190,58 @@ export class HydrationDataLoader {
 
   /**
    * Create DataLoader for viewer states (combined uri:viewerDid key)
+   * REDESIGNED: Fetch all rows for the URIs and viewers, then filter in memory
    */
   private createViewerStateLoader() {
     return new DataLoader<string, any>(
       async (keys) => {
-        // Parse combined keys
-        const queries = keys.map(key => {
-          const [uri, viewerDid] = (key as string).split(':');
-          return { uri, viewerDid };
-        });
+        if (keys.length === 0) return [];
 
-        if (queries.length === 0) return [];
+        // Parse combined keys into separate arrays
+        const postUris = [...new Set(keys.map(k => (k as string).split(':')[0]).filter(Boolean))];
+        const viewerDids = [...new Set(keys.map(k => (k as string).split(':')[1]).filter(Boolean))];
 
-        // Build query conditions - use simpler inArray approach
-        // Also fetch likes, reposts, bookmarks for viewer
-        const postUris = [...new Set(queries.map(q => q.uri).filter(Boolean))];
-        const viewerDids = [...new Set(queries.map(q => q.viewerDid).filter(Boolean))];
+        if (postUris.length === 0 || viewerDids.length === 0) {
+          return keys.map(() => ({
+            liked: false,
+            reposted: false,
+            repostUri: null,
+            bookmarked: false,
+            muted: false,
+            replyDisabled: false
+          }));
+        }
 
-        const result = postUris.length > 0 && viewerDids.length > 0
-          ? await db
-              .select()
-              .from(postViewerStates)
-              .where(and(
-                inArray(postViewerStates.postUri, postUris),
-                inArray(postViewerStates.viewerDid, viewerDids)
-              )!)
-          : [];
-
-        const [likesResult, repostsResult, bookmarksResult] = await Promise.all([
-          postUris.length > 0 && viewerDids.length > 0 
-            ? db.select()
-                .from(likes)
-                .where(and(
-                  inArray(likes.postUri, postUris),
-                  inArray(likes.userDid, viewerDids)
-                )!)
-            : [],
-          postUris.length > 0 && viewerDids.length > 0
-            ? db.select()
-                .from(reposts)
-                .where(and(
-                  inArray(reposts.postUri, postUris),
-                  inArray(reposts.userDid, viewerDids)
-                )!)
-            : [],
-          postUris.length > 0 && viewerDids.length > 0
-            ? db.select()
-                .from(bookmarks)
-                .where(and(
-                  inArray(bookmarks.postUri, postUris),
-                  inArray(bookmarks.userDid, viewerDids)
-                )!)
-            : []
+        // Fetch all data in parallel - simpler queries without complex AND conditions
+        const [likesResult, repostsResult, bookmarksResult, statesResult] = await Promise.all([
+          db.select()
+            .from(likes)
+            .where(inArray(likes.postUri, postUris))
+            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          
+          db.select()
+            .from(reposts)
+            .where(inArray(reposts.postUri, postUris))
+            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          
+          db.select()
+            .from(bookmarks)
+            .where(inArray(bookmarks.postUri, postUris))
+            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          
+          db.select()
+            .from(postViewerStates)
+            .where(inArray(postViewerStates.postUri, postUris))
+            .then(rows => rows.filter(r => viewerDids.includes(r.viewerDid)))
         ]);
 
-        // Create lookup maps
-        const stateMap = new Map(result.map(s => [`${s.postUri}:${s.viewerDid}`, s]));
+        // Create lookup maps using composite keys
         const likeMap = new Map(likesResult.map(l => [`${l.postUri}:${l.userDid}`, true]));
         const repostMap = new Map(repostsResult.map(r => [`${r.postUri}:${r.userDid}`, r.uri]));
         const bookmarkMap = new Map(bookmarksResult.map(b => [`${b.postUri}:${b.userDid}`, true]));
+        const stateMap = new Map(statesResult.map(s => [`${s.postUri}:${s.viewerDid}`, s]));
 
+        // Return results in the same order as keys
         return keys.map(key => {
           const state = stateMap.get(key as string);
           const liked = likeMap.has(key as string);
@@ -254,7 +251,7 @@ export class HydrationDataLoader {
           return {
             liked,
             reposted: !!repostUri,
-            repostUri,
+            repostUri: repostUri || null,
             bookmarked,
             muted: state?.muted || false,
             replyDisabled: state?.replyDisabled || false
@@ -270,67 +267,67 @@ export class HydrationDataLoader {
 
   /**
    * Create DataLoader for actor viewer states (follow/block/mute relationships)
+   * REDESIGNED: Fetch all rows and filter in memory to avoid complex SQL
    */
   private createActorViewerStateLoader() {
     return new DataLoader<string, any>(
       async (keys) => {
-        // Parse combined keys
-        const queries = keys.map(key => {
-          const [actorDid, viewerDid] = (key as string).split(':');
-          return { actorDid, viewerDid };
-        });
+        if (keys.length === 0) return [];
 
-        if (queries.length === 0) return [];
+        // Parse combined keys into separate arrays
+        const actorDids = [...new Set(keys.map(k => (k as string).split(':')[0]).filter(Boolean))];
+        const viewerDids = [...new Set(keys.map(k => (k as string).split(':')[1]).filter(Boolean))];
 
-        const actorDids = [...new Set(queries.map(q => q.actorDid).filter(Boolean))];
-        const viewerDids = [...new Set(queries.map(q => q.viewerDid).filter(Boolean))];
+        if (actorDids.length === 0 || viewerDids.length === 0) {
+          return keys.map(() => ({
+            following: false,
+            followingUri: null,
+            blocking: false,
+            blockedBy: false,
+            muted: false
+          }));
+        }
 
-        // Fetch all relationship data in parallel
+        // Fetch all relationship data in parallel with simpler queries
         const [followsResult, blocksResult, mutesResult] = await Promise.all([
-          actorDids.length > 0 && viewerDids.length > 0
-            ? db.select()
-                .from(follows)
-                .where(and(
-                  inArray(follows.followedDid, actorDids),
-                  inArray(follows.followerDid, viewerDids)
-                )!)
-            : [],
-          actorDids.length > 0 && viewerDids.length > 0
-            ? db.select()
-                .from(blocks)
-                .where(
-                  or(
-                    and(
-                      inArray(blocks.blockedDid, actorDids),
-                      inArray(blocks.blockerDid, viewerDids)
-                    ),
-                    and(
-                      inArray(blocks.blockedDid, viewerDids),
-                      inArray(blocks.blockerDid, actorDids)
-                    )
-                  )
-                )
-            : [],
-          actorDids.length > 0 && viewerDids.length > 0
-            ? db.select()
-                .from(mutes)
-                .where(and(
-                  inArray(mutes.mutedDid, actorDids),
-                  inArray(mutes.muterDid, viewerDids)
-                )!)
-            : []
+          db.select()
+            .from(follows)
+            .where(inArray(follows.followedDid, actorDids))
+            .then(rows => rows.filter(r => viewerDids.includes(r.followerDid))),
+          
+          db.select()
+            .from(blocks)
+            .where(
+              or(
+                inArray(blocks.blockedDid, actorDids),
+                inArray(blocks.blockerDid, actorDids)
+              )
+            )
+            .then(rows => rows.filter(r => 
+              viewerDids.includes(r.blockerDid) || viewerDids.includes(r.blockedDid)
+            )),
+          
+          db.select()
+            .from(mutes)
+            .where(inArray(mutes.mutedDid, actorDids))
+            .then(rows => rows.filter(r => viewerDids.includes(r.muterDid)))
         ]);
 
-        // Create lookup maps
+        // Create lookup maps using composite keys
         const followMap = new Map(followsResult.map(f => [`${f.followedDid}:${f.followerDid}`, f.uri]));
-        const blockingMap = new Map(blocksResult
-          .filter(b => viewerDids.includes(b.blockerDid))
-          .map(b => [`${b.blockedDid}:${b.blockerDid}`, true]));
-        const blockedByMap = new Map(blocksResult
-          .filter(b => actorDids.includes(b.blockerDid))
-          .map(b => [`${b.blockerDid}:${b.blockedDid}`, true]));
+        const blockingMap = new Map(
+          blocksResult
+            .filter(b => viewerDids.includes(b.blockerDid) && actorDids.includes(b.blockedDid))
+            .map(b => [`${b.blockedDid}:${b.blockerDid}`, true])
+        );
+        const blockedByMap = new Map(
+          blocksResult
+            .filter(b => actorDids.includes(b.blockerDid) && viewerDids.includes(b.blockedDid))
+            .map(b => [`${b.blockerDid}:${b.blockedDid}`, true])
+        );
         const muteMap = new Map(mutesResult.map(m => [`${m.mutedDid}:${m.muterDid}`, true]));
 
+        // Return results in the same order as keys
         return keys.map(key => {
           const followUri = followMap.get(key as string);
           const blocking = blockingMap.has(key as string);
@@ -339,7 +336,7 @@ export class HydrationDataLoader {
 
           return {
             following: !!followUri,
-            followingUri: followUri,
+            followingUri: followUri || null,
             blocking,
             blockedBy,
             muted
