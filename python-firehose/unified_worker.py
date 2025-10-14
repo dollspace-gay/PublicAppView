@@ -543,7 +543,7 @@ class EventProcessor:
         
         # Query database
         settings = await conn.fetchrow(
-            'SELECT "dataCollectionForbidden" FROM "userSettings" WHERE did = $1',
+            'SELECT "dataCollectionForbidden" FROM "userSettings" WHERE user_did = $1',
             did
         )
         
