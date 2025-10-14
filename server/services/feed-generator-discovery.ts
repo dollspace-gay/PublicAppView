@@ -42,54 +42,16 @@ export class FeedGeneratorDiscovery {
   };
 
   /**
-   * Discover feed generators from the official Bluesky AppView
-   * This queries the public API to get suggested/popular feeds
+   * Discover all users who have published feed generators
+   * by querying our own database for known feed generator creators
    */
-  async discoverFromBlueskyAppView(limit: number = 100): Promise<FeedGeneratorRecord[]> {
+  async getKnownFeedGeneratorCreators(): Promise<string[]> {
     try {
-      const appViewUrl = process.env.BLUESKY_APPVIEW_URL || "https://api.bsky.app";
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Querying Bluesky AppView for feed generators...`);
-
-      const feedGenerators: FeedGeneratorRecord[] = [];
-
-      // Query suggested/popular feeds endpoint
-      // Note: This uses an unspecced endpoint that the official Bluesky app uses
-      const suggestedUrl = `${appViewUrl}/xrpc/app.bsky.unspecced.getPopularFeedGenerators?limit=${limit}`;
-      
-      try {
-        const response = await fetch(suggestedUrl, {
-          headers: { 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(30000),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          
-          // The response contains a list of feed generator views
-          if (data.feeds && Array.isArray(data.feeds)) {
-            for (const feed of data.feeds) {
-              feedGenerators.push({
-                uri: feed.uri,
-                cid: feed.cid,
-                did: feed.did,
-                displayName: feed.displayName,
-                description: feed.description,
-                avatar: feed.avatar,
-                createdAt: feed.indexedAt || new Date().toISOString(),
-              });
-            }
-            smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${feedGenerators.length} feed generators from Bluesky AppView`);
-          }
-        } else {
-          smartConsole.warn(`[FEEDGEN_DISCOVERY] Bluesky AppView returned ${response.status}`);
-        }
-      } catch (error) {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] Failed to query Bluesky AppView:`, error);
-      }
-
-      return feedGenerators;
+      const creators = await storage.getDistinctFeedGeneratorCreators();
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${creators.length} known feed generator creators in database`);
+      return creators;
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error discovering from Bluesky AppView:`, error);
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error getting known creators:`, error);
       return [];
     }
   }
@@ -267,10 +229,9 @@ export class FeedGeneratorDiscovery {
    * Run discovery from multiple sources
    */
   async runDiscovery(options: {
-    fromBlueskyAppView?: boolean;
-    fromKnownUsers?: string[];
+    fromKnownCreators?: boolean;
+    fromSpecificUsers?: string[];
     specificUris?: string[];
-    limit?: number;
   } = {}): Promise<DiscoveryStats> {
     if (this.isRunning) {
       throw new Error("Discovery is already running");
@@ -289,22 +250,32 @@ export class FeedGeneratorDiscovery {
 
       const allFeedGenerators: FeedGeneratorRecord[] = [];
 
-      // Discover from Bluesky AppView
-      if (options.fromBlueskyAppView !== false) {
-        const blueskyFeeds = await this.discoverFromBlueskyAppView(options.limit || 100);
-        allFeedGenerators.push(...blueskyFeeds);
-      }
-
-      // Discover from known users' repositories
-      if (options.fromKnownUsers && options.fromKnownUsers.length > 0) {
-        for (const did of options.fromKnownUsers) {
+      // Discover from known feed generator creators already in our database
+      // This refreshes their feeds to catch any new ones they've published
+      if (options.fromKnownCreators) {
+        const knownCreators = await this.getKnownFeedGeneratorCreators();
+        smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning ${knownCreators.length} known creators for new feeds...`);
+        
+        for (const did of knownCreators) {
           const userFeeds = await this.discoverFromUserRepository(did);
           allFeedGenerators.push(...userFeeds);
         }
       }
 
-      // Fetch specific feed URIs
+      // Discover from specific users' repositories (e.g., curated list of popular feed creators)
+      if (options.fromSpecificUsers && options.fromSpecificUsers.length > 0) {
+        smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning ${options.fromSpecificUsers.length} specific users...`);
+        
+        for (const did of options.fromSpecificUsers) {
+          const userFeeds = await this.discoverFromUserRepository(did);
+          allFeedGenerators.push(...userFeeds);
+        }
+      }
+
+      // Fetch specific feed URIs directly
       if (options.specificUris && options.specificUris.length > 0) {
+        smartConsole.log(`[FEEDGEN_DISCOVERY] Fetching ${options.specificUris.length} specific feed URIs...`);
+        
         for (const uri of options.specificUris) {
           const feedGen = await this.fetchFeedGeneratorByUri(uri);
           if (feedGen) {

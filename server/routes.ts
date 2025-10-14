@@ -2183,10 +2183,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const schema = z.object({
-        fromBlueskyAppView: z.boolean().optional(),
-        fromKnownUsers: z.array(z.string()).optional(),
+        fromKnownCreators: z.boolean().optional(),
+        fromSpecificUsers: z.array(z.string()).optional(),
         specificUris: z.array(z.string()).optional(),
-        limit: z.number().min(1).max(1000).optional(),
       });
 
       const options = schema.parse(req.body);
