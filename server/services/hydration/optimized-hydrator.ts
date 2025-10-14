@@ -7,8 +7,6 @@ import {
   likes,
   reposts,
   bookmarks,
-  threadGates,
-  postGates,
   listMembers,
   listMutes,
   feedGenerators
@@ -29,8 +27,6 @@ export interface OptimizedHydrationState {
   actorViewerStates: Map<string, any>;
   embeds: Map<string, any>;
   labels: Map<string, Label[]>;
-  threadGates: Map<string, any>;
-  postGates: Map<string, any>;
   feedGenerators: Map<string, any>;
   viewerContext?: ViewerContext;
   stats: {
@@ -46,8 +42,7 @@ interface BatchedQueries {
   actors: Map<string, any>;
   aggregations: Map<string, any>;
   viewerStates: Map<string, any>;
-  threadGates: Map<string, any>;
-  postGates: Map<string, any>;
+  actorViewerStates?: Map<string, any>;
 }
 
 export class OptimizedHydrator {
@@ -148,19 +143,7 @@ export class OptimizedHydrator {
     }
 
     // Execute all queries in parallel
-    const [
-      allPostsData,
-      actorsData,
-      aggregationsData,
-      viewerStatesData,
-      threadGatesData,
-      postGatesData,
-      // Additional viewer-specific queries if authenticated
-      ...(viewerDid ? [
-        this.fetchViewerPostStates(Array.from(allPostUris), viewerDid),
-        this.fetchViewerActorStates(Array.from(actorDids), viewerDid)
-      ] : [undefined, undefined])
-    ] = await Promise.all([
+    const promiseArray = [
       // All posts (including reply parents/roots)
       db.select()
         .from(posts)
@@ -180,27 +163,37 @@ export class OptimizedHydrator {
         .where(and(
           inArray(postViewerStates.postUri, Array.from(allPostUris)),
           eq(postViewerStates.viewerDid, viewerDid)
-        )) : Promise.resolve([]),
-      
-      // Thread gates
-      db.select()
-        .from(threadGates)
-        .where(inArray(threadGates.postUri, Array.from(allPostUris))),
-      
-      // Post gates
-      db.select()
-        .from(postGates)
-        .where(inArray(postGates.postUri, Array.from(allPostUris)))
-    ]);
+        )) : Promise.resolve([])
+    ];
+
+    // Add viewer-specific queries if authenticated
+    if (viewerDid) {
+      promiseArray.push(
+        this.fetchViewerPostStates(Array.from(allPostUris), viewerDid),
+        this.fetchViewerActorStates(Array.from(actorDids), viewerDid)
+      );
+    }
+
+    const results = await Promise.all(promiseArray);
+    
+    // Destructure results
+    const [
+      allPostsData,
+      actorsData,
+      aggregationsData,
+      viewerStatesData
+    ] = results;
+    
+    // Extract viewer-specific results if present
+    const viewerPostStates = viewerDid ? results[4] : undefined;
+    const viewerActorStates = viewerDid ? results[5] : undefined;
 
     // Convert to maps
     const result: BatchedQueries = {
       posts: new Map(),
       actors: new Map(),
       aggregations: new Map(),
-      viewerStates: new Map(),
-      threadGates: new Map(),
-      postGates: new Map()
+      viewerStates: new Map()
     };
 
     // Process posts
@@ -253,26 +246,18 @@ export class OptimizedHydrator {
         pinned: state.pinned
       });
     }
-
-    // Process thread gates
-    for (const gate of threadGatesData) {
-      result.threadGates.set(gate.postUri, {
-        postUri: gate.postUri,
-        ownerDid: gate.ownerDid,
-        allowMentions: gate.allowMentions,
-        allowFollowing: gate.allowFollowing,
-        allowListMembers: gate.allowListMembers,
-        allowListUris: gate.allowListUris
-      });
+    
+    // Merge additional viewer post states if available
+    if (viewerPostStates) {
+      for (const [postUri, state] of viewerPostStates) {
+        const existing = result.viewerStates.get(postUri) || {};
+        result.viewerStates.set(postUri, { ...existing, ...state });
+      }
     }
-
-    // Process post gates
-    for (const gate of postGatesData) {
-      result.postGates.set(gate.postUri, {
-        postUri: gate.postUri,
-        createdAt: gate.createdAt.toISOString(),
-        embeddingRules: gate.embeddingRules
-      });
+    
+    // Store viewer actor states if available
+    if (viewerActorStates) {
+      result.actorViewerStates = viewerActorStates;
     }
 
     return result;
@@ -430,11 +415,9 @@ export class OptimizedHydrator {
       actors: batchedData.actors,
       aggregations: batchedData.aggregations,
       viewerStates: batchedData.viewerStates,
-      actorViewerStates: viewerDid ? await this.fetchViewerActorStates(actorDids, viewerDid) : new Map(),
+      actorViewerStates: batchedData.actorViewerStates || new Map(),
       embeds: embedsMap,
       labels: labelsMap,
-      threadGates: batchedData.threadGates,
-      postGates: batchedData.postGates,
       feedGenerators: feedGeneratorsMap,
       viewerContext,
       stats: {
@@ -504,8 +487,6 @@ export class OptimizedHydrator {
           actorViewerStates: new Map(),
           embeds: new Map(),
           labels: new Map(),
-          threadGates: new Map(),
-          postGates: new Map(),
           feedGenerators: new Map(),
           viewerContext: state.viewerContext,
           stats: state.stats
@@ -526,12 +507,6 @@ export class OptimizedHydrator {
         }
         if (state.labels.has(uri)) {
           postState.labels.set(uri, state.labels.get(uri));
-        }
-        if (state.threadGates.has(uri)) {
-          postState.threadGates.set(uri, state.threadGates.get(uri));
-        }
-        if (state.postGates.has(uri)) {
-          postState.postGates.set(uri, state.postGates.get(uri));
         }
 
         // Serialize and cache with TTL
@@ -567,8 +542,6 @@ export class OptimizedHydrator {
       actorViewerStates: Object.fromEntries(state.actorViewerStates),
       embeds: Object.fromEntries(state.embeds),
       labels: Object.fromEntries(state.labels),
-      threadGates: Object.fromEntries(state.threadGates),
-      postGates: Object.fromEntries(state.postGates),
       feedGenerators: Object.fromEntries(state.feedGenerators)
     };
   }
@@ -586,8 +559,6 @@ export class OptimizedHydrator {
       actorViewerStates: new Map(Object.entries(data.actorViewerStates || {})),
       embeds: new Map(Object.entries(data.embeds || {})),
       labels: new Map(Object.entries(data.labels || {})),
-      threadGates: new Map(Object.entries(data.threadGates || {})),
-      postGates: new Map(Object.entries(data.postGates || {})),
       feedGenerators: new Map(Object.entries(data.feedGenerators || {}))
     };
   }
@@ -604,8 +575,6 @@ export class OptimizedHydrator {
       actorViewerStates: new Map(),
       embeds: new Map(),
       labels: new Map(),
-      threadGates: new Map(),
-      postGates: new Map(),
       feedGenerators: new Map(),
       viewerContext: states[0]?.viewerContext,
       stats
@@ -620,8 +589,6 @@ export class OptimizedHydrator {
       for (const [k, v] of state.actorViewerStates) merged.actorViewerStates.set(k, v);
       for (const [k, v] of state.embeds) merged.embeds.set(k, v);
       for (const [k, v] of state.labels) merged.labels.set(k, v);
-      for (const [k, v] of state.threadGates) merged.threadGates.set(k, v);
-      for (const [k, v] of state.postGates) merged.postGates.set(k, v);
       for (const [k, v] of state.feedGenerators) merged.feedGenerators.set(k, v);
     }
 
@@ -656,8 +623,6 @@ export class OptimizedHydrator {
       actorViewerStates: new Map(),
       embeds: new Map(),
       labels: new Map(),
-      threadGates: new Map(),
-      postGates: new Map(),
       feedGenerators: new Map(),
       stats: {
         cacheHits: 0,
