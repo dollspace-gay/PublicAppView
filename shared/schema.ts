@@ -591,6 +591,32 @@ export const genericRecords = pgTable("generic_records", {
   createdAtIdx: index("idx_generic_records_created_at").on(table.createdAt),
 }));
 
+// Thread gates - control who can reply to threads
+export const threadGates = pgTable("thread_gates", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  ownerDid: varchar("owner_did", { length: 255 }).notNull(),
+  allowMentions: boolean("allow_mentions").default(true).notNull(),
+  allowFollowing: boolean("allow_following").default(true).notNull(),
+  allowListMembers: boolean("allow_list_members").default(false).notNull(),
+  allowListUris: jsonb("allow_list_uris").$type<string[]>().default([]).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  ownerIdx: index("idx_thread_gates_owner").on(table.ownerDid),
+}));
+
+// Post gates - control embedding rules for posts
+export const postGates = pgTable("post_gates", {
+  postUri: varchar("post_uri", { length: 512 }).primaryKey(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  embeddingRules: jsonb("embedding_rules").$type<{
+    disableRule?: string;
+    detachedEmbeddingUris?: string[];
+  }>().default({}).notNull(),
+}, (table) => ({
+  createdAtIdx: index("idx_post_gates_created_at").on(table.createdAt),
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   posts: many(posts),
