@@ -1,0 +1,349 @@
+/**
+ * Feed Generator Discovery Service
+ * 
+ * Fetches feed generators that were created before this AppView started indexing,
+ * providing an alternative to full relay backfill for discovering generators.
+ * 
+ * Methods:
+ * 1. Query official Bluesky AppView for popular/suggested feed generators
+ * 2. Scan repositories of known users for app.bsky.feed.generator records
+ * 3. Accept manual feed URIs for indexing
+ */
+
+import { didResolver } from "./did-resolver";
+import { eventProcessor } from "./event-processor";
+import { smartConsole } from "./console-wrapper";
+import { storage } from "../storage";
+
+interface FeedGeneratorRecord {
+  uri: string;
+  cid: string;
+  did: string;
+  displayName: string;
+  description?: string;
+  avatar?: string;
+  createdAt: string;
+}
+
+interface DiscoveryStats {
+  discovered: number;
+  indexed: number;
+  failed: number;
+  skipped: number;
+}
+
+export class FeedGeneratorDiscovery {
+  private isRunning = false;
+  private stats: DiscoveryStats = {
+    discovered: 0,
+    indexed: 0,
+    failed: 0,
+    skipped: 0,
+  };
+
+  /**
+   * Discover feed generators from the official Bluesky AppView
+   * This queries the public API to get suggested/popular feeds
+   */
+  async discoverFromBlueskyAppView(limit: number = 100): Promise<FeedGeneratorRecord[]> {
+    try {
+      const appViewUrl = process.env.BLUESKY_APPVIEW_URL || "https://api.bsky.app";
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Querying Bluesky AppView for feed generators...`);
+
+      const feedGenerators: FeedGeneratorRecord[] = [];
+
+      // Query suggested/popular feeds endpoint
+      // Note: This uses an unspecced endpoint that the official Bluesky app uses
+      const suggestedUrl = `${appViewUrl}/xrpc/app.bsky.unspecced.getPopularFeedGenerators?limit=${limit}`;
+      
+      try {
+        const response = await fetch(suggestedUrl, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          
+          // The response contains a list of feed generator views
+          if (data.feeds && Array.isArray(data.feeds)) {
+            for (const feed of data.feeds) {
+              feedGenerators.push({
+                uri: feed.uri,
+                cid: feed.cid,
+                did: feed.did,
+                displayName: feed.displayName,
+                description: feed.description,
+                avatar: feed.avatar,
+                createdAt: feed.indexedAt || new Date().toISOString(),
+              });
+            }
+            smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${feedGenerators.length} feed generators from Bluesky AppView`);
+          }
+        } else {
+          smartConsole.warn(`[FEEDGEN_DISCOVERY] Bluesky AppView returned ${response.status}`);
+        }
+      } catch (error) {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] Failed to query Bluesky AppView:`, error);
+      }
+
+      return feedGenerators;
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error discovering from Bluesky AppView:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Discover feed generators by listing records from a specific user's repository
+   * Uses com.atproto.repo.listRecords to enumerate all app.bsky.feed.generator records
+   */
+  async discoverFromUserRepository(did: string): Promise<FeedGeneratorRecord[]> {
+    try {
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning repository ${did} for feed generators...`);
+
+      // Resolve the user's PDS endpoint
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
+      if (!pdsEndpoint) {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`);
+        return [];
+      }
+
+      const feedGenerators: FeedGeneratorRecord[] = [];
+      let cursor: string | undefined;
+
+      // List all app.bsky.feed.generator records for this user
+      do {
+        const url = new URL(`${pdsEndpoint}/xrpc/com.atproto.repo.listRecords`);
+        url.searchParams.set('repo', did);
+        url.searchParams.set('collection', 'app.bsky.feed.generator');
+        url.searchParams.set('limit', '100');
+        if (cursor) {
+          url.searchParams.set('cursor', cursor);
+        }
+
+        const response = await fetch(url.toString(), {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!response.ok) {
+          smartConsole.warn(`[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${did}`);
+          break;
+        }
+
+        const data = await response.json();
+        
+        if (data.records && Array.isArray(data.records)) {
+          for (const record of data.records) {
+            feedGenerators.push({
+              uri: record.uri,
+              cid: record.cid,
+              did: record.value.did,
+              displayName: record.value.displayName,
+              description: record.value.description,
+              avatar: record.value.avatar,
+              createdAt: record.value.createdAt,
+            });
+          }
+        }
+
+        cursor = data.cursor;
+      } while (cursor);
+
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${feedGenerators.length} feed generators from ${did}`);
+      return feedGenerators;
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error discovering from user ${did}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch a specific feed generator by its AT URI
+   */
+  async fetchFeedGeneratorByUri(uri: string): Promise<FeedGeneratorRecord | null> {
+    try {
+      // Parse the URI: at://did:plc:xxx/app.bsky.feed.generator/rkey
+      const parts = uri.split('/');
+      if (parts.length < 5) {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] Invalid feed generator URI: ${uri}`);
+        return null;
+      }
+
+      const did = parts[2];
+      const collection = parts[3];
+      const rkey = parts[4];
+
+      if (collection !== 'app.bsky.feed.generator') {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] URI is not a feed generator: ${uri}`);
+        return null;
+      }
+
+      // Resolve the PDS endpoint
+      const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
+      if (!pdsEndpoint) {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`);
+        return null;
+      }
+
+      // Fetch the record
+      const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`;
+      
+      const response = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        smartConsole.warn(`[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${uri}`);
+        return null;
+      }
+
+      const data = await response.json();
+      
+      if (data.uri && data.cid && data.value) {
+        return {
+          uri: data.uri,
+          cid: data.cid,
+          did: data.value.did,
+          displayName: data.value.displayName,
+          description: data.value.description,
+          avatar: data.value.avatar,
+          createdAt: data.value.createdAt,
+        };
+      }
+
+      return null;
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error fetching feed generator ${uri}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Index a feed generator into the database
+   */
+  private async indexFeedGenerator(feedGen: FeedGeneratorRecord): Promise<boolean> {
+    try {
+      // Check if it already exists
+      const existing = await storage.getFeedGenerator(feedGen.uri);
+      if (existing) {
+        smartConsole.log(`[FEEDGEN_DISCOVERY] Feed generator already indexed: ${feedGen.uri}`);
+        this.stats.skipped++;
+        return true;
+      }
+
+      // Parse the URI to get the creator DID
+      const parts = feedGen.uri.split('/');
+      const creatorDid = parts[2];
+
+      // Process the feed generator through the event processor
+      await eventProcessor.processRecord(
+        feedGen.uri,
+        feedGen.cid,
+        creatorDid,
+        {
+          $type: 'app.bsky.feed.generator',
+          did: feedGen.did,
+          displayName: feedGen.displayName,
+          description: feedGen.description,
+          avatar: feedGen.avatar,
+          createdAt: feedGen.createdAt,
+        }
+      );
+
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Indexed feed generator: ${feedGen.uri} (${feedGen.displayName})`);
+      this.stats.indexed++;
+      return true;
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error indexing feed generator ${feedGen.uri}:`, error);
+      this.stats.failed++;
+      return false;
+    }
+  }
+
+  /**
+   * Run discovery from multiple sources
+   */
+  async runDiscovery(options: {
+    fromBlueskyAppView?: boolean;
+    fromKnownUsers?: string[];
+    specificUris?: string[];
+    limit?: number;
+  } = {}): Promise<DiscoveryStats> {
+    if (this.isRunning) {
+      throw new Error("Discovery is already running");
+    }
+
+    this.isRunning = true;
+    this.stats = {
+      discovered: 0,
+      indexed: 0,
+      failed: 0,
+      skipped: 0,
+    };
+
+    try {
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Starting feed generator discovery...`);
+
+      const allFeedGenerators: FeedGeneratorRecord[] = [];
+
+      // Discover from Bluesky AppView
+      if (options.fromBlueskyAppView !== false) {
+        const blueskyFeeds = await this.discoverFromBlueskyAppView(options.limit || 100);
+        allFeedGenerators.push(...blueskyFeeds);
+      }
+
+      // Discover from known users' repositories
+      if (options.fromKnownUsers && options.fromKnownUsers.length > 0) {
+        for (const did of options.fromKnownUsers) {
+          const userFeeds = await this.discoverFromUserRepository(did);
+          allFeedGenerators.push(...userFeeds);
+        }
+      }
+
+      // Fetch specific feed URIs
+      if (options.specificUris && options.specificUris.length > 0) {
+        for (const uri of options.specificUris) {
+          const feedGen = await this.fetchFeedGeneratorByUri(uri);
+          if (feedGen) {
+            allFeedGenerators.push(feedGen);
+          }
+        }
+      }
+
+      this.stats.discovered = allFeedGenerators.length;
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Discovered ${this.stats.discovered} feed generators total`);
+
+      // Index all discovered feed generators
+      for (const feedGen of allFeedGenerators) {
+        await this.indexFeedGenerator(feedGen);
+      }
+
+      smartConsole.log(`[FEEDGEN_DISCOVERY] Discovery complete:`, this.stats);
+      return { ...this.stats };
+    } catch (error) {
+      smartConsole.error(`[FEEDGEN_DISCOVERY] Error during discovery:`, error);
+      throw error;
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * Get discovery statistics
+   */
+  getStats(): DiscoveryStats {
+    return { ...this.stats };
+  }
+
+  /**
+   * Check if discovery is currently running
+   */
+  isDiscoveryRunning(): boolean {
+    return this.isRunning;
+  }
+}
+
+export const feedGeneratorDiscovery = new FeedGeneratorDiscovery();

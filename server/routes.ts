@@ -2172,6 +2172,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Feed Generator Discovery endpoints
+  app.post("/api/admin/feed-generators/discover", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { feedGeneratorDiscovery } = await import("./services/feed-generator-discovery");
+      
+      // Check if already running
+      if (feedGeneratorDiscovery.isDiscoveryRunning()) {
+        return res.status(409).json({ error: "Discovery is already running" });
+      }
+
+      const schema = z.object({
+        fromBlueskyAppView: z.boolean().optional(),
+        fromKnownUsers: z.array(z.string()).optional(),
+        specificUris: z.array(z.string()).optional(),
+        limit: z.number().min(1).max(1000).optional(),
+      });
+
+      const options = schema.parse(req.body);
+
+      // Run discovery in background
+      feedGeneratorDiscovery.runDiscovery(options).catch(error => {
+        console.error("[FEEDGEN_DISCOVERY] Background discovery error:", error);
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Feed generator discovery started in background" 
+      });
+    } catch (error) {
+      console.error("[FEEDGEN_DISCOVERY] Error starting discovery:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to start discovery" 
+      });
+    }
+  });
+
+  app.get("/api/admin/feed-generators/discovery-stats", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { feedGeneratorDiscovery } = await import("./services/feed-generator-discovery");
+      const stats = feedGeneratorDiscovery.getStats();
+      const isRunning = feedGeneratorDiscovery.isDiscoveryRunning();
+      
+      res.json({ stats, isRunning });
+    } catch (error) {
+      console.error("[FEEDGEN_DISCOVERY] Error getting stats:", error);
+      res.status(500).json({ error: "Failed to get discovery stats" });
+    }
+  });
+
+  app.post("/api/admin/feed-generators/index-uri", requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { feedGeneratorDiscovery } = await import("./services/feed-generator-discovery");
+      
+      const schema = z.object({
+        uri: z.string().startsWith('at://'),
+      });
+
+      const { uri } = schema.parse(req.body);
+
+      // Fetch and index the specific feed generator
+      const feedGen = await feedGeneratorDiscovery.fetchFeedGeneratorByUri(uri);
+      
+      if (!feedGen) {
+        return res.status(404).json({ error: "Feed generator not found or could not be fetched" });
+      }
+
+      res.json({ 
+        success: true, 
+        feedGenerator: feedGen,
+        message: "Feed generator indexed successfully"
+      });
+    } catch (error) {
+      console.error("[FEEDGEN_DISCOVERY] Error indexing feed generator:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to index feed generator" 
+      });
+    }
+  });
+
   // TypeScript backfill test endpoint is PERMANENTLY DISABLED
   // Use Python backfill service instead
   app.post("/api/backfill/repo", async (req, res) => {
