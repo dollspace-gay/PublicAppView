@@ -3245,7 +3245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getUserSettings(userDid);
       
       // Get follows
-      const follows = await storage.getFollows(userDid);
+      const { follows: followsList } = await storage.getFollows(userDid);
       
       // Get user info
       const user = await storage.getUser(userDid);
@@ -3265,8 +3265,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           lastBackfillAt: settings.lastBackfillAt
         } : null,
         follows: {
-          count: follows.length,
-          list: follows.map(f => ({
+          count: followsList.length,
+          list: followsList.map(f => ({
             uri: f.uri,
             followingDid: f.followingDid,
             createdAt: f.createdAt
@@ -3283,8 +3283,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userDid = req.params.did;
       
       // Get follows
-      const followList = await storage.getFollows(userDid);
-      const followingDids = followList.map(f => f.followingDid);
+      const { follows: followsList } = await storage.getFollows(userDid);
+      const followingDids = followsList.map(f => f.followingDid);
       
       // Get timeline posts
       const posts = await storage.getTimeline(userDid, 10);

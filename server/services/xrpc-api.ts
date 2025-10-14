@@ -42,7 +42,8 @@ const getProfileSchema = z.object({
 
 const getFollowsSchema = z.object({
   actor: z.string(),
-  limit: z.coerce.number().min(1).max(100).default(100),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
 });
 
 const queryLabelsSchema = z.object({
@@ -1810,8 +1811,8 @@ export class XRPCApi {
       const actorDid = await this._resolveActor(res, params.actor);
       if (!actorDid) return;
 
-      const follows = await storage.getFollows(actorDid, params.limit);
-      const followDids = follows.map((f) => f.followingDid);
+      const { follows: followsList, cursor: nextCursor } = await storage.getFollows(actorDid, params.limit, params.cursor);
+      const followDids = followsList.map((f) => f.followingDid);
       const followUsers = await storage.getUsers(followDids);
       const userMap = new Map(followUsers.map((u) => [u.did, u]));
 
@@ -1822,7 +1823,8 @@ export class XRPCApi {
 
       // Get the actor's handle for the subject
       const actor = await storage.getUser(actorDid);
-      res.json({
+      
+      const response: any = {
         subject: { 
           $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
@@ -1838,7 +1840,7 @@ export class XRPCApi {
             followedBy: undefined,
           },
         },
-        follows: follows
+        follows: followsList
           .map((f) => {
             const user = userMap.get(f.followingDid);
             if (!user) return null; // Should not happen
@@ -1865,7 +1867,13 @@ export class XRPCApi {
             };
           })
           .filter(Boolean),
-      });
+      };
+      
+      if (nextCursor) {
+        response.cursor = nextCursor;
+      }
+      
+      res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getFollows');
     }
@@ -1878,8 +1886,8 @@ export class XRPCApi {
       const actorDid = await this._resolveActor(res, params.actor);
       if (!actorDid) return;
 
-      const followers = await storage.getFollowers(actorDid, params.limit);
-      const followerDids = followers.map((f) => f.followerDid);
+      const { followers: followersList, cursor: nextCursor } = await storage.getFollowers(actorDid, params.limit, params.cursor);
+      const followerDids = followersList.map((f) => f.followerDid);
       const followerUsers = await storage.getUsers(followerDids);
       const userMap = new Map(followerUsers.map((u) => [u.did, u]));
 
@@ -1890,7 +1898,8 @@ export class XRPCApi {
 
       // Get the actor's handle for the subject
       const actor = await storage.getUser(actorDid);
-      res.json({
+      
+      const response: any = {
         subject: { 
           $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
@@ -1906,7 +1915,7 @@ export class XRPCApi {
             followedBy: undefined,
           },
         },
-        followers: followers
+        followers: followersList
           .map((f) => {
             const user = userMap.get(f.followerDid);
             if (!user) return null;
@@ -1933,7 +1942,13 @@ export class XRPCApi {
             };
           })
           .filter(Boolean),
-      });
+      };
+      
+      if (nextCursor) {
+        response.cursor = nextCursor;
+      }
+      
+      res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getFollowers');
     }
