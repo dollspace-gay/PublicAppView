@@ -31,10 +31,20 @@ export interface ActorViewerStateKey {
  * DataLoader-based hydration service that batches and caches database queries
  * to eliminate N+1 query problems and improve performance
  * 
- * REDESIGNED APPROACH:
- * - Simplified batching logic to avoid complex SQL generation
- * - Fetch all matching rows and filter in memory
- * - More reliable and maintainable
+ * COMPLETELY REDESIGNED APPROACH (v3):
+ * =====================================
+ * Previous versions had SQL syntax errors due to:
+ * - Complex tuple IN queries that drizzle-orm couldn't handle
+ * - Fetch-then-filter approach that was inefficient and error-prone
+ * - Improper handling of empty arrays in inArray()
+ * 
+ * New approach:
+ * - Parse composite keys (uri:viewerDid) properly with validation
+ * - Guard against empty arrays with early returns
+ * - Use simple AND conditions: eq() + inArray() for single viewer (common case)
+ * - Fallback to inArray() + inArray() for multiple viewers (rare)
+ * - No in-memory filtering - let the database do the work
+ * - Cleaner, more maintainable, and generates valid SQL
  */
 export class HydrationDataLoader {
   private postLoader: DataLoader<string, any>;
@@ -190,17 +200,38 @@ export class HydrationDataLoader {
 
   /**
    * Create DataLoader for viewer states (combined uri:viewerDid key)
-   * REDESIGNED: Fetch all rows for the URIs and viewers, then filter in memory
+   * COMPLETELY REDESIGNED: Use AND conditions with proper SQL escaping
    */
   private createViewerStateLoader() {
     return new DataLoader<string, any>(
       async (keys) => {
         if (keys.length === 0) return [];
 
-        // Parse combined keys into separate arrays
-        const postUris = [...new Set(keys.map(k => (k as string).split(':')[0]).filter(Boolean))];
-        const viewerDids = [...new Set(keys.map(k => (k as string).split(':')[1]).filter(Boolean))];
+        // Parse combined keys
+        const parsedKeys = keys.map(k => {
+          const parts = (k as string).split(':');
+          return { postUri: parts[0], viewerDid: parts[1], key: k as string };
+        });
 
+        // Filter out invalid keys
+        const validKeys = parsedKeys.filter(k => k.postUri && k.viewerDid);
+        
+        if (validKeys.length === 0) {
+          return keys.map(() => ({
+            liked: false,
+            reposted: false,
+            repostUri: null,
+            bookmarked: false,
+            muted: false,
+            replyDisabled: false
+          }));
+        }
+
+        // Get unique values for efficient querying
+        const postUris = [...new Set(validKeys.map(k => k.postUri))].filter(Boolean);
+        const viewerDids = [...new Set(validKeys.map(k => k.viewerDid))].filter(Boolean);
+
+        // Guard against empty arrays
         if (postUris.length === 0 || viewerDids.length === 0) {
           return keys.map(() => ({
             liked: false,
@@ -212,27 +243,69 @@ export class HydrationDataLoader {
           }));
         }
 
-        // Fetch all data in parallel - simpler queries without complex AND conditions
+        // For viewer states, we typically have the SAME viewer for all posts
+        // So we can optimize by checking if there's only one viewer
+        const singleViewer = viewerDids.length === 1 ? viewerDids[0] : null;
+
+        // Fetch all data in parallel using simple AND queries
+        // We've already checked that postUris and viewerDids are non-empty above
         const [likesResult, repostsResult, bookmarksResult, statesResult] = await Promise.all([
-          db.select()
-            .from(likes)
-            .where(inArray(likes.postUri, postUris))
-            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          // Use simple AND queries instead of complex tuple IN
+          singleViewer
+            ? db.select()
+                .from(likes)
+                .where(and(
+                  eq(likes.userDid, singleViewer),
+                  inArray(likes.postUri, postUris)
+                ))
+            : db.select()
+                .from(likes)
+                .where(and(
+                  inArray(likes.userDid, viewerDids),
+                  inArray(likes.postUri, postUris)
+                )),
           
-          db.select()
-            .from(reposts)
-            .where(inArray(reposts.postUri, postUris))
-            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          singleViewer
+            ? db.select()
+                .from(reposts)
+                .where(and(
+                  eq(reposts.userDid, singleViewer),
+                  inArray(reposts.postUri, postUris)
+                ))
+            : db.select()
+                .from(reposts)
+                .where(and(
+                  inArray(reposts.userDid, viewerDids),
+                  inArray(reposts.postUri, postUris)
+                )),
           
-          db.select()
-            .from(bookmarks)
-            .where(inArray(bookmarks.postUri, postUris))
-            .then(rows => rows.filter(r => viewerDids.includes(r.userDid))),
+          singleViewer
+            ? db.select()
+                .from(bookmarks)
+                .where(and(
+                  eq(bookmarks.userDid, singleViewer),
+                  inArray(bookmarks.postUri, postUris)
+                ))
+            : db.select()
+                .from(bookmarks)
+                .where(and(
+                  inArray(bookmarks.userDid, viewerDids),
+                  inArray(bookmarks.postUri, postUris)
+                )),
           
-          db.select()
-            .from(postViewerStates)
-            .where(inArray(postViewerStates.postUri, postUris))
-            .then(rows => rows.filter(r => viewerDids.includes(r.viewerDid)))
+          singleViewer
+            ? db.select()
+                .from(postViewerStates)
+                .where(and(
+                  eq(postViewerStates.viewerDid, singleViewer),
+                  inArray(postViewerStates.postUri, postUris)
+                ))
+            : db.select()
+                .from(postViewerStates)
+                .where(and(
+                  inArray(postViewerStates.viewerDid, viewerDids),
+                  inArray(postViewerStates.postUri, postUris)
+                ))
         ]);
 
         // Create lookup maps using composite keys
@@ -267,17 +340,37 @@ export class HydrationDataLoader {
 
   /**
    * Create DataLoader for actor viewer states (follow/block/mute relationships)
-   * REDESIGNED: Fetch all rows and filter in memory to avoid complex SQL
+   * COMPLETELY REDESIGNED: Use AND conditions with proper SQL
    */
   private createActorViewerStateLoader() {
     return new DataLoader<string, any>(
       async (keys) => {
         if (keys.length === 0) return [];
 
-        // Parse combined keys into separate arrays
-        const actorDids = [...new Set(keys.map(k => (k as string).split(':')[0]).filter(Boolean))];
-        const viewerDids = [...new Set(keys.map(k => (k as string).split(':')[1]).filter(Boolean))];
+        // Parse combined keys
+        const parsedKeys = keys.map(k => {
+          const parts = (k as string).split(':');
+          return { actorDid: parts[0], viewerDid: parts[1], key: k as string };
+        });
 
+        // Filter out invalid keys
+        const validKeys = parsedKeys.filter(k => k.actorDid && k.viewerDid);
+        
+        if (validKeys.length === 0) {
+          return keys.map(() => ({
+            following: false,
+            followingUri: null,
+            blocking: false,
+            blockedBy: false,
+            muted: false
+          }));
+        }
+
+        // Get unique values for efficient querying
+        const actorDids = [...new Set(validKeys.map(k => k.actorDid))].filter(Boolean);
+        const viewerDids = [...new Set(validKeys.map(k => k.viewerDid))].filter(Boolean);
+
+        // Guard against empty arrays
         if (actorDids.length === 0 || viewerDids.length === 0) {
           return keys.map(() => ({
             following: false,
@@ -288,36 +381,79 @@ export class HydrationDataLoader {
           }));
         }
 
-        // Fetch all relationship data in parallel with simpler queries
+        // Usually we have the SAME viewer for all actors
+        const singleViewer = viewerDids.length === 1 ? viewerDids[0] : null;
+
+        // Fetch all relationship data in parallel using simple AND queries
+        // We've already checked that actorDids and viewerDids are non-empty above
         const [followsResult, blocksResult, mutesResult] = await Promise.all([
-          db.select()
-            .from(follows)
-            .where(inArray(follows.followedDid, actorDids))
-            .then(rows => rows.filter(r => viewerDids.includes(r.followerDid))),
+          // Follows: viewer following the actors
+          singleViewer
+            ? db.select()
+                .from(follows)
+                .where(and(
+                  eq(follows.followerDid, singleViewer),
+                  inArray(follows.followingDid, actorDids)
+                ))
+            : db.select()
+                .from(follows)
+                .where(and(
+                  inArray(follows.followerDid, viewerDids),
+                  inArray(follows.followingDid, actorDids)
+                )),
           
-          db.select()
-            .from(blocks)
-            .where(
-              or(
-                inArray(blocks.blockedDid, actorDids),
-                inArray(blocks.blockerDid, actorDids)
-              )
-            )
-            .then(rows => rows.filter(r => 
-              viewerDids.includes(r.blockerDid) || viewerDids.includes(r.blockedDid)
-            )),
+          // Blocks: need to check both directions
+          singleViewer
+            ? db.select()
+                .from(blocks)
+                .where(
+                  or(
+                    and(
+                      eq(blocks.blockerDid, singleViewer), 
+                      inArray(blocks.blockedDid, actorDids)
+                    ),
+                    and(
+                      eq(blocks.blockedDid, singleViewer), 
+                      inArray(blocks.blockerDid, actorDids)
+                    )
+                  )
+                )
+            : db.select()
+                .from(blocks)
+                .where(
+                  or(
+                    and(
+                      inArray(blocks.blockerDid, viewerDids), 
+                      inArray(blocks.blockedDid, actorDids)
+                    ),
+                    and(
+                      inArray(blocks.blockedDid, viewerDids), 
+                      inArray(blocks.blockerDid, actorDids)
+                    )
+                  )
+                ),
           
-          db.select()
-            .from(mutes)
-            .where(inArray(mutes.mutedDid, actorDids))
-            .then(rows => rows.filter(r => viewerDids.includes(r.muterDid)))
+          // Mutes: viewer muting the actors
+          singleViewer
+            ? db.select()
+                .from(mutes)
+                .where(and(
+                  eq(mutes.muterDid, singleViewer),
+                  inArray(mutes.mutedDid, actorDids)
+                ))
+            : db.select()
+                .from(mutes)
+                .where(and(
+                  inArray(mutes.muterDid, viewerDids),
+                  inArray(mutes.mutedDid, actorDids)
+                ))
         ]);
 
-        // Create lookup maps using composite keys
-        const followMap = new Map(followsResult.map(f => [`${f.followedDid}:${f.followerDid}`, f.uri]));
+        // Create lookup maps using composite keys (actorDid:viewerDid)
+        const followMap = new Map(followsResult.map(f => [`${f.followingDid}:${f.followerDid}`, f.uri]));
         const blockingMap = new Map(
           blocksResult
-            .filter(b => viewerDids.includes(b.blockerDid) && actorDids.includes(b.blockedDid))
+            .filter(b => actorDids.includes(b.blockedDid) && viewerDids.includes(b.blockerDid))
             .map(b => [`${b.blockedDid}:${b.blockerDid}`, true])
         );
         const blockedByMap = new Map(
