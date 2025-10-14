@@ -251,8 +251,9 @@ docker exec -it publicappview-app-1 sh
 - `APPVIEW_DID`: DID for this AppView instance (default: `did:web:appview.local`)
 - `PORT`: Server port (default: `5000`)
 - `NODE_ENV`: Environment mode (`development` or `production`)
-- `BACKFILL_DAYS`: Historical backfill in days (0=disabled, >0=backfill X days, default: `0`)
-  - See [BACKFILL_OPTIMIZATION.md](./BACKFILL_OPTIMIZATION.md) for resource throttling configuration
+- `BACKFILL_DAYS`: Historical backfill in days (0=disabled, -1=all history, >0=backfill X days, default: `0`)
+  - **NEW**: Python backfill now runs automatically when enabled! See [QUICKSTART-BACKFILL.md](./QUICKSTART-BACKFILL.md)
+  - Advanced configuration: [.env.backfill.example](./.env.backfill.example) and [Python Backfill Docs](./python-firehose/README.backfill.md)
 - `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
 - `DB_POOL_SIZE`: Database connection pool size (default: `32`)
 - `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)

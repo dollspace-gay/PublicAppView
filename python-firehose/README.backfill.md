@@ -43,7 +43,50 @@ All configuration is done through environment variables:
 
 ## Usage
 
-### With Unified Worker
+### Quick Start with Docker Compose (Recommended)
+
+The backfill service is now **automatically integrated** into the docker-compose setup. To enable backfill:
+
+1. Set `BACKFILL_DAYS` in your environment:
+   ```bash
+   export BACKFILL_DAYS=7  # Backfill last 7 days
+   # OR for all history:
+   export BACKFILL_DAYS=-1
+   ```
+
+2. Start or restart your services:
+   ```bash
+   docker-compose up -d
+   ```
+
+The `python-backfill-worker` service will automatically:
+- Start when `BACKFILL_DAYS` is set to a non-zero value
+- Begin processing historical data in the background
+- Continue running until all historical data is processed
+- Save progress periodically for resume capability
+
+**Example: Backfill last 30 days with moderate speed**
+```bash
+export BACKFILL_DAYS=30
+export BACKFILL_BATCH_SIZE=20
+export BACKFILL_BATCH_DELAY_MS=1000
+export BACKFILL_MAX_MEMORY_MB=1024
+docker-compose up -d
+```
+
+To check backfill progress:
+```bash
+# View backfill worker logs
+docker-compose logs -f python-backfill-worker
+
+# Check progress in database
+docker-compose exec db psql -U postgres -d atproto -c \
+  "SELECT * FROM firehose_cursor WHERE service = 'backfill';"
+```
+
+### Manual Execution
+
+#### With Unified Worker
 
 The backfill service automatically starts when:
 1. `BACKFILL_DAYS` is set to a non-zero value
@@ -63,7 +106,7 @@ BACKFILL_MAX_MEMORY_MB=1024 \
 python unified_worker.py
 ```
 
-### Standalone Mode
+#### Standalone Mode
 
 You can also run the backfill service independently:
 
