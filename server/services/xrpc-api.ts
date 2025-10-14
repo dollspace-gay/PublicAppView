@@ -865,7 +865,25 @@ export class XRPCApi {
         }
       }
       if (hydratedPost?.facets || post.facets) record.facets = hydratedPost?.facets || post.facets;
-      if (hydratedPost?.reply) record.reply = hydratedPost.reply;
+      
+      // Build proper reply reference with CIDs from hydrated posts
+      if (hydratedPost?.reply?.parent?.uri && hydratedPost?.reply?.root?.uri) {
+        const parentPost = state.posts.get(hydratedPost.reply.parent.uri);
+        const rootPost = state.posts.get(hydratedPost.reply.root.uri);
+        
+        if (parentPost && rootPost) {
+          record.reply = {
+            parent: { 
+              uri: hydratedPost.reply.parent.uri, 
+              cid: parentPost.cid 
+            },
+            root: { 
+              uri: hydratedPost.reply.root.uri, 
+              cid: rootPost.cid 
+            }
+          };
+        }
+      }
 
       const avatarUrl = author?.avatarUrl;
       const avatarCdn = avatarUrl 
@@ -3530,11 +3548,13 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
 
+      console.log(`[listNotifications] Fetching notifications for ${userDid}`);
       const notificationsList = await storage.getNotifications(
         userDid,
         params.limit,
         params.cursor,
       );
+      console.log(`[listNotifications] Found ${notificationsList.length} notifications`);
 
       const authorDids = Array.from(
         new Set(notificationsList.map((n) => n.authorDid)),
@@ -3648,6 +3668,7 @@ export class XRPCApi {
 
       // Filter out null items (deleted content)
       const validItems = items.filter(item => item !== null);
+      console.log(`[listNotifications] Returning ${validItems.length} valid notifications (filtered ${items.length - validItems.length} deleted/invalid)`);
 
       const cursor = notificationsList.length
         ? notificationsList[notificationsList.length - 1].indexedAt.toISOString()
@@ -3655,6 +3676,8 @@ export class XRPCApi {
 
       res.json({ notifications: validItems, cursor });
     } catch (error) {
+      console.error('[listNotifications] Error details:', error);
+      console.error('[listNotifications] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       this._handleError(res, error, 'listNotifications');
     }
   }
@@ -3751,14 +3774,27 @@ export class XRPCApi {
     try {
       const params = getPostsSchema.parse(req.query);
       const viewerDid = await this.getAuthenticatedDid(req);
+      
+      console.log(`[getPosts] Fetching ${params.uris.length} posts`);
       const posts = await storage.getPosts(params.uris);
+      console.log(`[getPosts] Found ${posts.length} posts in database`);
+      
+      if (posts.length === 0) {
+        console.log(`[getPosts] No posts found for URIs:`, params.uris);
+        return res.json({ posts: [] });
+      }
+      
+      console.log(`[getPosts] Serializing ${posts.length} posts`);
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
         req,
       );
+      console.log(`[getPosts] Successfully serialized ${serializedPosts.length} posts`);
       res.json({ posts: serializedPosts });
     } catch (error) {
+      console.error('[getPosts] Error details:', error);
+      console.error('[getPosts] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       this._handleError(res, error, 'getPosts');
     }
   }

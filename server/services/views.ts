@@ -79,11 +79,11 @@ export class Views {
   }
 
   private replyRef(uri: string, state: HydrationState): any | undefined {
-    const postRecord = state.posts?.get(uri)?.record;
-    if (!postRecord?.reply) return;
+    const post = state.posts?.get(uri);
+    if (!post?.reply) return;
 
-    let root = this.maybePost(postRecord.reply.root?.uri, state);
-    let parent = this.maybePost(postRecord.reply.parent?.uri, state);
+    let root = this.maybePost(post.reply.root?.uri, state);
+    let parent = this.maybePost(post.reply.parent?.uri, state);
 
     return {
       root,
