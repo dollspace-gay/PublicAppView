@@ -187,10 +187,9 @@ export class DataLoaderHydrator {
       );
 
       // Propagate labels if needed
-      const propagatedLabels = await this.labelPropagator.propagate(
-        labelMap,
-        postMap,
-        actorMap
+      const propagatedLabels = await this.labelPropagator.propagateActorLabels(
+        Array.from(actorDids),
+        Array.from(allPostUris)
       );
 
       stats.queryTime = performance.now() - queryStart;
