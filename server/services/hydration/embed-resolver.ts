@@ -24,7 +24,8 @@ export class EmbedResolver {
   async resolveEmbeds(
     postUris: string[],
     depth = 0,
-    visited = new Set<string>()
+    visited = new Set<string>(),
+    dataLoader?: any
   ): Promise<Map<string, ResolvedEmbed | null>> {
     if (depth >= this.MAX_DEPTH || postUris.length === 0) {
       return new Map();
@@ -51,10 +52,20 @@ export class EmbedResolver {
     }
 
     // Fetch posts with embeds
-    const postsData = await db
-      .select()
-      .from(posts)
-      .where(inArray(posts.uri, uncachedUris));
+    let postsData: any[];
+    if (dataLoader) {
+      // Use DataLoader for batched loading
+      const loadedPosts = await Promise.all(
+        uncachedUris.map(uri => dataLoader.posts.load(uri))
+      );
+      postsData = loadedPosts.filter(Boolean);
+    } else {
+      // Fallback to direct database query
+      postsData = await db
+        .select()
+        .from(posts)
+        .where(inArray(posts.uri, uncachedUris));
+    }
 
     const result = new Map<string, ResolvedEmbed | null>();
     const childUris: string[] = [];
@@ -247,7 +258,7 @@ export class EmbedResolver {
       
       // Recursively resolve embeds in child posts (for quote-of-quote scenarios)
       if (childPostEmbedUris.length > 0) {
-        const nestedEmbeds = await this.resolveEmbeds(childPostEmbedUris, depth + 1, visited);
+        const nestedEmbeds = await this.resolveEmbeds(childPostEmbedUris, depth + 1, visited, dataLoader);
         
         // Attach HYDRATED view embeds to viewRecords.embeds array (not value.embed)
         for (const { uri, viewRecord } of childViewRecords) {

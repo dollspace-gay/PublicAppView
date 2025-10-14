@@ -15,6 +15,8 @@ import type { UserSettings } from "@shared/schema";
 import { Hydrator } from "./hydration";
 import { Views } from "./views";
 import { enhancedHydrator, optimizedHydrator } from "./hydration/index";
+import { dataLoaderHydrator } from "./hydration/dataloader-hydrator";
+import { getRequestDataLoader } from "../middleware/dataloader";
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -790,8 +792,11 @@ export class XRPCApi {
 
     const postUris = posts.map((p) => p.uri);
     
-    // Use optimized hydrator for better performance
-    const state = await optimizedHydrator.hydratePosts(postUris, viewerDid);
+    // Use DataLoader hydrator if available, otherwise fall back to optimized hydrator
+    const dataLoader = req ? getRequestDataLoader(req) : undefined;
+    const state = dataLoader 
+      ? await dataLoaderHydrator.hydratePosts(postUris, viewerDid, dataLoader)
+      : await optimizedHydrator.hydratePosts(postUris, viewerDid);
     
     const hydrationTime = performance.now() - startTime;
     console.log(`[OPTIMIZED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`);

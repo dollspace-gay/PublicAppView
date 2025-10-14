@@ -312,12 +312,18 @@ export class EnhancedHydrator {
 export const enhancedHydrator = new EnhancedHydrator();
 
 // Export optimized hydrator
-export { optimizedHydrator, OptimizedHydrationState } from './optimized-hydrator';
+export { optimizedHydrator } from './optimized-hydrator';
+export type { OptimizedHydrationState } from './optimized-hydrator';
 
 // Re-export classes
 export { ViewerContextBuilder } from './viewer-context';
 export { EmbedResolver } from './embed-resolver';
 export { LabelPropagator } from './label-propagator';
+
+// Export DataLoader components
+export { dataLoaderHydrator } from './dataloader-hydrator';
+export { createDataLoader, getDataLoader, clearDataLoader } from './dataloader';
+export type { HydrationDataLoader } from './dataloader';
 export { HydrationCache } from './cache';
 
 // Re-export types
