@@ -1100,11 +1100,13 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
 
-      // Debug: Check user's follows and total posts in database
-      const followList = await storage.getFollows(userDid);
-      const totalPosts = await storage.getStats();
+      // Debug: Check user's follow count and their posts
+      const [followCount, userPostCount] = await Promise.all([
+        storage.getUserFollowingCount(userDid),
+        storage.getUserPostCount(userDid)
+      ]);
       
-      console.log(`[TIMELINE_DEBUG] User ${userDid} has ${followList.length} follows, ${totalPosts.totalPosts} total posts in DB`);
+      console.log(`[TIMELINE_DEBUG] User ${userDid} is following ${followCount} accounts, has ${userPostCount} posts`);
 
       let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
       
