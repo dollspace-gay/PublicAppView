@@ -19,6 +19,7 @@ import { logCollector } from "./services/log-collector";
 import { schemaIntrospectionService } from "./services/schema-introspection";
 import { db } from "./db";
 import { sql, eq } from "drizzle-orm";
+import { userSettings } from "@shared/schema";
 import { csrfProtection } from "./middleware/csrf";
 import { isUrlSafeToFetch, isValidDID, isValidCID, buildSafeBlobUrl, safeFetch } from "./utils/security";
 import {
@@ -710,11 +711,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await repoBackfillService.backfillSingleRepo(req.session.did, backfillDays);
       
       // Update user settings with last backfill time
-      await storage.db.insert(storage.userSettings).values({
+      await db.insert(userSettings).values({
         userDid: req.session.did,
         lastBackfillAt: new Date(),
       }).onConflictDoUpdate({
-        target: storage.userSettings.userDid,
+        target: userSettings.userDid,
         set: {
           lastBackfillAt: new Date(),
         },

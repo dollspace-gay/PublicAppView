@@ -34,6 +34,14 @@
 - **Benefits:** More concurrent users, fewer connection waits
 - **File:** `server/db.ts`
 
+### 4. ✅ Fixed User Backfill Crash
+**Impact:** Backfill endpoint now works correctly
+
+- **Error:** `TypeError: Cannot read properties of undefined`
+- **Cause:** Incorrect usage of `storage.db` and `storage.userSettings`
+- **Fix:** Use `db.insert(userSettings)` directly with proper imports
+- **File:** `server/routes.ts`
+
 ---
 
 ## 📊 Expected Performance Improvements
@@ -205,7 +213,7 @@ The fixes are successful if:
 
 ## 📝 Files Changed
 
-Only 2 files modified (minimal risk):
+Only 3 files modified (minimal risk):
 
 1. **`server/services/feed-algorithm.ts`**
    - Lines: ~17-64 (enrichPostsWithEngagement function)
@@ -215,7 +223,11 @@ Only 2 files modified (minimal risk):
    - Lines: ~56-70 (pool size configuration)
    - Changes: Increased default pool size with smart defaults
 
-**Total impact:** ~50 lines changed, 99% query reduction
+3. **`server/routes.ts`**
+   - Lines: 22 (import), 714-721 (backfill endpoint)
+   - Changes: Fixed incorrect storage.db usage
+
+**Total impact:** ~55 lines changed, 99% query reduction + crash fix
 
 ---
 
