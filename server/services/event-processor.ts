@@ -1637,6 +1637,26 @@ export class EventProcessor {
     };
 
     await this.storage.createFeedGenerator(feedGenerator);
+    
+    // Auto-discover all other feed generators from this creator
+    // This runs in the background and won't block the firehose
+    this.autoDiscoverCreatorFeeds(creatorDid);
+  }
+  
+  /**
+   * Auto-discover all feed generators from a creator when we encounter one
+   * Runs asynchronously without blocking the firehose
+   */
+  private autoDiscoverCreatorFeeds(creatorDid: string): void {
+    // Import and trigger discovery asynchronously
+    // Don't await - let it run in the background
+    import("./feed-generator-discovery").then(({ feedGeneratorDiscovery }) => {
+      feedGeneratorDiscovery.autoDiscoverFromCreator(creatorDid).catch(error => {
+        smartConsole.error(`[EVENT_PROCESSOR] Failed to auto-discover feeds from ${creatorDid}:`, error);
+      });
+    }).catch(error => {
+      smartConsole.error(`[EVENT_PROCESSOR] Failed to import feed generator discovery:`, error);
+    });
   }
 
   private async processStarterPack(repo: string, op: any) {

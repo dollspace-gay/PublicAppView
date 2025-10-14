@@ -227,6 +227,7 @@ export interface IStorage {
   createFeedGenerator(generator: InsertFeedGenerator): Promise<FeedGenerator>;
   deleteFeedGenerator(uri: string): Promise<void>;
   getFeedGenerator(uri: string): Promise<FeedGenerator | undefined>;
+  getDistinctFeedGeneratorCreators(): Promise<string[]>;
   getFeedGenerators(uris: string[]): Promise<FeedGenerator[]>;
   getActorFeeds(actorDid: string, limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
   getSuggestedFeeds(limit?: number, cursor?: string): Promise<{ generators: FeedGenerator[], cursor?: string }>;
@@ -2389,6 +2390,13 @@ export class DatabaseStorage implements IStorage {
   async getFeedGenerator(uri: string): Promise<FeedGenerator | undefined> {
     const [generator] = await this.db.select().from(feedGenerators).where(eq(feedGenerators.uri, uri));
     return generator || undefined;
+  }
+
+  async getDistinctFeedGeneratorCreators(): Promise<string[]> {
+    const results = await this.db
+      .selectDistinct({ creatorDid: feedGenerators.creatorDid })
+      .from(feedGenerators);
+    return results.map(r => r.creatorDid);
   }
 
   async getFeedGenerators(uris: string[]): Promise<FeedGenerator[]> {
