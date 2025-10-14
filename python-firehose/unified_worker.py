@@ -677,12 +677,16 @@ class EventProcessor:
                 return ref if ref != 'undefined' else None
             if hasattr(ref, '$link'):
                 link = ref.get('$link') if isinstance(ref, dict) else getattr(ref, '$link', None)
-                return link if link != 'undefined' else None
-            if hasattr(ref, 'toString'):
+                if link and link != 'undefined':
+                    return str(link) if not isinstance(link, str) else link
+            # Convert ref to string if it's a CID object
+            if ref and ref != 'undefined':
                 return str(ref)
         
         if hasattr(blob, 'cid'):
-            return blob.cid if blob.cid != 'undefined' else None
+            cid = blob.cid
+            if cid and cid != 'undefined':
+                return str(cid) if not isinstance(cid, str) else cid
         
         return None
     
@@ -1853,15 +1857,16 @@ class EventProcessor:
         
         # Acquire database connection
         async with self.db.acquire() as conn:
-            # Process operations in a transaction
-            async with conn.transaction():
-                for op in commit.ops:
-                    action = op.action
-                    path = op.path
-                    collection = path.split("/")[0]
-                    uri = f"at://{repo}/{path}"
-                    
-                    try:
+            # Process each operation in its own transaction to prevent
+            # errors in one operation from aborting subsequent operations
+            for op in commit.ops:
+                action = op.action
+                path = op.path
+                collection = path.split("/")[0]
+                uri = f"at://{repo}/{path}"
+                
+                try:
+                    async with conn.transaction():
                         if action in ["create", "update"]:
                             # Extract record from CAR blocks
                             if not car or not hasattr(op, 'cid') or not op.cid:
@@ -1960,10 +1965,12 @@ class EventProcessor:
                         
                         elif action == "delete":
                             await self.process_delete(conn, uri, collection)
-                    
-                    except Exception as e:
-                        logger.error(f"Error processing {action} {uri}: {e}")
-                        continue
+                
+                except Exception as e:
+                    # Log error and continue with next operation
+                    # Transaction will be automatically rolled back
+                    logger.error(f"Error processing {action} {uri}: {e}")
+                    continue
         
         self.event_count += 1
         if self.event_count % 1000 == 0:
