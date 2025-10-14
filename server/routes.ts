@@ -693,13 +693,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // TypeScript backfill is PERMANENTLY DISABLED
-  // Use Python backfill service instead: python-firehose/backfill_service.py
+  // User backfill endpoint (uses repo backfill service)
   app.post("/api/user/backfill", csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
-    res.status(501).json({ 
-      error: "TypeScript backfill has been disabled. Please use the Python backfill service instead.",
-      info: "Set BACKFILL_DAYS environment variable and run the Python unified worker."
-    });
+    try {
+      if (!req.session?.did) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { days } = req.body;
+      const backfillDays = parseInt(days || "0");
+
+      // Import the repo backfill service
+      const { repoBackfillService } = await import("./services/repo-backfill");
+      
+      // Start backfill for the user's repo
+      await repoBackfillService.backfillSingleRepo(req.session.did, backfillDays);
+      
+      // Update user settings with last backfill time
+      await storage.db.insert(storage.userSettings).values({
+        userDid: req.session.did,
+        lastBackfillAt: new Date(),
+      }).onConflictDoUpdate({
+        target: storage.userSettings.userDid,
+        set: {
+          lastBackfillAt: new Date(),
+        },
+      });
+      
+      res.json({ 
+        success: true,
+        message: `Started backfilling ${backfillDays === 0 ? 'all' : backfillDays + ' days of'} data from your PDS`
+      });
+    } catch (error) {
+      console.error("[USER_BACKFILL] Error starting backfill:", error);
+      res.status(500).json({ 
+        error: "Failed to start backfill",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
   });
 
   app.post("/api/user/delete-data", deletionLimiter, csrfProtection.validateToken, requireAuth, async (req: AuthRequest, res) => {
