@@ -105,7 +105,7 @@ export class Views {
         handle: authorProfile.handle,
         displayName: authorProfile.displayName ?? authorProfile.handle,
         pronouns: authorProfile.pronouns,
-        avatar: authorProfile.avatarUrl,
+        ...(authorProfile.avatarUrl && { avatar: authorProfile.avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
@@ -149,7 +149,7 @@ export class Views {
         handle: reposterProfile.handle,
         displayName: reposterProfile.displayName ?? reposterProfile.handle,
         pronouns: reposterProfile.pronouns,
-        avatar: reposterProfile.avatarUrl,
+        ...(reposterProfile.avatarUrl && { avatar: reposterProfile.avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
