@@ -197,24 +197,20 @@ export class HydrationDataLoader {
 
         if (queries.length === 0) return [];
 
-        // Build query conditions
-        const conditions = queries.map(({ uri, viewerDid }) => 
-          and(
-            eq(postViewerStates.postUri, uri),
-            eq(postViewerStates.viewerDid, viewerDid)
-          )
-        );
-
-        const result = conditions.length > 0 
-          ? await db
-              .select()
-              .from(postViewerStates)
-              .where(or(...conditions)!)
-          : [];
-
+        // Build query conditions - use simpler inArray approach
         // Also fetch likes, reposts, bookmarks for viewer
         const postUris = [...new Set(queries.map(q => q.uri).filter(Boolean))];
         const viewerDids = [...new Set(queries.map(q => q.viewerDid).filter(Boolean))];
+
+        const result = postUris.length > 0 && viewerDids.length > 0
+          ? await db
+              .select()
+              .from(postViewerStates)
+              .where(and(
+                inArray(postViewerStates.postUri, postUris),
+                inArray(postViewerStates.viewerDid, viewerDids)
+              )!)
+          : [];
 
         const [likesResult, repostsResult, bookmarksResult] = await Promise.all([
           postUris.length > 0 && viewerDids.length > 0 
@@ -223,7 +219,7 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(likes.postUri, postUris),
                   inArray(likes.userDid, viewerDids)
-                ))
+                )!)
             : [],
           postUris.length > 0 && viewerDids.length > 0
             ? db.select()
@@ -231,7 +227,7 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(reposts.postUri, postUris),
                   inArray(reposts.userDid, viewerDids)
-                ))
+                )!)
             : [],
           postUris.length > 0 && viewerDids.length > 0
             ? db.select()
@@ -239,7 +235,7 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(bookmarks.postUri, postUris),
                   inArray(bookmarks.userDid, viewerDids)
-                ))
+                )!)
             : []
         ]);
 
@@ -297,21 +293,23 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(follows.followedDid, actorDids),
                   inArray(follows.followerDid, viewerDids)
-                ))
+                )!)
             : [],
           actorDids.length > 0 && viewerDids.length > 0
             ? db.select()
                 .from(blocks)
-                .where(or(
-                  and(
-                    inArray(blocks.blockedDid, actorDids),
-                    inArray(blocks.blockerDid, viewerDids)
-                  ),
-                  and(
-                    inArray(blocks.blockedDid, viewerDids),
-                    inArray(blocks.blockerDid, actorDids)
+                .where(
+                  or(
+                    and(
+                      inArray(blocks.blockedDid, actorDids),
+                      inArray(blocks.blockerDid, viewerDids)
+                    ),
+                    and(
+                      inArray(blocks.blockedDid, viewerDids),
+                      inArray(blocks.blockerDid, actorDids)
+                    )
                   )
-                )!)
+                )
             : [],
           actorDids.length > 0 && viewerDids.length > 0
             ? db.select()
@@ -319,7 +317,7 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(mutes.mutedDid, actorDids),
                   inArray(mutes.muterDid, viewerDids)
-                ))
+                )!)
             : []
         ]);
 
