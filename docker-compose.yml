@@ -17,18 +17,19 @@ services:
     restart: unless-stopped
 
   # Python Firehose Consumer - High-performance firehose ingestion
-  # This replaces the TypeScript firehose connection to eliminate memory/worker limits
   # Connects to AT Protocol firehose and pushes events to Redis streams
-  # Your existing TypeScript workers consume from Redis (no changes needed)
+  # The python-worker service consumes from Redis and writes to PostgreSQL
   python-firehose:
-    build: ./python-firehose
+    build: 
+      context: ./python-firehose
+      dockerfile: Dockerfile
     environment:
       - RELAY_URL=${RELAY_URL:-wss://bsky.network}
       - REDIS_URL=redis://redis:6379
       - REDIS_STREAM_KEY=firehose:events
       - REDIS_CURSOR_KEY=firehose:python_cursor
       - REDIS_MAX_STREAM_LEN=500000
-      - LOG_LEVEL=DEBUG  # Enable debug logging temporarily
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       redis:
         condition: service_healthy
@@ -39,13 +40,48 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
-    # Resource limits (much lower than TypeScript workers due to better efficiency)
     deploy:
       resources:
         limits:
-          memory: 2G  # Python uses much less memory than Node.js workers
+          memory: 2G
         reservations:
           memory: 512M
+
+  # Python Redis Consumer Worker - High-performance event processing
+  # Replaces TypeScript workers for consuming from Redis and writing to PostgreSQL
+  # This is the NEW worker that processes events from Redis stream to database
+  python-worker:
+    build:
+      context: ./python-firehose
+      dockerfile: Dockerfile.worker
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - REDIS_URL=redis://redis:6379
+      - REDIS_STREAM_KEY=firehose:events
+      - REDIS_CONSUMER_GROUP=firehose-processors
+      - CONSUMER_ID=python-worker
+      - DB_POOL_SIZE=${PYTHON_WORKER_DB_POOL_SIZE:-20}
+      - BATCH_SIZE=${PYTHON_WORKER_BATCH_SIZE:-10}
+      - PARALLEL_CONSUMERS=${PYTHON_WORKER_PARALLEL_CONSUMERS:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379'); r.ping()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
 
   db:
     image: postgres:14
@@ -98,6 +134,9 @@ services:
       - CONSTELLATION_URL=https://constellation.microcosm.blue
       - CONSTELLATION_TIMEOUT=15000
       - CONSTELLATION_CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
+      # Worker mode control
+      - FIREHOSE_ENABLED=${FIREHOSE_ENABLED:-false}
+      - TYPESCRIPT_WORKERS_ENABLED=${TYPESCRIPT_WORKERS_ENABLED:-false}
     depends_on:
       redis:
         condition: service_healthy
