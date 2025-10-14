@@ -1223,7 +1223,7 @@ export class XRPCApi {
       );
 
       // Get all reposter DIDs for profile fetching
-      const reposterDids = Array.from(repostsByUri.values()).map(r => r.repostedByDid);
+      const reposterDids = Array.from(repostsByUri.values()).map(r => r.userDid);
       const reposters = await Promise.all(
         reposterDids.map(did => storage.getUser(did))
       );
@@ -1261,7 +1261,7 @@ export class XRPCApi {
           // Handle repost reason
           else if (item.repost) {
             const repost = repostsByUri.get(item.repost.uri);
-            const reposter = repost ? repostersByDid.get(repost.repostedByDid) : null;
+            const reposter = repost ? repostersByDid.get(repost.userDid) : null;
             
             if (repost && reposter) {
               reason = {

@@ -141,6 +141,7 @@ export class Hydrator {
       result.set(repost.uri, {
         uri: repost.uri,
         cid: repost.uri, // Using URI as CID for reposts
+        userDid: repost.userDid, // Include userDid for reposter profile lookup
         record: {
           subject: { uri: repost.postUri },
         },
