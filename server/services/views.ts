@@ -88,7 +88,10 @@ export class Views {
     // Only return reply if both root and parent are successfully loaded
     // This prevents returning { root: undefined, parent: undefined } which causes
     // "Cannot read properties of undefined" errors on the client
-    if (!root || !parent) return;
+    if (!root || !parent) {
+      console.warn(`[VIEWS] Missing reply posts for ${uri}: parent=${post.reply.parent?.uri}, root=${post.reply.root?.uri}`);
+      return;
+    }
 
     return {
       root,

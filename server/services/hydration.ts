@@ -13,14 +13,14 @@ export class Hydrator {
       .map(item => item.repost?.uri)
       .filter(Boolean) as string[];
 
-    // Hydrate posts
+    // Hydrate posts (now includes reply parent/root posts)
     const postsData = await this.hydratePosts(postUris);
     
     // Hydrate reposts
     const repostsData = await this.hydrateReposts(repostUris);
     
     // Hydrate profile viewers if viewer is authenticated
-    // Extract author DIDs from hydrated posts (not post URIs)
+    // Extract author DIDs from ALL hydrated posts (including reply posts)
     const authorDids = Array.from(new Set(
       Array.from(postsData.values()).map((post: any) => post.author?.did).filter(Boolean)
     ));
@@ -105,8 +105,38 @@ export class Hydrator {
       .from(posts)
       .where(inArray(posts.uri, postUris));
 
-    const result = new Map();
+    // Collect reply parent and root URIs for additional fetching
+    const replyParentUris = new Set<string>();
+    const replyRootUris = new Set<string>();
+    
     for (const post of postsData) {
+      if (post.parentUri) {
+        replyParentUris.add(post.parentUri);
+        replyRootUris.add(post.rootUri || post.parentUri);
+      }
+    }
+
+    // Fetch reply parent and root posts
+    let replyPostsData: any[] = [];
+    if (replyParentUris.size > 0 || replyRootUris.size > 0) {
+      const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
+      replyPostsData = await db
+        .select()
+        .from(posts)
+        .where(inArray(posts.uri, replyUris));
+    }
+
+    const result = new Map();
+    
+    // Process all posts (original + reply posts)
+    const allPosts = [...postsData, ...replyPostsData];
+    const processedUris = new Set<string>();
+    
+    for (const post of allPosts) {
+      // Avoid duplicates
+      if (processedUris.has(post.uri)) continue;
+      processedUris.add(post.uri);
+      
       result.set(post.uri, {
         uri: post.uri,
         cid: post.cid,
