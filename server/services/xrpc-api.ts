@@ -5,6 +5,7 @@ import { contentFilter } from "./content-filter";
 import { feedAlgorithm } from "./feed-algorithm";
 import { feedGeneratorClient } from "./feed-generator-client";
 import { pdsClient } from "./pds-client";
+import { pdsDataFetcher } from "./pds-data-fetcher";
 import { labelService } from "./label";
 import { moderationService } from "./moderation";
 import { searchService } from "./search";
@@ -3837,12 +3838,19 @@ export class XRPCApi {
       const postUris = likes.map((like) => like.postUri);
       const posts = await storage.getPosts(postUris);
       
-      // Log if there's a mismatch between liked posts and fetched posts
+      // Log if there's a mismatch between liked posts and fetched posts (for debugging)
       if (posts.length !== postUris.length) {
-        console.warn(`[XRPC] getActorLikes: Expected ${postUris.length} posts, but only found ${posts.length}`);
         const foundUris = new Set(posts.map(p => p.uri));
         const missingUris = postUris.filter(uri => !foundUris.has(uri));
-        console.warn(`[XRPC] Missing posts:`, missingUris);
+        console.log(`[XRPC] getActorLikes: ${missingUris.length} liked posts not yet imported (from other users)`);
+        
+        // Queue missing posts for PDS fetching
+        for (const missingUri of missingUris) {
+          const didMatch = missingUri.match(/^at:\/\/(did:[^\/]+)/);
+          if (didMatch) {
+            pdsDataFetcher.markIncomplete('post', didMatch[1], missingUri);
+          }
+        }
       }
       
       const serializedPosts = await this.serializePosts(

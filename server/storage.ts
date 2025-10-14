@@ -679,7 +679,7 @@ export class DatabaseStorage implements IStorage {
     let builder = db
       .select()
       .from(feedItems)
-      .innerJoin(posts, eq(posts.uri, feedItems.postUri))
+      .leftJoin(posts, eq(posts.uri, feedItems.postUri))
       .where(eq(feedItems.originatorDid, actorDid));
 
     // Apply feed type filtering
@@ -718,10 +718,13 @@ export class DatabaseStorage implements IStorage {
       .limit(limit)
       .execute();
 
-    const items: FeedItem[] = feedItemsData.map((item) => ({
-      post: { uri: item.feed_items.postUri, cid: item.feed_items.cid },
-      repost: item.feed_items.type === 'repost' ? { uri: item.feed_items.uri, cid: item.feed_items.cid } : undefined,
-    }));
+    // Filter out items where post doesn't exist (referenced posts not yet imported)
+    const items: FeedItem[] = feedItemsData
+      .filter((item) => item.posts !== null) // Only include items with existing posts
+      .map((item) => ({
+        post: { uri: item.feed_items.postUri, cid: item.feed_items.cid },
+        repost: item.feed_items.type === 'repost' ? { uri: item.feed_items.uri, cid: item.feed_items.cid } : undefined,
+      }));
 
     const nextCursor = feedItemsData.length > 0 
       ? feedItemsData[feedItemsData.length - 1].feed_items.sortAt.toISOString()

@@ -4,6 +4,7 @@ import { readCar, MemoryBlockstore } from "@atproto/repo";
 import { ReadableRepo } from "@atproto/repo/dist/readable-repo.js";
 import { EventProcessor } from "./event-processor";
 import { storage } from "../storage";
+import { pdsDataFetcher } from "./pds-data-fetcher";
 import { logCollector } from "./log-collector";
 import { sanitizeObject } from "../utils/sanitize";
 import { createHash } from "crypto";
@@ -406,6 +407,10 @@ export class RepoBackfillService {
       this.progress.lastUpdateTime = new Date();
 
       console.log(`[REPO_BACKFILL] ✓ Processed ${did}: ${recordsProcessed} records, ${recordsSkipped} skipped`);
+      
+      // After processing, queue all referenced users with handle.invalid for PDS fetching
+      // This ensures handles are resolved after bulk import completes
+      await this.queueUsersForHandleResolution(Array.from(referencedDids));
 
     } catch (error: any) {
       console.error(`[REPO_BACKFILL] Error fetching ${did}:`, {
@@ -518,6 +523,40 @@ export class RepoBackfillService {
 
   getProgress(): RepoBackfillProgress {
     return { ...this.progress };
+  }
+
+  /**
+   * Queue users with handle.invalid for PDS fetching to resolve their handles
+   */
+  private async queueUsersForHandleResolution(dids: string[]): Promise<void> {
+    console.log(`[REPO_BACKFILL] Checking ${dids.length} users for handle resolution...`);
+    
+    const BATCH_SIZE = 100;
+    let queued = 0;
+    
+    for (let i = 0; i < dids.length; i += BATCH_SIZE) {
+      const batch = dids.slice(i, i + BATCH_SIZE);
+      
+      // Check each user in parallel
+      const results = await Promise.allSettled(
+        batch.map(async (did) => {
+          try {
+            const user = await storage.getUser(did);
+            // Queue for PDS fetching if handle is invalid
+            if (user && user.handle === 'handle.invalid') {
+              pdsDataFetcher.markIncomplete('user', did);
+              queued++;
+            }
+          } catch (error: any) {
+            console.error(`[REPO_BACKFILL] Error checking user ${did}:`, error.message);
+          }
+        })
+      );
+    }
+    
+    if (queued > 0) {
+      console.log(`[REPO_BACKFILL] Queued ${queued} users with handle.invalid for PDS fetching`);
+    }
   }
 }
 
