@@ -644,7 +644,7 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO "genericRecords" (uri, cid, "authorDid", "recordType", record, "createdAt")
+                INSERT INTO generic_records (uri, cid, author_did, record_type, record, created_at)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6)
                 ON CONFLICT (uri) DO NOTHING
                 """,
@@ -666,43 +666,43 @@ class EventProcessor:
         try:
             if collection == "app.bsky.feed.post":
                 await conn.execute("DELETE FROM posts WHERE uri = $1", uri)
-                await conn.execute('DELETE FROM "feedItems" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM feed_items WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.like":
                 like = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM likes WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM likes WHERE uri = $1',
                     uri
                 )
                 if like:
                     await conn.execute("DELETE FROM likes WHERE uri = $1", uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "likeCount" = GREATEST("likeCount" - 1, 0) WHERE "postUri" = $1',
-                        like['postUri']
+                        'UPDATE post_aggregations SET like_count = GREATEST(like_count - 1, 0) WHERE post_uri = $1',
+                        like['post_uri']
                     )
             
             elif collection == "app.bsky.feed.repost":
                 repost = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM reposts WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM reposts WHERE uri = $1',
                     uri
                 )
                 if repost:
                     await conn.execute("DELETE FROM reposts WHERE uri = $1", uri)
-                    await conn.execute('DELETE FROM "feedItems" WHERE uri = $1', uri)
+                    await conn.execute('DELETE FROM feed_items WHERE uri = $1', uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "repostCount" = GREATEST("repostCount" - 1, 0) WHERE "postUri" = $1',
-                        repost['postUri']
+                        'UPDATE post_aggregations SET repost_count = GREATEST(repost_count - 1, 0) WHERE post_uri = $1',
+                        repost['post_uri']
                     )
             
             elif collection == "app.bsky.bookmark":
                 bookmark = await conn.fetchrow(
-                    'SELECT "userDid", "postUri" FROM bookmarks WHERE uri = $1',
+                    'SELECT user_did, post_uri FROM bookmarks WHERE uri = $1',
                     uri
                 )
                 if bookmark:
                     await conn.execute("DELETE FROM bookmarks WHERE uri = $1", uri)
                     await conn.execute(
-                        'UPDATE "postAggregations" SET "bookmarkCount" = GREATEST("bookmarkCount" - 1, 0) WHERE "postUri" = $1',
-                        bookmark['postUri']
+                        'UPDATE post_aggregations SET bookmark_count = GREATEST(bookmark_count - 1, 0) WHERE post_uri = $1',
+                        bookmark['post_uri']
                     )
             
             elif collection == "app.bsky.graph.follow":
@@ -715,16 +715,16 @@ class EventProcessor:
                 await conn.execute("DELETE FROM lists WHERE uri = $1", uri)
             
             elif collection == "app.bsky.graph.listitem":
-                await conn.execute('DELETE FROM "listItems" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM list_items WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.generator":
-                await conn.execute('DELETE FROM "feedGenerators" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM feed_generators WHERE uri = $1', uri)
             
             elif collection == "app.bsky.graph.starterpack":
-                await conn.execute('DELETE FROM "starterPacks" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM starter_packs WHERE uri = $1', uri)
             
             elif collection == "app.bsky.labeler.service":
-                await conn.execute('DELETE FROM "labelerServices" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM labeler_services WHERE uri = $1', uri)
             
             elif collection == "com.atproto.label.label":
                 await conn.execute("DELETE FROM labels WHERE uri = $1", uri)
@@ -733,20 +733,20 @@ class EventProcessor:
                 await conn.execute("DELETE FROM verifications WHERE uri = $1", uri)
             
             elif collection == "app.bsky.feed.postgate":
-                await conn.execute('DELETE FROM "postGates" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM post_gates WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.threadgate":
-                await conn.execute('DELETE FROM "threadGates" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM thread_gates WHERE uri = $1', uri)
             
             elif collection == "app.bsky.graph.listblock":
-                await conn.execute('DELETE FROM "listBlocks" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM list_blocks WHERE uri = $1', uri)
             
             elif collection == "app.bsky.notification.declaration":
-                await conn.execute('DELETE FROM "notificationDeclarations" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM notification_declarations WHERE uri = $1', uri)
             
             else:
                 # Unknown record type - try to delete from generic records
-                await conn.execute('DELETE FROM "genericRecords" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM generic_records WHERE uri = $1', uri)
             
             logger.debug(f"Deleted {collection}: {uri}")
         except Exception as e:
@@ -877,7 +877,7 @@ class EventProcessor:
             try:
                 await conn.execute(
                     """
-                    INSERT INTO users (did, handle, "createdAt")
+                    INSERT INTO users (did, handle, created_at)
                     VALUES ($1, $2, NOW())
                     ON CONFLICT (did) DO UPDATE SET handle = EXCLUDED.handle
                     """,
