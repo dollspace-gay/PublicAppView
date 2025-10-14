@@ -129,12 +129,19 @@ class EventProcessor:
         self.pending_user_op_index: Dict[str, str] = {}  # opUri -> userDid
         self.pending_list_items: Dict[str, List[Dict[str, Any]]] = defaultdict(list)  # listUri -> pending list items
         self.pending_list_item_index: Dict[str, str] = {}  # itemUri -> listUri
+        self.pending_user_creation_ops: Dict[str, List[Dict[str, Any]]] = defaultdict(list)  # did -> ops waiting for user creation
         
         # TTL and metrics
         self.TTL_MS = 24 * 60 * 60 * 1000  # 24 hours
         self.total_pending_count = 0
         self.total_pending_user_ops = 0
         self.total_pending_list_items = 0
+        self.total_pending_user_creation_ops = 0
+        
+        # Concurrent user creation limiting to prevent connection pool exhaustion
+        self.pending_user_creations: Dict[str, asyncio.Task] = {}  # did -> pending task (for deduplication)
+        self.active_user_creations = 0
+        self.MAX_CONCURRENT_USER_CREATIONS = int(os.getenv('MAX_CONCURRENT_USER_CREATIONS', '10'))
         
         # Data collection forbidden cache
         self.data_collection_cache: Dict[str, bool] = {}
@@ -152,6 +159,9 @@ class EventProcessor:
             'pending_list_items_queued': 0,
             'pending_list_items_flushed': 0,
             'pending_list_items_expired': 0,
+            'pending_user_creation_ops_queued': 0,
+            'pending_user_creation_ops_flushed': 0,
+            'pending_user_creation_ops_expired': 0,
         }
         
         # User creation tracking
@@ -231,6 +241,21 @@ class EventProcessor:
             else:
                 del self.pending_list_items[list_uri]
         
+        # Sweep pending user creation ops
+        expired_user_creation_ops = 0
+        for did in list(self.pending_user_creation_ops.keys()):
+            ops = self.pending_user_creation_ops[did]
+            valid_ops = [op for op in ops if (now - op['enqueued_at']) <= self.TTL_MS]
+            removed = len(ops) - len(valid_ops)
+            
+            if removed > 0:
+                expired_user_creation_ops += removed
+            
+            if valid_ops:
+                self.pending_user_creation_ops[did] = valid_ops
+            else:
+                del self.pending_user_creation_ops[did]
+        
         # Update metrics and counts
         if expired > 0:
             self.total_pending_count -= expired
@@ -246,6 +271,11 @@ class EventProcessor:
             self.total_pending_list_items -= expired_list_items
             self.metrics['pending_list_items_expired'] += expired_list_items
             logger.info(f"[TTL_SWEEPER] Expired {expired_list_items} pending list items")
+        
+        if expired_user_creation_ops > 0:
+            self.total_pending_user_creation_ops -= expired_user_creation_ops
+            self.metrics['pending_user_creation_ops_expired'] += expired_user_creation_ops
+            logger.info(f"[TTL_SWEEPER] Expired {expired_user_creation_ops} pending user creation operations")
     
     def enqueue_pending_op(self, post_uri: str, op_data: Dict[str, Any]):
         """Enqueue pending like/repost when post doesn't exist"""
@@ -372,6 +402,65 @@ class EventProcessor:
             self.pending_user_op_index.pop(op_uri, None)
             logger.debug(f"[PENDING] Cancelled pending user op: {op_uri}")
     
+    def enqueue_pending_user_creation_op(self, did: str, repo: str, op: Any):
+        """Enqueue operation for user creation (for ops that come before user is created)"""
+        pending_op = {
+            'repo': repo,
+            'op': op,
+            'enqueued_at': time.time() * 1000
+        }
+        
+        self.pending_user_creation_ops[did].append(pending_op)
+        self.total_pending_user_creation_ops += 1
+        self.metrics['pending_user_creation_ops_queued'] += 1
+        logger.debug(f"[PENDING] Queued op for user creation: {did}")
+    
+    async def flush_pending_user_creation_ops(self, conn: asyncpg.Connection, did: str):
+        """Flush pending user creation operations"""
+        ops = self.pending_user_creation_ops.get(did, [])
+        if not ops:
+            return
+        
+        del self.pending_user_creation_ops[did]
+        logger.info(f"[PENDING] Flushing {len(ops)} pending user creation operations for {did}")
+        
+        for pending_op in ops:
+            try:
+                # Reprocess the original commit operation
+                # Extract the op details and route to the appropriate handler
+                op_data = pending_op['op']
+                repo = pending_op['repo']
+                
+                # Build uri from repo and path
+                path = getattr(op_data, 'path', '')
+                uri = f"at://{repo}/{path}"
+                cid_obj = getattr(op_data, 'cid', None)
+                cid = str(cid_obj) if cid_obj else uri
+                record = getattr(op_data, 'record', None)
+                
+                if record:
+                    record_type = getattr(record, 'py_type', None)
+                    
+                    if record_type == "app.bsky.feed.like":
+                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        if post_uri:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_like(conn, uri, repo, post_uri, created_at, cid)
+                    
+                    elif record_type == "app.bsky.graph.follow":
+                        following_did = getattr(record, 'subject', None)
+                        if following_did:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_follow(conn, uri, repo, following_did, created_at, cid)
+                    
+                    elif record_type == "app.bsky.graph.starterpack":
+                        await self.process_starter_pack(conn, uri, cid, repo, record)
+                
+                self.total_pending_user_creation_ops -= 1
+                self.metrics['pending_user_creation_ops_flushed'] += 1
+            except Exception as e:
+                logger.error(f"[PENDING] Error flushing user creation op: {e}")
+    
     async def flush_pending_list_items(self, conn: asyncpg.Connection, list_uri: str):
         """Flush pending list items"""
         items = self.pending_list_items.get(list_uri, [])
@@ -421,42 +510,98 @@ class EventProcessor:
         return forbidden
     
     async def ensure_user(self, conn: asyncpg.Connection, did: str) -> bool:
-        """Ensure user exists in database, create if needed"""
+        """Ensure user exists in database with deduplication (wrapper method)"""
+        # Check if there's already a pending creation for this user
+        # This prevents duplicate concurrent operations for the same user
+        existing_creation = self.pending_user_creations.get(did)
+        if existing_creation and not existing_creation.done():
+            # Wait for existing creation to complete
+            try:
+                return await existing_creation
+            except:
+                pass
+        
+        # Create the task and store it for deduplication
+        creation_task = asyncio.create_task(self.ensure_user_internal(conn, did))
+        self.pending_user_creations[did] = creation_task
+        
+        # Clean up after completion
+        def cleanup(task):
+            self.pending_user_creations.pop(did, None)
+        
+        creation_task.add_done_callback(cleanup)
+        
+        return await creation_task
+    
+    async def ensure_user_internal(self, conn: asyncpg.Connection, did: str) -> bool:
+        """Internal method to ensure user exists with concurrent creation limiting"""
         try:
-            # Check if user exists
+            # First check if user exists - quick DB query
             user = await conn.fetchrow(
-                "SELECT did FROM users WHERE did = $1",
+                "SELECT did, \"avatarUrl\", \"displayName\" FROM users WHERE did = $1",
                 did
             )
             
             if not user:
-                # Create user with fallback handle
+                # Wait if we're at the concurrent creation limit
+                # This prevents overwhelming the database with too many concurrent user creations
+                while self.active_user_creations >= self.MAX_CONCURRENT_USER_CREATIONS:
+                    await asyncio.sleep(0.01)  # Wait 10ms before checking again
+                
+                self.active_user_creations += 1
+                
                 try:
-                    await conn.execute(
-                        """
-                        INSERT INTO users (did, handle, "createdAt")
-                        VALUES ($1, $2, NOW())
-                        ON CONFLICT (did) DO NOTHING
-                        """,
-                        did,
-                        'handle.invalid'
-                    )
+                    # User doesn't exist - we need to create them
+                    # CRITICAL: We skip DID resolution during initial creation to avoid holding DB connections
+                    # for extended periods, which would exhaust the connection pool
+                    # The user will be marked for profile fetching to get the proper handle later
                     
-                    # Batch logging
-                    self.user_creation_count += 1
-                    if self.user_creation_count % self.USER_BATCH_LOG_SIZE == 0:
-                        logger.info(f"[USER] Created {self.USER_BATCH_LOG_SIZE} users (total: {self.user_creation_count})")
+                    # Use 'handle.invalid' as a temporary fallback (matches Bluesky's approach)
+                    # This will be updated when the profile is fetched with the actual handle
+                    INVALID_HANDLE = 'handle.invalid'
+                    
+                    # Create user with fallback handle - will be updated when profile is fetched
+                    # This keeps the DB operation fast
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO users (did, handle, "createdAt")
+                            VALUES ($1, $2, NOW())
+                            ON CONFLICT (did) DO NOTHING
+                            """,
+                            did,
+                            INVALID_HANDLE
+                        )
                         
-                except asyncpg.exceptions.UniqueViolationError:
-                    # Race condition - user was created by another process
-                    pass
+                        # Note: PDS fetching not implemented in this worker yet
+                        # if not self.skip_pds_fetching:
+                        #     pdsDataFetcher.markIncomplete('user', did)
+                        
+                        # Batch logging: only log every 5000 user creations
+                        self.user_creation_count += 1
+                        if self.user_creation_count % self.USER_BATCH_LOG_SIZE == 0:
+                            logger.info(f"[USER] Created {self.USER_BATCH_LOG_SIZE} users (total: {self.user_creation_count})")
+                    except asyncpg.exceptions.UniqueViolationError:
+                        # If createUser resulted in a unique constraint violation, it means the user was created
+                        # by a parallel process. This is fine - we can continue.
+                        pass
+                finally:
+                    self.active_user_creations -= 1
             
-            # Flush any pending operations for this user
+            # If we reach here, the user *should* exist, either from before or from creation.
+            # Now, flush all pending operations for this user.
             await self.flush_pending_user_ops(conn, did)
-            
+            await self.flush_pending_user_creation_ops(conn, did)
             return True
-        except Exception as e:
-            logger.error(f"Error ensuring user {did}: {e}")
+            
+        except Exception as error:
+            # If createUser resulted in a unique constraint violation, it means the user was created
+            # by a parallel process. We can treat this as a success and flush the queues.
+            if hasattr(error, 'code') and error.code == '23505':
+                await self.flush_pending_user_ops(conn, did)
+                await self.flush_pending_user_creation_ops(conn, did)
+                return True
+            logger.error(f"Error ensuring user {did}: {error}")
             return False
     
     def safe_date(self, value: Optional[str]) -> datetime:
@@ -778,10 +923,18 @@ class EventProcessor:
         user_did: str,
         post_uri: str,
         created_at: datetime,
-        cid: Optional[str] = None
+        cid: Optional[str] = None,
+        repo: Optional[str] = None,
+        op: Optional[Any] = None
     ):
         """Process like creation"""
-        await self.ensure_user(conn, user_did)
+        user_ready = await self.ensure_user(conn, user_did)
+        if not user_ready:
+            # If we have the original op data, queue for later
+            if repo and op:
+                self.enqueue_pending_user_creation_op(user_did, repo, op)
+                logger.debug(f"[PENDING] Queued like {uri} - user not ready")
+            return
         
         # Check data collection forbidden
         if await self.is_data_collection_forbidden(conn, user_did):
@@ -915,10 +1068,19 @@ class EventProcessor:
         follower_did: str,
         following_did: str,
         created_at: datetime,
-        cid: Optional[str] = None
+        cid: Optional[str] = None,
+        repo: Optional[str] = None,
+        op: Optional[Any] = None
     ):
         """Process follow creation"""
-        await self.ensure_user(conn, follower_did)
+        follower_ready = await self.ensure_user(conn, follower_did)
+        if not follower_ready:
+            # If we have the original op data, queue for later
+            if repo and op:
+                self.enqueue_pending_user_creation_op(follower_did, repo, op)
+                logger.debug(f"[PENDING] Queued follow {uri} - follower not ready")
+            return
+        
         await self.ensure_user(conn, following_did)
         
         # Check data collection forbidden
@@ -1179,10 +1341,18 @@ class EventProcessor:
         uri: str,
         cid: str,
         creator_did: str,
-        record: Any
+        record: Any,
+        repo: Optional[str] = None,
+        op: Optional[Any] = None
     ):
         """Process starter pack creation"""
-        await self.ensure_user(conn, creator_did)
+        creator_ready = await self.ensure_user(conn, creator_did)
+        if not creator_ready:
+            # If we have the original op data, queue for later
+            if repo and op:
+                self.enqueue_pending_user_creation_op(creator_did, repo, op)
+                logger.debug(f"[PENDING] Queued starter pack {uri} - creator not ready")
+            return
         
         # Check data collection forbidden
         if await self.is_data_collection_forbidden(conn, creator_did):
@@ -1666,7 +1836,7 @@ class EventProcessor:
                                     post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
                                     if post_uri:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_like(conn, uri, repo, post_uri, created_at, cid)
+                                        await self.process_like(conn, uri, repo, post_uri, created_at, cid, repo, op)
                                 
                                 elif record_type == "app.bsky.feed.repost":
                                     post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
@@ -1684,7 +1854,7 @@ class EventProcessor:
                                     following_did = getattr(record, 'subject', None)
                                     if following_did:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_follow(conn, uri, repo, following_did, created_at, cid)
+                                        await self.process_follow(conn, uri, repo, following_did, created_at, cid, repo, op)
                                 
                                 elif record_type == "app.bsky.graph.block":
                                     blocked_did = getattr(record, 'subject', None)
@@ -1709,7 +1879,7 @@ class EventProcessor:
                                     await self.process_feed_generator(conn, uri, cid, repo, record)
                                 
                                 elif record_type == "app.bsky.graph.starterpack":
-                                    await self.process_starter_pack(conn, uri, cid, repo, record)
+                                    await self.process_starter_pack(conn, uri, cid, repo, record, repo, op)
                                 
                                 elif record_type == "app.bsky.labeler.service":
                                     await self.process_labeler_service(conn, uri, cid, repo, record)
@@ -1807,12 +1977,15 @@ class EventProcessor:
         return retried_count
     
     def get_metrics(self) -> Dict[str, Any]:
-        """Get current metrics"""
+        """Get current metrics (matches TypeScript interface)"""
         return {
             **self.metrics,
             'pending_count': self.total_pending_count,
             'pending_user_ops_count': self.total_pending_user_ops,
             'pending_list_items_count': self.total_pending_list_items,
+            'pending_user_creation_ops_count': self.total_pending_user_creation_ops,
+            'active_user_creations': self.active_user_creations,
+            'pending_user_creation_deduplication': len(self.pending_user_creations),
             'event_count': self.event_count,
             'user_creation_count': self.user_creation_count,
         }
