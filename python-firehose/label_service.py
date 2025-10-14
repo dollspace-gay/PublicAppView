@@ -30,7 +30,7 @@ class LabelService:
     ) -> Dict[str, Any]:
         """Apply a label to a subject"""
         uri = f"at://{src}/app.bsky.labeler.label/{int(datetime.now(timezone.utc).timestamp() * 1000)}"
-        created_at = created_at or datetime.now(timezone.utc)
+        created_at = created_at or datetime.now(timezone.utc).replace(tzinfo=None)
         
         async with self.db_pool.acquire() as conn:
             try:
