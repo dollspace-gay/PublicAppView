@@ -179,6 +179,22 @@ export const xrpcProxyMiddleware = async (
 
   } catch (error) {
     console.error(`[XRPC_PROXY] Error proxying request:`, error);
+    
+    // Handle network/fetch errors gracefully
+    if (error instanceof Error) {
+      if (error.message.includes('fetch') || 
+          error.message.includes('network') || 
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('ETIMEDOUT') ||
+          error.message.includes('upstream') ||
+          error.message.toLowerCase().includes('unreachable')) {
+        return res.status(502).json({ 
+          error: 'UpstreamServiceUnavailable', 
+          message: 'The upstream service is temporarily unavailable. Please try again later.'
+        });
+      }
+    }
+    
     return next(error);
   }
 };

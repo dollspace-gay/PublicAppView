@@ -630,6 +630,20 @@ export class XRPCApi {
     if (error instanceof Error && error.message.includes('NotFound')) {
       return res.status(404).json({ error: 'NotFound', message: error.message });
     }
+    // Handle network/fetch errors and upstream service failures
+    if (error instanceof Error) {
+      if (error.message.includes('fetch') || 
+          error.message.includes('network') || 
+          error.message.includes('ECONNREFUSED') ||
+          error.message.includes('ETIMEDOUT') ||
+          error.message.includes('upstream') ||
+          error.message.toLowerCase().includes('unreachable')) {
+        return res.status(502).json({ 
+          error: 'UpstreamServiceUnavailable', 
+          message: 'Upstream service is temporarily unavailable. Please try again later.'
+        });
+      }
+    }
     res
       .status(500)
       .json({ error: 'InternalServerError', message: 'An internal error occurred' });
