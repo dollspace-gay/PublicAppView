@@ -14,5 +14,11 @@ redis[hiredis]>=5.0.0
 # Async PostgreSQL driver for direct database access
 asyncpg>=0.30.0
 
+# HTTP client for PDS data fetching and DID resolution
+aiohttp>=3.9.0
+
+# DNS resolution for DID handle verification
+aiodns>=3.1.0
+
 # Additional utilities
 python-dotenv>=1.0.0

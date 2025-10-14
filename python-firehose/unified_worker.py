@@ -39,6 +39,11 @@ from atproto import (
     parse_subscribe_repos_message,
 )
 
+# Import new services for full parity with TypeScript
+from did_resolver import did_resolver
+from pds_data_fetcher import PDSDataFetcher
+from label_service import LabelService
+
 
 # Configure logging
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -121,6 +126,11 @@ class EventProcessor:
         self.db = db_pool
         self.event_count = 0
         self.start_time = time.time()
+        
+        # Initialize services (matches TypeScript implementation)
+        self.pds_data_fetcher = None  # Will be initialized async
+        self.label_service = None  # Will be initialized async
+        self.skip_pds_fetching = False  # Flag to disable PDS fetching during bulk operations
         
         # Pending operations (matches TypeScript implementation)
         self.pending_ops: Dict[str, List[Dict[str, Any]]] = defaultdict(list)  # postUri -> pending likes/reposts
@@ -573,9 +583,9 @@ class EventProcessor:
                             INVALID_HANDLE
                         )
                         
-                        # Note: PDS fetching not implemented in this worker yet
-                        # if not self.skip_pds_fetching:
-                        #     pdsDataFetcher.markIncomplete('user', did)
+                        # Mark user for PDS profile fetching to get proper handle and avatar/banner
+                        if not self.skip_pds_fetching and self.pds_data_fetcher:
+                            self.pds_data_fetcher.mark_incomplete('user', did)
                         
                         # Batch logging: only log every 5000 user creations
                         self.user_creation_count += 1
@@ -1476,7 +1486,7 @@ class EventProcessor:
         src: str,
         record: Any
     ):
-        """Process label (moderation) creation"""
+        """Process label (moderation) creation - using label service for full parity"""
         subject = getattr(record, 'uri', None) or getattr(record, 'did', None)
         val = getattr(record, 'val', '')
         neg = getattr(record, 'neg', False)
@@ -1493,15 +1503,20 @@ class EventProcessor:
             return
         
         try:
-            await conn.execute(
-                """
-                INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (uri) DO NOTHING
-                """,
-                uri, src, subject, val, neg, created_at
-            )
-            logger.info(f"[LABEL] Applied label {val} to {subject} from {src}")
+            # Use label service if available (creates label + label event for real-time broadcasting)
+            if self.label_service:
+                await self.label_service.apply_label(src, subject, val, neg, created_at)
+            else:
+                # Fallback to direct DB insert (for backwards compatibility)
+                await conn.execute(
+                    """
+                    INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (uri) DO NOTHING
+                    """,
+                    uri, src, subject, val, neg, created_at
+                )
+                logger.info(f"[LABEL] Applied label {val} to {subject} from {src}")
         except asyncpg.exceptions.UniqueViolationError:
             logger.debug(f"[LABEL] Skipped duplicate label {val} for {subject}")
         except Exception as e:
@@ -2013,17 +2028,35 @@ class UnifiedWorker:
         self.start_time = time.time()
         
     async def initialize(self):
-        """Initialize database connection pool"""
+        """Initialize database connection pool and services"""
         logger.info("Initializing unified worker...")
         
         # Create database pool
         self.db_pool = DatabasePool(self.database_url, self.db_pool_size)
         await self.db_pool.connect()
         
+        # Initialize DID resolver
+        await did_resolver.initialize()
+        logger.info("DID resolver initialized")
+        
+        # Initialize PDS data fetcher
+        pds_data_fetcher = PDSDataFetcher(self.db_pool)
+        await pds_data_fetcher.initialize()
+        logger.info("PDS data fetcher initialized")
+        
+        # Initialize label service
+        label_service = LabelService(self.db_pool)
+        logger.info("Label service initialized")
+        
         # Create event processor
         self.event_processor = EventProcessor(self.db_pool)
         
-        logger.info("Unified worker initialized")
+        # Wire up services to event processor
+        self.event_processor.pds_data_fetcher = pds_data_fetcher
+        self.event_processor.label_service = label_service
+        pds_data_fetcher.event_processor = self.event_processor
+        
+        logger.info("Unified worker initialized with full feature parity")
     
     def on_message_handler(self, message: firehose_models.MessageFrame) -> None:
         """Handle incoming firehose message (sync callback)"""
@@ -2087,6 +2120,15 @@ class UnifiedWorker:
             logger.info("Final metrics:")
             for key, value in metrics.items():
                 logger.info(f"  {key}: {value:,}")
+            
+            # Close PDS data fetcher
+            if self.event_processor.pds_data_fetcher:
+                await self.event_processor.pds_data_fetcher.close()
+                logger.info("PDS data fetcher closed")
+        
+        # Close DID resolver
+        await did_resolver.close()
+        logger.info("DID resolver closed")
         
         # Close database pool
         if self.db_pool:
