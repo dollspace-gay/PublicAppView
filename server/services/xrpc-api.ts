@@ -795,17 +795,28 @@ export class XRPCApi {
                 }
               }
             }));
-          } else if (embedData.$type === 'app.bsky.embed.external' && embedData.external?.thumb?.ref?.$link) {
-            transformedEmbed.external = {
-              ...embedData.external,
-              thumb: {
-                ...embedData.external.thumb,
-                ref: {
-                  ...embedData.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
-                }
+          } else if (embedData.$type === 'app.bsky.embed.external') {
+            // Handle external embeds
+            const external = { ...embedData.external };
+            
+            // Only transform thumbnail if it exists and has a valid ref
+            if (embedData.external?.thumb?.ref?.$link) {
+              const thumbUrl = this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
+              if (thumbUrl) {
+                external.thumb = {
+                  ...embedData.external.thumb,
+                  ref: {
+                    ...embedData.external.thumb.ref,
+                    link: thumbUrl
+                  }
+                };
+              } else {
+                // Remove invalid thumb
+                delete external.thumb;
               }
-            };
+            }
+            
+            transformedEmbed.external = external;
           }
           
           record.embed = transformedEmbed;
@@ -1024,18 +1035,28 @@ export class XRPCApi {
                 }
               }
             }));
-          } else if (post.embed.$type === 'app.bsky.embed.external' && post.embed.external?.thumb?.ref?.$link) {
-            // Handle external embeds with thumbnails
-            transformedEmbed.external = {
-              ...post.embed.external,
-              thumb: {
-                ...post.embed.external.thumb,
-                ref: {
-                  ...post.embed.external.thumb.ref,
-                  link: this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req)
-                }
+          } else if (post.embed.$type === 'app.bsky.embed.external') {
+            // Handle external embeds
+            const external = { ...post.embed.external };
+            
+            // Only transform thumbnail if it exists and has a valid ref
+            if (post.embed.external?.thumb?.ref?.$link) {
+              const thumbUrl = this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
+              if (thumbUrl) {
+                external.thumb = {
+                  ...post.embed.external.thumb,
+                  ref: {
+                    ...post.embed.external.thumb.ref,
+                    link: thumbUrl
+                  }
+                };
+              } else {
+                // Remove invalid thumb
+                delete external.thumb;
               }
-            };
+            }
+            
+            transformedEmbed.external = external;
           }
           
           record.embed = transformedEmbed;
@@ -1146,10 +1167,16 @@ export class XRPCApi {
       // Filter out any null entries (defensive - shouldn't happen with handle.invalid fallback)
       const validPosts = serializedPosts.filter(post => post !== null);
       
-      res.json({
+      // Ensure we always return a valid response structure
+      const response = {
         cursor: oldestPost ? oldestPost.indexedAt.toISOString() : undefined,
         feed: validPosts.map((post) => ({ post })),
-      });
+      };
+      
+      // Log the response structure for debugging
+      console.log(`[TIMELINE_DEBUG] Sending response with ${response.feed.length} posts`);
+      
+      res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getTimeline');
     }

@@ -184,8 +184,8 @@ export class EmbedResolver {
           } else {
             avatarUri = this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
           }
-          // Only include avatar field if we got a valid URI (not empty string)
-          if (avatarUri && avatarUri.length > 0) {
+          // Only include avatar field if we got a valid URI
+          if (avatarUri) {
             authorView.avatar = avatarUri;
           }
         }
@@ -288,26 +288,39 @@ export class EmbedResolver {
       images: (embed.images || []).map((img: any) => {
         const thumb = this.blobToCdnUrl(img.image, authorDid, 'feed_thumbnail');
         const fullsize = this.blobToCdnUrl(img.image, authorDid, 'feed_fullsize');
+        
+        // Only include images with valid URLs
+        if (!thumb || !fullsize) {
+          return null;
+        }
+        
         return {
-          thumb: thumb || undefined,
-          fullsize: fullsize || undefined,
+          thumb,
+          fullsize,
           alt: img.alt || '',
           aspectRatio: img.aspectRatio
         };
-      }).filter((img: any) => img.thumb && img.fullsize) // Only include images with valid URLs
+      }).filter((img: any) => img !== null) // Filter out null entries
     };
   }
 
   private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
-    const thumbUrl = embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : '';
+    const thumbUrl = embed.external?.thumb ? this.blobToCdnUrl(embed.external.thumb, authorDid, 'feed_thumbnail') : undefined;
+    
+    const external: any = {
+      uri: embed.external?.uri || '',
+      title: embed.external?.title || '',
+      description: embed.external?.description || ''
+    };
+    
+    // Only include thumb if we have a valid URL
+    if (thumbUrl && thumbUrl.length > 0) {
+      external.thumb = thumbUrl;
+    }
+    
     return {
       $type: 'app.bsky.embed.external#view',
-      external: {
-        uri: embed.external?.uri || '',
-        title: embed.external?.title || '',
-        description: embed.external?.description || '',
-        ...(thumbUrl && { thumb: thumbUrl })
-      }
+      external
     };
   }
 
@@ -316,9 +329,12 @@ export class EmbedResolver {
     
     // Generate playlist and thumbnail URLs using VideoUriBuilder
     const playlist = this.videoUriBuilder.playlist({ did: authorDid, cid });
-    const thumbnail = embed.thumbnail 
+    const thumbnailFromEmbed = embed.thumbnail 
       ? this.blobToCdnUrl(embed.thumbnail, authorDid, 'feed_thumbnail')
-      : this.videoUriBuilder.thumbnail({ did: authorDid, cid });
+      : undefined;
+    
+    // Use video URI builder thumbnail as fallback if embed thumbnail is missing
+    const thumbnail = thumbnailFromEmbed || this.videoUriBuilder.thumbnail({ did: authorDid, cid });
     
     return {
       $type: 'app.bsky.embed.video#view',
@@ -344,21 +360,21 @@ export class EmbedResolver {
     return undefined;
   }
 
-  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
-    if (!blob || !blob.ref) return '';
+  private blobToCdnUrl(blob: any, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
+    if (!blob || !blob.ref) return undefined;
     const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
     
     // Check for the string "undefined" which can happen with improper data extraction
-    if (!cid || cid === 'undefined') return '';
+    if (!cid || cid === 'undefined') return undefined;
     
     // Use local image proxy to fetch from Bluesky CDN
     return `/img/${preset}/plain/${did}/${cid}@jpeg`;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL
-  private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string {
+  private directCidToCdnUrl(cid: string, did: string, preset: 'feed_thumbnail' | 'feed_fullsize' | 'avatar' | 'banner' = 'feed_thumbnail'): string | undefined {
     // Check for falsy values and the literal string "undefined"
-    if (!cid || cid === 'undefined') return '';
+    if (!cid || cid === 'undefined') return undefined;
     
     // Use local image proxy to fetch from Bluesky CDN
     return `/img/${preset}/plain/${did}/${cid}@jpeg`;
