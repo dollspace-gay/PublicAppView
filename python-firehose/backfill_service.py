@@ -17,6 +17,7 @@ import signal
 import sys
 import time
 import psutil
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from atproto import FirehoseSubscribeReposClient, parse_subscribe_repos_message, firehose_models, models
@@ -209,30 +210,63 @@ class BackfillService:
         # Create firehose client with cursor
         logger.info("[BACKFILL] Creating Firehose client...")
         
-        # Note: The Python atproto library doesn't support cursor parameter directly
-        # We'll need to handle cursor tracking manually in the message handler
+        # Track expected sequence for filtering
         self.current_expected_seq = start_cursor if start_cursor > 0 else None
         
-        # Start firehose client
-        self.client = FirehoseSubscribeReposClient()
+        # Create client with cursor parameter if resuming
+        params = None
+        if start_cursor and start_cursor > 0:
+            params = models.ComAtprotoSyncSubscribeRepos.Params(cursor=start_cursor)
+            logger.info(f"[BACKFILL] Resuming from cursor: {start_cursor}")
         
-        # Set up message handler
+        self.client = FirehoseSubscribeReposClient(params)
+        
+        # Get the current event loop for scheduling tasks
+        main_loop = asyncio.get_event_loop()
+        
+        # Set up synchronous message handler that schedules work on the main loop
         def on_message_handler(message: firehose_models.MessageFrame):
-            """Handle incoming firehose message"""
+            """Handle incoming firehose message (synchronous)."""
             try:
-                # Process message asynchronously
-                asyncio.create_task(self.process_message(message))
+                # Schedule the async processing on the main event loop
+                # Use call_soon_threadsafe since client.start() runs in a thread
+                asyncio.run_coroutine_threadsafe(
+                    self.process_message(message),
+                    main_loop
+                )
             except Exception as e:
                 logger.error(f"[BACKFILL] Error scheduling message processing: {e}")
         
-        logger.info("[BACKFILL] Starting Firehose client...")
+        logger.info("[BACKFILL] Starting Firehose client in background thread...")
         
+        # Run the blocking client.start() in a separate thread
+        # This allows the main event loop to continue processing async tasks
+        client_thread = threading.Thread(
+            target=lambda: self.client.start(on_message_handler),
+            daemon=True,
+            name="FirehoseClientThread"
+        )
+        client_thread.start()
+        logger.info("[BACKFILL] Firehose client thread started")
+        
+        # Keep the async function running while backfill is active
+        # This allows the event loop to process the scheduled async tasks
         try:
-            # Run client (blocking)
-            self.client.start(on_message_handler)
+            while self.is_running and client_thread.is_alive():
+                await asyncio.sleep(1)
+                # Periodic status check
+                if self.progress.events_received > 0 and self.progress.events_received % 10000 == 0:
+                    logger.debug(f"[BACKFILL] Thread alive, processed {self.progress.events_processed} events")
         except Exception as e:
-            logger.error(f"[BACKFILL] Fatal Firehose error: {e}")
+            logger.error(f"[BACKFILL] Error in main loop: {e}")
             raise
+        finally:
+            # Clean up
+            if self.client:
+                try:
+                    self.client.stop()
+                except:
+                    pass
     
     async def process_message(self, message: firehose_models.MessageFrame):
         """Process a single firehose message"""
