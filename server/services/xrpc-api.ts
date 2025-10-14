@@ -684,8 +684,8 @@ export class XRPCApi {
   }
 
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize', req?: Request): string | undefined {
-    // Check for falsy values, empty strings, and the literal string "undefined"
-    if (!blobCid || blobCid === 'undefined' || blobCid.trim() === '') return undefined;
+    // Check for falsy values, empty strings, and the literal string "undefined" or "null"
+    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '') return undefined;
     
     // Use local image proxy to fetch from Bluesky CDN
     const baseUrl = this.getBaseUrl(req);
