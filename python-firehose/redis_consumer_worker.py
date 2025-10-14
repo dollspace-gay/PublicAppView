@@ -962,6 +962,18 @@ class RedisConsumerWorker:
         self.event_processor: Optional[EventProcessor] = None
         self.running = False
         
+        # Cluster metrics tracking (matches TypeScript implementation)
+        self.metrics_key = "firehose:metrics"
+        self.metrics_buffer = {
+            "#commit": 0,
+            "#identity": 0,
+            "#account": 0,
+            "totalEvents": 0,
+            "errors": 0,
+        }
+        self.last_metrics_flush = time.time()
+        self.metrics_flush_interval = 0.5  # Flush every 500ms
+        
     async def initialize(self):
         """Initialize connections"""
         logger.info("Initializing Redis consumer worker...")
@@ -998,7 +1010,69 @@ class RedisConsumerWorker:
         # Create event processor
         self.event_processor = EventProcessor(self.db_pool)
         
+        # Start metrics flushing background task
+        asyncio.create_task(self.flush_metrics_periodically())
+        
         logger.info("Worker initialized successfully")
+    
+    async def flush_metrics_periodically(self):
+        """Periodically flush metrics buffer to Redis"""
+        while self.running:
+            try:
+                await asyncio.sleep(self.metrics_flush_interval)
+                await self.flush_metrics()
+            except Exception as e:
+                logger.error(f"Error in metrics flush task: {e}")
+    
+    async def flush_metrics(self):
+        """Flush buffered metrics to Redis cluster-wide metrics"""
+        if not self.redis_client:
+            return
+        
+        # Check if there are any metrics to flush
+        if self.metrics_buffer["totalEvents"] == 0:
+            return
+        
+        try:
+            # Use pipeline for atomic update
+            pipeline = self.redis_client.pipeline()
+            
+            # Increment all buffered metrics
+            if self.metrics_buffer["totalEvents"] > 0:
+                pipeline.hincrby(self.metrics_key, "totalEvents", self.metrics_buffer["totalEvents"])
+            if self.metrics_buffer["#commit"] > 0:
+                pipeline.hincrby(self.metrics_key, "#commit", self.metrics_buffer["#commit"])
+            if self.metrics_buffer["#identity"] > 0:
+                pipeline.hincrby(self.metrics_key, "#identity", self.metrics_buffer["#identity"])
+            if self.metrics_buffer["#account"] > 0:
+                pipeline.hincrby(self.metrics_key, "#account", self.metrics_buffer["#account"])
+            if self.metrics_buffer["errors"] > 0:
+                pipeline.hincrby(self.metrics_key, "errors", self.metrics_buffer["errors"])
+            
+            await pipeline.execute()
+            
+            # Reset buffer
+            self.metrics_buffer = {
+                "#commit": 0,
+                "#identity": 0,
+                "#account": 0,
+                "totalEvents": 0,
+                "errors": 0,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error flushing metrics to Redis: {e}")
+    
+    def increment_cluster_metric(self, event_type: str):
+        """Increment cluster-wide metrics (buffered for periodic flush)"""
+        metric_type = f"#{event_type}"
+        if metric_type in self.metrics_buffer:
+            self.metrics_buffer[metric_type] += 1
+            self.metrics_buffer["totalEvents"] += 1
+    
+    def increment_cluster_error(self):
+        """Increment cluster-wide error count"""
+        self.metrics_buffer["errors"] += 1
     
     async def consume_events(self, pipeline_id: int):
         """Consumer pipeline - runs in parallel"""
@@ -1023,6 +1097,7 @@ class RedisConsumerWorker:
                 # Process messages
                 for stream_name, messages in results:
                     for message_id, fields in messages:
+                        success = False
                         try:
                             # Parse event from Redis
                             event_type = fields.get('type')
@@ -1031,10 +1106,17 @@ class RedisConsumerWorker:
                             # Route to appropriate handler
                             if event_type == "commit":
                                 await self.event_processor.process_commit(event_data)
+                                success = True
                             elif event_type == "identity":
                                 await self.event_processor.process_identity(event_data)
+                                success = True
                             elif event_type == "account":
                                 await self.event_processor.process_account(event_data)
+                                success = True
+                            
+                            # Update cluster-wide metrics (buffered, flushed every 500ms)
+                            if success:
+                                self.increment_cluster_metric(event_type)
                             
                             # Acknowledge message
                             await self.redis_client.xack(
@@ -1045,6 +1127,8 @@ class RedisConsumerWorker:
                         
                         except Exception as e:
                             logger.error(f"Error processing message {message_id}: {e}")
+                            # Increment error count
+                            self.increment_cluster_error()
                             # Still acknowledge to prevent retry loop
                             await self.redis_client.xack(
                                 self.stream_key,
@@ -1086,6 +1170,9 @@ class RedisConsumerWorker:
         """Gracefully stop the worker"""
         logger.info("Stopping Redis consumer worker...")
         self.running = False
+        
+        # Flush any remaining metrics
+        await self.flush_metrics()
         
         # Close connections
         if self.redis_client:
