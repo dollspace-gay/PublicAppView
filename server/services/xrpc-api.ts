@@ -1686,9 +1686,9 @@ export class XRPCApi {
             };
           }
           viewer.blockedBy = viewerState.blockedBy;
-          viewer.blocking = viewerState.blocking || undefined;
-          viewer.following = viewerState.following || undefined;
-          viewer.followedBy = viewerState.followedBy || undefined;
+          if (viewerState.blocking) viewer.blocking = viewerState.blocking;
+          if (viewerState.following) viewer.following = viewerState.following;
+          if (viewerState.followedBy) viewer.followedBy = viewerState.followedBy;
         }
 
         const profileView: any = {
@@ -1885,13 +1885,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(f.followingDid)
               : null;
-            const viewer = {
+            const viewer: any = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || undefined,
-              following: viewerState?.following || undefined,
-              followedBy: viewerState?.followedBy || undefined,
             };
+            if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -1960,13 +1960,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(f.followerDid)
               : null;
-            const viewer = {
+            const viewer: any = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || undefined,
-              following: viewerState?.following || undefined,
-              followedBy: viewerState?.followedBy || undefined,
             };
+            if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -3880,13 +3880,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(like.userDid)
               : null;
-            const viewer = {
+            const viewer: any = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || undefined,
-              following: viewerState?.following || undefined,
-              followedBy: viewerState?.followedBy || undefined,
             };
+            if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
             return {
               actor: {
@@ -3936,13 +3936,13 @@ export class XRPCApi {
             const viewerState = viewerDid
               ? relationships.get(repost.userDid)
               : null;
-            const viewer = {
+            const viewer: any = {
               muted: viewerState ? !!viewerState.muting : false,
               blockedBy: viewerState?.blockedBy || false,
-              blocking: viewerState?.blocking || undefined,
-              following: viewerState?.following || undefined,
-              followedBy: viewerState?.followedBy || undefined,
             };
+            if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
             return {
               did: user.did,

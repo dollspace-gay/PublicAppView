@@ -358,9 +358,10 @@ export class HydrationDataLoader {
         
         if (validKeys.length === 0) {
           return keys.map(() => ({
-            following: false,
+            following: null,
             followingUri: null,
-            blocking: false,
+            followedBy: null,
+            blocking: null,
             blockedBy: false,
             muted: false
           }));
@@ -373,9 +374,10 @@ export class HydrationDataLoader {
         // Guard against empty arrays
         if (actorDids.length === 0 || viewerDids.length === 0) {
           return keys.map(() => ({
-            following: false,
+            following: null,
             followingUri: null,
-            blocking: false,
+            followedBy: null,
+            blocking: null,
             blockedBy: false,
             muted: false
           }));
@@ -386,8 +388,8 @@ export class HydrationDataLoader {
 
         // Fetch all relationship data in parallel using simple AND queries
         // We've already checked that actorDids and viewerDids are non-empty above
-        const [followsResult, blocksResult, mutesResult] = await Promise.all([
-          // Follows: viewer following the actors
+        const [followingResult, followedByResult, blocksResult, mutesResult] = await Promise.all([
+          // Following: viewer following the actors
           singleViewer
             ? db.select()
                 .from(follows)
@@ -400,6 +402,21 @@ export class HydrationDataLoader {
                 .where(and(
                   inArray(follows.followerDid, viewerDids),
                   inArray(follows.followingDid, actorDids)
+                )),
+          
+          // Followed by: actors following the viewer
+          singleViewer
+            ? db.select()
+                .from(follows)
+                .where(and(
+                  eq(follows.followingDid, singleViewer),
+                  inArray(follows.followerDid, actorDids)
+                ))
+            : db.select()
+                .from(follows)
+                .where(and(
+                  inArray(follows.followingDid, viewerDids),
+                  inArray(follows.followerDid, actorDids)
                 )),
           
           // Blocks: need to check both directions
@@ -450,11 +467,12 @@ export class HydrationDataLoader {
         ]);
 
         // Create lookup maps using composite keys (actorDid:viewerDid)
-        const followMap = new Map(followsResult.map(f => [`${f.followingDid}:${f.followerDid}`, f.uri]));
+        const followingMap = new Map(followingResult.map(f => [`${f.followingDid}:${f.followerDid}`, f.uri]));
+        const followedByMap = new Map(followedByResult.map(f => [`${f.followerDid}:${f.followingDid}`, f.uri]));
         const blockingMap = new Map(
           blocksResult
             .filter(b => actorDids.includes(b.blockedDid) && viewerDids.includes(b.blockerDid))
-            .map(b => [`${b.blockedDid}:${b.blockerDid}`, true])
+            .map(b => [`${b.blockedDid}:${b.blockerDid}`, b.uri])
         );
         const blockedByMap = new Map(
           blocksResult
@@ -465,15 +483,17 @@ export class HydrationDataLoader {
 
         // Return results in the same order as keys
         return keys.map(key => {
-          const followUri = followMap.get(key as string);
-          const blocking = blockingMap.has(key as string);
+          const followingUri = followingMap.get(key as string);
+          const followedByUri = followedByMap.get(key as string);
+          const blockingUri = blockingMap.get(key as string);
           const blockedBy = blockedByMap.has(key as string);
           const muted = muteMap.has(key as string);
 
           return {
-            following: !!followUri,
-            followingUri: followUri || null,
-            blocking,
+            following: followingUri || null,
+            followingUri: followingUri || null,
+            followedBy: followedByUri || null,
+            blocking: blockingUri || null,
             blockedBy,
             muted
           };
