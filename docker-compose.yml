@@ -175,10 +175,11 @@ services:
       - ADMIN_DIDS=did:plc:abc123xyz,admin.bsky.social,did:plc:def456uvw
       - OSPREY_ENABLED=${OSPREY_ENABLED:-false}
       - ENHANCED_HYDRATION_ENABLED=true
-      - CONSTELLATION_ENABLED=true
-      - CONSTELLATION_URL=https://constellation.microcosm.blue
-      - CONSTELLATION_TIMEOUT=15000
-      - CONSTELLATION_CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
+      - CONSTELLATION_ENABLED=${CONSTELLATION_ENABLED:-true}
+      - CONSTELLATION_URL=${CONSTELLATION_URL:-http://constellation-local:8080}
+      - CONSTELLATION_LOCAL=${CONSTELLATION_LOCAL:-true}
+      - CONSTELLATION_TIMEOUT=${CONSTELLATION_TIMEOUT:-10000}
+      - CONSTELLATION_CACHE_TTL=${CONSTELLATION_CACHE_TTL:-30}
       # Worker mode control
       - FIREHOSE_ENABLED=${FIREHOSE_ENABLED:-false}
       - TYPESCRIPT_WORKERS_ENABLED=${TYPESCRIPT_WORKERS_ENABLED:-false}
@@ -195,20 +196,84 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Constellation Bridge - Enhanced interaction statistics
-  # Only starts if CONSTELLATION_ENABLED=true in .env
+  # Constellation Local - Self-hosted backlink index
+  # Provides accurate interaction statistics from local AT Protocol firehose
+  # Set CONSTELLATION_ENABLED=false to disable (uses remote API instead)
+  constellation-local:
+    build:
+      context: ./microcosm-bridge/constellation
+      dockerfile: Dockerfile
+      args:
+        CONSTELLATION_VERSION: ${CONSTELLATION_VERSION:-main}
+    environment:
+      # Jetstream connection (AT Protocol event stream)
+      - JETSTREAM_URL=${JETSTREAM_URL:-wss://jetstream2.us-east.bsky.network/subscribe}
+      
+      # API configuration
+      - BIND_ADDRESS=0.0.0.0:8080
+      - API_PORT=8080
+      
+      # Data storage
+      - DATA_PATH=/data
+      
+      # Performance tuning
+      - RUST_LOG=${CONSTELLATION_LOG_LEVEL:-info}
+      - RUST_BACKTRACE=${RUST_BACKTRACE:-0}
+      
+      # User agent for Jetstream
+      - USER_AGENT=Constellation-Local/1.0 (+https://github.com/microcosm-blue/microcosm-rs)
+    
+    volumes:
+      # Persistent storage for RocksDB index (~2GB/day)
+      - constellation-data:/data
+    
+    ports:
+      - "${CONSTELLATION_PORT:-8080}:8080"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s  # Allow time for initial sync
+      retries: 3
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          memory: ${CONSTELLATION_MEMORY_LIMIT:-2G}
+        reservations:
+          memory: ${CONSTELLATION_MEMORY_RESERVATION:-512M}
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    profiles:
+      - constellation  # Enable with: docker-compose --profile constellation up -d
+      - all
+
+  # Constellation Bridge - Enhanced interaction statistics client
+  # Connects to local Constellation instance for accurate interaction counts
   constellation-bridge:
     build: ./microcosm-bridge/constellation-client
     environment:
-      - CONSTELLATION_URL=${CONSTELLATION_URL:-https://constellation.microcosm.blue}
-      - CONSTELLATION_TIMEOUT=5000
+      # Use local instance by default (faster, no rate limits)
+      - CONSTELLATION_URL=${CONSTELLATION_URL:-http://constellation-local:8080}
+      - CONSTELLATION_TIMEOUT=${CONSTELLATION_TIMEOUT:-10000}
+      - CONSTELLATION_LOCAL=${CONSTELLATION_LOCAL:-true}
       - REDIS_URL=redis://redis:6379
       - CACHE_ENABLED=true
-      - CACHE_TTL=${CONSTELLATION_CACHE_TTL:-60}
+      - CACHE_TTL=${CONSTELLATION_CACHE_TTL:-30}
       - HEALTH_PORT=3003
-      - MAX_REQUESTS_PER_SECOND=10
+      - MAX_REQUESTS_PER_SECOND=${CONSTELLATION_MAX_RPS:-100}
       - USER_AGENT=AppView-Constellation-Bridge/1.0 (@appview.bsky.social)
     depends_on:
+      constellation-local:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -218,7 +283,13 @@ services:
       start_period: 40s
       retries: 3
     restart: unless-stopped
-    # Note: Set CONSTELLATION_ENABLED=false in your environment to disable Constellation features
+    profiles:
+      - constellation
+      - all
+    # Note: To use remote API instead, set:
+    #   CONSTELLATION_URL=https://constellation.microcosm.blue
+    #   CONSTELLATION_LOCAL=false
 
 volumes:
   postgres_data:
+  constellation-data:
