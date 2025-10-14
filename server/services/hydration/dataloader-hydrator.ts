@@ -188,7 +188,7 @@ export class DataLoaderHydrator {
 
       // Propagate labels if needed
       const propagatedLabels = await this.labelPropagator.propagateActorLabels(
-        Array.from(actorDids),
+        Array.from(authorDids),
         Array.from(allPostUris)
       );
 
