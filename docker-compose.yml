@@ -69,6 +69,8 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+      app:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import redis; r = redis.from_url('redis://redis:6379'); r.ping()\" || exit 1"]
       interval: 30s
