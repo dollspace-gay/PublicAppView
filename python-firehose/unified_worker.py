@@ -332,6 +332,46 @@ class EventProcessor:
         self.metrics['pending_list_items_queued'] += 1
         logger.debug(f"[PENDING] Queued list item {item_uri} for list {list_uri}")
     
+    def cancel_pending_op(self, op_uri: str):
+        """Cancel a pending operation (like/repost)"""
+        post_uri = self.pending_op_index.get(op_uri)
+        if not post_uri:
+            return
+        
+        queue = self.pending_ops.get(post_uri, [])
+        filtered_queue = [op for op in queue if op['uri'] != op_uri]
+        removed = len(queue) - len(filtered_queue)
+        
+        if removed > 0:
+            if filtered_queue:
+                self.pending_ops[post_uri] = filtered_queue
+            else:
+                del self.pending_ops[post_uri]
+            
+            self.total_pending_count -= removed
+            self.pending_op_index.pop(op_uri, None)
+            logger.debug(f"[PENDING] Cancelled pending op: {op_uri}")
+    
+    def cancel_pending_user_op(self, op_uri: str):
+        """Cancel a pending user operation (follow/block)"""
+        user_did = self.pending_user_op_index.get(op_uri)
+        if not user_did:
+            return
+        
+        queue = self.pending_user_ops.get(user_did, [])
+        filtered_queue = [op for op in queue if op['uri'] != op_uri]
+        removed = len(queue) - len(filtered_queue)
+        
+        if removed > 0:
+            if filtered_queue:
+                self.pending_user_ops[user_did] = filtered_queue
+            else:
+                del self.pending_user_ops[user_did]
+            
+            self.total_pending_user_ops -= removed
+            self.pending_user_op_index.pop(op_uri, None)
+            logger.debug(f"[PENDING] Cancelled pending user op: {op_uri}")
+    
     async def flush_pending_list_items(self, conn: asyncpg.Connection, list_uri: str):
         """Flush pending list items"""
         items = self.pending_list_items.get(list_uri, [])
@@ -1097,6 +1137,317 @@ class EventProcessor:
         except Exception as e:
             logger.error(f"Error creating list item {uri}: {e}")
     
+    async def process_feed_generator(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        cid: str,
+        creator_did: str,
+        record: Any
+    ):
+        """Process feed generator creation"""
+        await self.ensure_user(conn, creator_did)
+        
+        # Check data collection forbidden
+        if await self.is_data_collection_forbidden(conn, creator_did):
+            return
+        
+        did = getattr(record, 'did', '')
+        display_name = sanitize_required_text(getattr(record, 'displayName', None))
+        description = sanitize_text(getattr(record, 'description', None))
+        avatar_cid = self.extract_blob_cid(getattr(record, 'avatar', None))
+        created_at = self.safe_date(getattr(record, 'createdAt', None))
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO "feedGenerators" (uri, cid, "creatorDid", did, "displayName", description, "avatarUrl", "createdAt")
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, cid, creator_did, did, display_name, description, avatar_cid, created_at
+            )
+            logger.debug(f"Created feed generator: {uri}")
+        except asyncpg.exceptions.UniqueViolationError:
+            pass
+        except Exception as e:
+            logger.error(f"Error creating feed generator {uri}: {e}")
+    
+    async def process_starter_pack(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        cid: str,
+        creator_did: str,
+        record: Any
+    ):
+        """Process starter pack creation"""
+        await self.ensure_user(conn, creator_did)
+        
+        # Check data collection forbidden
+        if await self.is_data_collection_forbidden(conn, creator_did):
+            return
+        
+        name = sanitize_required_text(getattr(record, 'name', None))
+        description = sanitize_text(getattr(record, 'description', None))
+        list_uri = getattr(record, 'list', None)
+        
+        # Extract feed URIs
+        feeds_attr = getattr(record, 'feeds', None)
+        feeds = []
+        if feeds_attr:
+            try:
+                feeds = [getattr(f, 'uri', None) for f in feeds_attr if hasattr(f, 'uri')]
+            except:
+                pass
+        
+        feeds_json = json.dumps(feeds) if feeds else None
+        created_at = self.safe_date(getattr(record, 'createdAt', None))
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO "starterPacks" (uri, cid, "creatorDid", name, description, "listUri", feeds, "createdAt")
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, cid, creator_did, name, description, list_uri, feeds_json, created_at
+            )
+            logger.debug(f"Created starter pack: {uri}")
+        except asyncpg.exceptions.UniqueViolationError:
+            pass
+        except Exception as e:
+            logger.error(f"Error creating starter pack {uri}: {e}")
+    
+    async def process_labeler_service(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        cid: str,
+        creator_did: str,
+        record: Any
+    ):
+        """Process labeler service creation"""
+        await self.ensure_user(conn, creator_did)
+        
+        # Check data collection forbidden
+        if await self.is_data_collection_forbidden(conn, creator_did):
+            return
+        
+        policies_attr = getattr(record, 'policies', None)
+        policies = {'labelValues': [], 'labelValueDefinitions': []}
+        
+        if policies_attr:
+            try:
+                if hasattr(policies_attr, 'model_dump'):
+                    policies = policies_attr.model_dump()
+                elif hasattr(policies_attr, 'dict'):
+                    policies = policies_attr.dict()
+            except:
+                pass
+        
+        policies_json = json.dumps(policies, cls=SafeJSONEncoder)
+        created_at = self.safe_date(getattr(record, 'createdAt', None))
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO "labelerServices" (uri, cid, "creatorDid", policies, "createdAt")
+                VALUES ($1, $2, $3, $4::jsonb, $5)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, cid, creator_did, policies_json, created_at
+            )
+            logger.info(f"[LABELER_SERVICE] Processed labeler service {uri} for {creator_did}")
+        except asyncpg.exceptions.UniqueViolationError:
+            pass
+        except Exception as e:
+            logger.error(f"Error creating labeler service {uri}: {e}")
+    
+    async def process_verification(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        cid: str,
+        creator_did: str,
+        record: Any
+    ):
+        """Process verification record creation"""
+        await self.ensure_user(conn, creator_did)
+        
+        # Check data collection forbidden
+        if await self.is_data_collection_forbidden(conn, creator_did):
+            return
+        
+        subject_did = getattr(record, 'subject', creator_did) or creator_did
+        handle = getattr(record, 'handle', '') or ''
+        verified_at = self.safe_date(getattr(record, 'verifiedAt', None))
+        created_at = self.safe_date(getattr(record, 'createdAt', None))
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO verifications (uri, cid, "subjectDid", handle, "verifiedAt", "createdAt")
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, cid, subject_did, handle, verified_at, created_at
+            )
+            logger.info(f"[VERIFICATION] Processed verification {uri} for {subject_did}")
+        except asyncpg.exceptions.UniqueViolationError:
+            pass
+        except Exception as e:
+            logger.error(f"Error creating verification {uri}: {e}")
+    
+    async def process_label(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        src: str,
+        record: Any
+    ):
+        """Process label (moderation) creation"""
+        subject = getattr(record, 'uri', None) or getattr(record, 'did', None)
+        val = getattr(record, 'val', '')
+        neg = getattr(record, 'neg', False)
+        
+        # Try to get createdAt, default to now if not available
+        created_at_attr = getattr(record, 'createdAt', None)
+        cid_attr = getattr(record, 'cid', None)
+        if cid_attr and created_at_attr:
+            created_at = self.safe_date(created_at_attr)
+        else:
+            created_at = datetime.now(timezone.utc)
+        
+        if not subject or not val:
+            return
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO labels (uri, src, subject, val, neg, "createdAt")
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, src, subject, val, neg, created_at
+            )
+            logger.info(f"[LABEL] Applied label {val} to {subject} from {src}")
+        except asyncpg.exceptions.UniqueViolationError:
+            logger.debug(f"[LABEL] Skipped duplicate label {val} for {subject}")
+        except Exception as e:
+            logger.error(f"Error applying label {uri}: {e}")
+    
+    async def process_generic_record(
+        self,
+        conn: asyncpg.Connection,
+        uri: str,
+        cid: str,
+        author_did: str,
+        record: Any
+    ):
+        """Process generic/unknown record types"""
+        record_type = getattr(record, 'py_type', None) or getattr(record, '$type', 'unknown')
+        created_at = self.safe_date(getattr(record, 'createdAt', None))
+        
+        # Serialize record
+        record_json = None
+        try:
+            if hasattr(record, 'model_dump'):
+                record_json = json.dumps(record.model_dump(), cls=SafeJSONEncoder)
+            elif hasattr(record, 'dict'):
+                record_json = json.dumps(record.dict(), cls=SafeJSONEncoder)
+            else:
+                record_json = json.dumps({'type': str(record_type)}, cls=SafeJSONEncoder)
+        except Exception as e:
+            logger.debug(f"Could not serialize generic record: {e}")
+            record_json = json.dumps({'type': str(record_type)}, cls=SafeJSONEncoder)
+        
+        try:
+            await conn.execute(
+                """
+                INSERT INTO "genericRecords" (uri, cid, "authorDid", "recordType", record, "createdAt")
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+                ON CONFLICT (uri) DO NOTHING
+                """,
+                uri, cid, author_did, record_type, record_json, created_at
+            )
+            logger.info(f"[GENERIC] Processed generic record: {record_type} - {uri}")
+        except asyncpg.exceptions.UniqueViolationError:
+            pass
+        except Exception as e:
+            logger.error(f"Error creating generic record {uri}: {e}")
+    
+    async def process_record(
+        self,
+        uri: str,
+        cid: str,
+        author_did: str,
+        record: Any
+    ):
+        """Process a record (used by PDS data fetcher) - public method matching TypeScript interface"""
+        try:
+            record_type = getattr(record, 'py_type', None) or getattr(record, '$type', None)
+            
+            async with self.db.acquire() as conn:
+                async with conn.transaction():
+                    if record_type == "app.bsky.feed.post":
+                        await self.process_post(conn, uri, cid, author_did, record)
+                    
+                    elif record_type == "app.bsky.feed.like":
+                        # Extract path from uri for compatibility
+                        path = uri.split('at://')[1].split(author_did + '/')[1] if 'at://' in uri else ''
+                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        if post_uri:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_like(conn, uri, author_did, post_uri, created_at, cid)
+                    
+                    elif record_type == "app.bsky.feed.repost":
+                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        if post_uri:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_repost(conn, uri, author_did, post_uri, cid, created_at)
+                    
+                    elif record_type == "app.bsky.graph.follow":
+                        following_did = getattr(record, 'subject', None)
+                        if following_did:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_follow(conn, uri, author_did, following_did, created_at, cid)
+                    
+                    elif record_type == "app.bsky.graph.block":
+                        blocked_did = getattr(record, 'subject', None)
+                        if blocked_did:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_block(conn, uri, author_did, blocked_did, created_at)
+                    
+                    elif record_type == "app.bsky.graph.list":
+                        await self.process_list(conn, uri, cid, author_did, record)
+                    
+                    elif record_type == "app.bsky.graph.listitem":
+                        list_uri = getattr(record, 'list', None)
+                        subject_did = getattr(record, 'subject', None)
+                        if list_uri and subject_did:
+                            created_at = self.safe_date(getattr(record, 'createdAt', None))
+                            await self.process_list_item(conn, uri, cid, list_uri, subject_did, created_at)
+                    
+                    elif record_type == "app.bsky.feed.generator":
+                        await self.process_feed_generator(conn, uri, cid, author_did, record)
+                    
+                    elif record_type == "app.bsky.graph.starterpack":
+                        await self.process_starter_pack(conn, uri, cid, author_did, record)
+                    
+                    elif record_type == "app.bsky.labeler.service":
+                        await self.process_labeler_service(conn, uri, cid, author_did, record)
+                    
+                    else:
+                        logger.info(f"[PROCESS_RECORD] Unknown record type: {record_type}")
+        
+        except Exception as error:
+            # Handle duplicate key errors gracefully (common during reconnections)
+            if hasattr(error, 'code') and error.code == '23505':
+                # Silently skip duplicates
+                return
+            logger.error(f"[PROCESS_RECORD] Error processing record {uri}: {error}")
+    
     async def process_identity(self, event_data: Dict[str, Any]):
         """Process identity event (handle update)"""
         did = event_data.get('did')
@@ -1133,7 +1484,23 @@ class EventProcessor:
         uri: str,
         collection: str
     ):
-        """Process record deletion"""
+        """Process record deletion with full feature parity"""
+        # Cancel pending operations if applicable
+        if collection in ["app.bsky.feed.like", "app.bsky.feed.repost"]:
+            self.cancel_pending_op(uri)
+        elif collection in ["app.bsky.graph.follow", "app.bsky.graph.block"]:
+            self.cancel_pending_user_op(uri)
+        
+        # If it's a post being deleted, clear all pending likes/reposts for it
+        if collection == "app.bsky.feed.post":
+            ops = self.pending_ops.get(uri, [])
+            if ops:
+                for op in ops:
+                    self.pending_op_index.pop(op['uri'], None)
+                    self.total_pending_count -= 1
+                del self.pending_ops[uri]
+                logger.info(f"[DELETE] Cleared {len(ops)} pending operations for deleted post {uri}")
+        
         try:
             if collection == "app.bsky.feed.post":
                 await conn.execute("DELETE FROM posts WHERE uri = $1", uri)
@@ -1183,9 +1550,25 @@ class EventProcessor:
                         'UPDATE "postAggregations" SET "bookmarkCount" = GREATEST("bookmarkCount" - 1, 0) WHERE "postUri" = $1',
                         bookmark['postUri']
                     )
+                    await conn.execute(
+                        'DELETE FROM "postViewerStates" WHERE "postUri" = $1 AND "viewerDid" = $2',
+                        bookmark['postUri'], bookmark['userDid']
+                    )
             
             elif collection == "app.bsky.graph.follow":
-                await conn.execute("DELETE FROM follows WHERE uri = $1", uri)
+                # Try to get followerDid, with fallback to extracting from URI
+                follow = await conn.fetchrow('SELECT "followerDid" FROM follows WHERE uri = $1', uri)
+                if follow:
+                    await conn.execute('DELETE FROM follows WHERE uri = $1', uri)
+                else:
+                    # Fallback: extract followerDid from URI (at://did/collection/rkey)
+                    uri_parts = uri.replace('at://', '').split('/')
+                    if len(uri_parts) >= 1:
+                        follower_did = uri_parts[0]
+                        try:
+                            await conn.execute('DELETE FROM follows WHERE uri = $1', uri)
+                        except Exception as e:
+                            logger.error(f"Error deleting follow {uri}: {e}")
             
             elif collection == "app.bsky.graph.block":
                 await conn.execute("DELETE FROM blocks WHERE uri = $1", uri)
@@ -1195,6 +1578,37 @@ class EventProcessor:
             
             elif collection == "app.bsky.graph.listitem":
                 await conn.execute('DELETE FROM "listItems" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.feed.generator":
+                await conn.execute('DELETE FROM "feedGenerators" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.graph.starterpack":
+                await conn.execute('DELETE FROM "starterPacks" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.labeler.service":
+                await conn.execute('DELETE FROM "labelerServices" WHERE uri = $1', uri)
+            
+            elif collection == "com.atproto.label.label":
+                await conn.execute("DELETE FROM labels WHERE uri = $1", uri)
+            
+            elif collection == "app.bsky.graph.verification":
+                await conn.execute("DELETE FROM verifications WHERE uri = $1", uri)
+            
+            elif collection == "app.bsky.feed.postgate":
+                await conn.execute('DELETE FROM "postGates" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.feed.threadgate":
+                await conn.execute('DELETE FROM "threadGates" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.graph.listblock":
+                await conn.execute('DELETE FROM "listBlocks" WHERE uri = $1', uri)
+            
+            elif collection == "app.bsky.notification.declaration":
+                await conn.execute('DELETE FROM "notificationDeclarations" WHERE uri = $1', uri)
+            
+            else:
+                # Unknown record type - try to delete from generic records
+                await conn.execute('DELETE FROM "genericRecords" WHERE uri = $1', uri)
             
             logger.debug(f"Deleted {collection}: {uri}")
         except Exception as e:
@@ -1291,6 +1705,30 @@ class EventProcessor:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
                                         await self.process_list_item(conn, uri, cid, list_uri, subject_did, created_at)
                                 
+                                elif record_type == "app.bsky.feed.generator":
+                                    await self.process_feed_generator(conn, uri, cid, repo, record)
+                                
+                                elif record_type == "app.bsky.graph.starterpack":
+                                    await self.process_starter_pack(conn, uri, cid, repo, record)
+                                
+                                elif record_type == "app.bsky.labeler.service":
+                                    await self.process_labeler_service(conn, uri, cid, repo, record)
+                                
+                                elif record_type == "com.atproto.label.label":
+                                    await self.process_label(conn, uri, repo, record)
+                                
+                                elif record_type == "app.bsky.graph.verification":
+                                    await self.process_verification(conn, uri, cid, repo, record)
+                                
+                                elif record_type in ["app.bsky.feed.postgate", "app.bsky.feed.threadgate", 
+                                                   "app.bsky.graph.listblock", "app.bsky.notification.declaration"]:
+                                    # These are metadata records - just log them (stubs matching TypeScript)
+                                    logger.debug(f"[METADATA] Processed {record_type}: {uri}")
+                                
+                                else:
+                                    # Unknown record type - store as generic record
+                                    await self.process_generic_record(conn, uri, cid, repo, record)
+                                
                             except Exception as e:
                                 logger.debug(f"Error extracting record for {uri}: {e}")
                                 continue
@@ -1313,6 +1751,60 @@ class EventProcessor:
                 f"{self.total_pending_user_ops} follows/blocks, "
                 f"{self.total_pending_list_items} list items"
             )
+    
+    def set_skip_pds_fetching(self, skip: bool):
+        """Enable/disable PDS fetching for incomplete data (used during bulk imports)"""
+        # Note: PDS fetching is not implemented in this worker yet, but method exists for compatibility
+        logger.info(f"[CONFIG] Skip PDS fetching: {skip}")
+    
+    def invalidate_data_collection_cache(self, did: str):
+        """Invalidate the data collection cache for a specific user"""
+        self.data_collection_cache.pop(did, None)
+        logger.debug(f"[CACHE] Invalidated data collection cache for {did}")
+    
+    async def retry_pending_operations(self):
+        """Retry processing pending operations for records that might now be available"""
+        logger.info("[RETRY] Retrying pending operations...")
+        
+        retried_count = 0
+        
+        async with self.db.acquire() as conn:
+            # Retry pending user operations
+            for user_did in list(self.pending_user_ops.keys()):
+                try:
+                    user = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM users WHERE did = $1)', user_did)
+                    if user:
+                        await self.flush_pending_user_ops(conn, user_did)
+                        retried_count += len(self.pending_user_ops.get(user_did, []))
+                except Exception as e:
+                    logger.error(f"[RETRY] Error retrying user ops for {user_did}: {e}")
+            
+            # Retry pending list items
+            for list_uri in list(self.pending_list_items.keys()):
+                try:
+                    list_exists = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM lists WHERE uri = $1)', list_uri)
+                    if list_exists:
+                        items_count = len(self.pending_list_items.get(list_uri, []))
+                        await self.flush_pending_list_items(conn, list_uri)
+                        retried_count += items_count
+                except Exception as e:
+                    logger.error(f"[RETRY] Error retrying list items for {list_uri}: {e}")
+            
+            # Retry pending likes/reposts
+            for post_uri in list(self.pending_ops.keys()):
+                try:
+                    post = await conn.fetchval('SELECT EXISTS(SELECT 1 FROM posts WHERE uri = $1)', post_uri)
+                    if post:
+                        ops_count = len(self.pending_ops.get(post_uri, []))
+                        await self.flush_pending_ops(conn, post_uri)
+                        retried_count += ops_count
+                except Exception as e:
+                    logger.error(f"[RETRY] Error retrying pending ops for {post_uri}: {e}")
+        
+        if retried_count > 0:
+            logger.info(f"[RETRY] Successfully retried {retried_count} pending operations")
+        
+        return retried_count
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get current metrics"""
