@@ -1,6 +1,14 @@
 import { HydrationState, FeedItem, FeedViewPost, ProfileViewerState } from '../types/feed';
 
 export class Views {
+  /**
+   * Transform blob CID to CDN URL (matching xrpc-api pattern)
+   */
+  private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
+    if (!blobCid || blobCid === 'undefined') return undefined;
+    return `/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+  }
+
   feedViewPost(
     item: FeedItem,
     state: HydrationState,
@@ -97,6 +105,10 @@ export class Views {
       return undefined;
     }
     
+    const avatarUrl = authorProfile.avatarUrl 
+      ? this.transformBlobToCdnUrl(authorProfile.avatarUrl, authorDid, 'avatar')
+      : undefined;
+
     return {
       $type: 'app.bsky.feed.defs#reasonPin',
       by: {
@@ -105,7 +117,7 @@ export class Views {
         handle: authorProfile.handle,
         displayName: authorProfile.displayName ?? authorProfile.handle,
         pronouns: authorProfile.pronouns,
-        ...(authorProfile.avatarUrl && { avatar: authorProfile.avatarUrl }),
+        ...(avatarUrl && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
@@ -141,6 +153,10 @@ export class Views {
     const reposterProfile = state.profileViewers?.get(repost.userDid);
     if (!reposterProfile || !reposterProfile.handle) return undefined;
     
+    const avatarUrl = reposterProfile.avatarUrl
+      ? this.transformBlobToCdnUrl(reposterProfile.avatarUrl, repost.userDid, 'avatar')
+      : undefined;
+
     return {
       $type: 'app.bsky.feed.defs#reasonRepost',
       by: {
@@ -149,7 +165,7 @@ export class Views {
         handle: reposterProfile.handle,
         displayName: reposterProfile.displayName ?? reposterProfile.handle,
         pronouns: reposterProfile.pronouns,
-        ...(reposterProfile.avatarUrl && { avatar: reposterProfile.avatarUrl }),
+        ...(avatarUrl && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
