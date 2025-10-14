@@ -1,5 +1,9 @@
 import type { Post } from "@shared/schema";
 import { storage } from "../storage";
+import { db } from "../db";
+import { postAggregations } from "@shared/schema";
+import { inArray } from "drizzle-orm";
+import { cacheService } from "./cache";
 
 export interface PostWithEngagement extends Post {
   likeCount?: number;
@@ -17,17 +21,32 @@ export class FeedAlgorithmService {
 
     const postUris = posts.map(p => p.uri);
     
-    const [allLikes, allReposts] = await Promise.all([
-      Promise.all(postUris.map(uri => storage.getPostLikes(uri))),
-      Promise.all(postUris.map(uri => storage.getPostReposts(uri))),
-    ]);
+    // Try to get aggregations from Redis cache first
+    let aggregationsMap = await cacheService.getPostAggregations(postUris);
     
-    const likeCounts = new Map(postUris.map((uri, i) => [uri, allLikes[i].likes.length]));
-    const repostCounts = new Map(postUris.map((uri, i) => [uri, allReposts[i].reposts.length]));
+    if (!aggregationsMap) {
+      // Cache miss - fetch from database in a SINGLE batch query
+      const aggregations = await db
+        .select()
+        .from(postAggregations)
+        .where(inArray(postAggregations.postUri, postUris));
+      
+      aggregationsMap = new Map(
+        aggregations.map(agg => [agg.postUri, agg])
+      );
+      
+      // Cache the results for future requests
+      await cacheService.setPostAggregations(aggregationsMap);
+      
+      console.log(`[FEED_ALGORITHM] Fetched aggregations for ${postUris.length} posts from DB (${aggregations.length} found)`);
+    } else {
+      console.log(`[FEED_ALGORITHM] Cache hit for ${postUris.length} posts`);
+    }
     
     const enrichedPosts = posts.map((post) => {
-      const likeCount = likeCounts.get(post.uri) || 0;
-      const repostCount = repostCounts.get(post.uri) || 0;
+      const agg = aggregationsMap.get(post.uri);
+      const likeCount = agg?.likeCount || 0;
+      const repostCount = agg?.repostCount || 0;
       
       const hoursSinceIndexed = (Date.now() - post.indexedAt.getTime()) / (1000 * 60 * 60);
       const timeDecay = 1 / (1 + hoursSinceIndexed / 24);
