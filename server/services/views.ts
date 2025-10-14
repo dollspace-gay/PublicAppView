@@ -85,6 +85,9 @@ export class Views {
     let root = this.maybePost(postRecord.reply.root?.uri, state);
     let parent = this.maybePost(postRecord.reply.parent?.uri, state);
 
+    // Only return reply object if we have at least one valid post (root or parent)
+    if (!root && !parent) return undefined;
+
     return {
       root,
       parent,
