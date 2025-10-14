@@ -1821,7 +1821,9 @@ class EventProcessor:
                 await conn.execute('DELETE FROM "postGates" WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.threadgate":
-                await conn.execute('DELETE FROM "threadGates" WHERE uri = $1', uri)
+                # Thread gates are stored as metadata on posts, not in a separate table
+                # The hasThreadGate flag on posts will be updated when the post is re-indexed
+                logger.debug(f"Thread gate deletion requested for {uri} - handled via post metadata")
             
             elif collection == "app.bsky.graph.listblock":
                 await conn.execute('DELETE FROM "listBlocks" WHERE uri = $1', uri)

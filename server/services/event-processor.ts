@@ -1822,7 +1822,9 @@ export class EventProcessor {
         await this.storage.deletePostGate(uri);
         break;
       case "app.bsky.feed.threadgate":
-        await this.storage.deleteThreadGate(uri);
+        // Thread gates are stored as metadata on posts, not in a separate table
+        // The hasThreadGate flag on posts will be updated when the post is re-indexed
+        smartConsole.log(`[EVENT_PROCESSOR] Thread gate deletion requested for ${uri} - handled via post metadata`);
         break;
       case "app.bsky.graph.listblock":
         await this.storage.deleteListBlock(uri);
