@@ -963,7 +963,8 @@ class RedisConsumerWorker:
         self.running = False
         
         # Cluster metrics tracking (matches TypeScript implementation)
-        self.metrics_key = "firehose:metrics"
+        # CRITICAL: Must use same key as TypeScript ("cluster:metrics", not "firehose:metrics")
+        self.metrics_key = "cluster:metrics"
         self.metrics_buffer = {
             "#commit": 0,
             "#identity": 0,
