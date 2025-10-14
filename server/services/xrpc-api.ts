@@ -865,7 +865,25 @@ export class XRPCApi {
         }
       }
       if (hydratedPost?.facets || post.facets) record.facets = hydratedPost?.facets || post.facets;
-      if (hydratedPost?.reply) record.reply = hydratedPost.reply;
+      
+      // Build proper reply reference with CIDs from hydrated posts
+      if (hydratedPost?.reply) {
+        const parentPost = state.posts.get(hydratedPost.reply.parent?.uri);
+        const rootPost = state.posts.get(hydratedPost.reply.root?.uri);
+        
+        if (parentPost && rootPost) {
+          record.reply = {
+            parent: { 
+              uri: hydratedPost.reply.parent.uri, 
+              cid: parentPost.cid 
+            },
+            root: { 
+              uri: hydratedPost.reply.root.uri, 
+              cid: rootPost.cid 
+            }
+          };
+        }
+      }
 
       const avatarUrl = author?.avatarUrl;
       const avatarCdn = avatarUrl 

@@ -53,6 +53,8 @@ export class EnhancedHydrator {
 
     const postsMap = new Map<string, any>();
     const actorDids = new Set<string>();
+    const replyParentUris = new Set<string>();
+    const replyRootUris = new Set<string>();
 
     for (const post of postsData) {
       postsMap.set(post.uri, {
@@ -70,6 +72,42 @@ export class EnhancedHydrator {
         tags: post.tags
       });
       actorDids.add(post.authorDid);
+      
+      // Collect parent and root URIs for reply hydration
+      if (post.parentUri) {
+        replyParentUris.add(post.parentUri);
+        replyRootUris.add(post.rootUri || post.parentUri);
+      }
+    }
+
+    // Fetch parent and root posts for replies
+    if (replyParentUris.size > 0 || replyRootUris.size > 0) {
+      const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
+      const replyPostsData = await db
+        .select()
+        .from(posts)
+        .where(inArray(posts.uri, replyUris));
+
+      for (const post of replyPostsData) {
+        // Only add if not already in the map
+        if (!postsMap.has(post.uri)) {
+          postsMap.set(post.uri, {
+            uri: post.uri,
+            cid: post.cid,
+            authorDid: post.authorDid,
+            text: post.text,
+            createdAt: post.createdAt.toISOString(),
+            indexedAt: post.indexedAt.toISOString(),
+            embed: post.embed,
+            reply: post.parentUri ? {
+              parent: { uri: post.parentUri },
+              root: { uri: post.rootUri || post.parentUri }
+            } : undefined,
+            tags: post.tags
+          });
+          actorDids.add(post.authorDid);
+        }
+      }
     }
 
     // Fetch aggregations
