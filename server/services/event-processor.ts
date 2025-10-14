@@ -100,6 +100,70 @@ function extractBlobCid(blob: any): string | null {
   return null;
 }
 
+/**
+ * Normalize embed data to ensure all blob references are valid
+ * Removes invalid/empty thumb and image references that would cause validation errors
+ */
+function normalizeEmbed(embed: any): any {
+  if (!embed || typeof embed !== 'object') return embed;
+  
+  const normalized = { ...embed };
+  
+  // Handle external embeds with thumbnails
+  if (normalized.$type === 'app.bsky.embed.external' && normalized.external) {
+    normalized.external = { ...normalized.external };
+    
+    // Remove thumb if it has no valid CID
+    if (normalized.external.thumb) {
+      const thumbCid = extractBlobCid(normalized.external.thumb);
+      if (!thumbCid) {
+        delete normalized.external.thumb;
+      }
+    }
+  }
+  
+  // Handle image embeds
+  if (normalized.$type === 'app.bsky.embed.images' && Array.isArray(normalized.images)) {
+    normalized.images = normalized.images
+      .map((img: any) => {
+        if (!img.image) return null;
+        const imageCid = extractBlobCid(img.image);
+        if (!imageCid) return null;
+        return img;
+      })
+      .filter(Boolean); // Remove null entries
+    
+    // If all images were invalid, remove the embed entirely
+    if (normalized.images.length === 0) {
+      return null;
+    }
+  }
+  
+  // Handle recordWithMedia (quote with media)
+  if (normalized.$type === 'app.bsky.embed.recordWithMedia' && normalized.media) {
+    normalized.media = normalizeEmbed(normalized.media);
+    // If media normalization removed all content, convert to plain record embed
+    if (!normalized.media) {
+      return {
+        $type: 'app.bsky.embed.record',
+        record: normalized.record
+      };
+    }
+  }
+  
+  // Handle video embeds with thumbnails
+  if (normalized.$type === 'app.bsky.embed.video') {
+    if (normalized.thumbnail) {
+      const thumbCid = extractBlobCid(normalized.thumbnail);
+      if (!thumbCid) {
+        delete normalized.thumbnail;
+      }
+    }
+  }
+  
+  return normalized;
+}
+
 interface PendingOp {
   type: 'like' | 'repost';
   payload: InsertLike | InsertRepost;
@@ -968,6 +1032,9 @@ export class EventProcessor {
       return;
     }
 
+    // Normalize embed to remove invalid blob references
+    const normalizedEmbed = record.embed ? normalizeEmbed(record.embed) : undefined;
+    
     const post: InsertPost = {
       uri,
       cid,
@@ -975,7 +1042,7 @@ export class EventProcessor {
       text: sanitizeRequiredText(record.text),
       parentUri: record.reply?.parent.uri,
       rootUri: record.reply?.root.uri,
-      embed: record.embed,
+      embed: normalizedEmbed,
       facets: record.facets, // Store facets for rich text (links, mentions, hashtags)
       createdAt: this.safeDate(record.createdAt),
     };

@@ -819,6 +819,11 @@ export class XRPCApi {
         ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req))
         : undefined;
 
+      // Ensure displayName is always a string
+      const displayName = (author?.displayName && typeof author.displayName === 'string') 
+        ? author.displayName 
+        : authorHandle;
+      
       const postView: any = {
         $type: 'app.bsky.feed.defs#postView',
         uri: post.uri,
@@ -827,7 +832,7 @@ export class XRPCApi {
           $type: 'app.bsky.actor.defs#profileViewBasic',
           did: post.authorDid,
           handle: authorHandle,
-          displayName: author?.displayName ?? authorHandle,
+          displayName: displayName,
           pronouns: author?.pronouns,
           ...(avatarCdn && { avatar: avatarCdn }),
           viewer: actorViewerState || {},
@@ -1048,11 +1053,15 @@ export class XRPCApi {
         cid: post.cid,
         author: (() => {
           const avatarUrl = author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar', req) : undefined;
+          // Ensure displayName is always a string
+          const displayName = (author?.displayName && typeof author.displayName === 'string') 
+            ? author.displayName 
+            : authorHandle;
           return {
             $type: 'app.bsky.actor.defs#profileViewBasic',
             did: post.authorDid,
             handle: authorHandle,
-            displayName: author?.displayName ?? authorHandle,
+            displayName: displayName,
             pronouns: author?.pronouns,
             ...(avatarUrl && { avatar: avatarUrl }),
             associated: {
@@ -1273,7 +1282,7 @@ export class XRPCApi {
                   $type: 'app.bsky.actor.defs#profileViewBasic',
                   did: reposter.did,
                   handle: reposter.handle,
-                  displayName: reposter.displayName,
+                  displayName: reposter.displayName || reposter.handle,
                   ...this.maybeAvatar(reposter.avatarUrl, reposter.did, req),
                 },
                 indexedAt: repost.indexedAt.toISOString(),
@@ -2384,7 +2393,7 @@ export class XRPCApi {
         cid: generator.cid,
         did: generator.did,
         creator: creatorView,
-        displayName: generator.displayName,
+        displayName: generator.displayName || 'Unnamed Feed',
         likeCount: generator.likeCount,
         indexedAt: generator.indexedAt.toISOString(),
         ...this.maybeAvatar(generator.avatarUrl, generator.creatorDid, req),
@@ -2432,7 +2441,7 @@ export class XRPCApi {
             cid: generator.cid,
             did: generator.did,
             creator: creatorView,
-            displayName: generator.displayName,
+            displayName: generator.displayName || 'Unnamed Feed',
             likeCount: generator.likeCount,
             indexedAt: generator.indexedAt.toISOString(),
           };
@@ -2490,7 +2499,7 @@ export class XRPCApi {
             cid: generator.cid,
             did: generator.did,
             creator: creatorView,
-            displayName: generator.displayName,
+            displayName: generator.displayName || 'Unnamed Feed',
             likeCount: generator.likeCount,
             indexedAt: generator.indexedAt.toISOString(),
           };
@@ -2541,7 +2550,7 @@ export class XRPCApi {
             cid: generator.cid,
             did: generator.did,
             creator: creatorView,
-            displayName: generator.displayName,
+            displayName: generator.displayName || 'Unnamed Feed',
             likeCount: generator.likeCount,
             indexedAt: generator.indexedAt.toISOString(),
           };
@@ -2634,7 +2643,7 @@ export class XRPCApi {
             cid: generator.cid,
             did: generator.did,
             creator: creatorView,
-            displayName: generator.displayName,
+            displayName: generator.displayName || 'Unnamed Feed',
             likeCount: generator.likeCount,
             indexedAt: generator.indexedAt.toISOString(),
           };
