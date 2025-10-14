@@ -606,12 +606,12 @@ class EventProcessor:
                     # Create user with fallback handle - will be updated when profile is fetched
                     # This keeps the DB operation fast
                     try:
-            await conn.execute(
-                """
-                INSERT INTO users (did, handle, created_at)
-                VALUES ($1, $2, NOW())
-                ON CONFLICT (did) DO NOTHING
-                """,
+                        await conn.execute(
+                            """
+                            INSERT INTO users (did, handle, created_at)
+                            VALUES ($1, $2, NOW())
+                            ON CONFLICT (did) DO NOTHING
+                            """,
                             did,
                             INVALID_HANDLE
                         )
