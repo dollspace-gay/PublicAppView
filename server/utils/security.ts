@@ -216,19 +216,40 @@ export function isValidCID(cid: string): boolean {
     return false;
   }
   
-  // CID validation:
-  // - CIDv0: base58btc, starts with 'Qm', uses character set: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
-  // - CIDv1: typically base32, starts with 'b' (base32), uses lowercase a-z and 2-7
-  // More strict validation to prevent invalid CIDs
+  // Reasonable length check (CIDs should not be excessively long)
+  if (cid.length < 10 || cid.length > 256) {
+    return false;
+  }
+  
+  // CID validation supporting multiple encodings:
+  // - CIDv0: base58btc, starts with 'Qm'
+  // - CIDv1: base32 (starts with 'b'), base58btc (starts with 'z'), base16/hex (starts with 'f' or raw hex)
   
   // CIDv0 (base58btc): starts with Qm
   const cidv0Regex = /^Qm[1-9A-HJ-NP-Za-km-z]{44,}$/;
   
-  // CIDv1 (base32): starts with 'b' followed by base32 chars (a-z, 2-7)
-  const cidv1Regex = /^b[a-z2-7]{58,}$/;
+  // CIDv1 base32: starts with 'b' followed by base32 chars (a-z, 2-7)
+  const cidv1Base32Regex = /^b[a-z2-7]{58,}$/;
   
-  // Check if it matches either CIDv0 or CIDv1 format
-  const isValid = (cidv0Regex.test(cid) || cidv1Regex.test(cid)) && cid.length < 256;
+  // CIDv1 base58btc: starts with 'z' followed by base58 chars
+  const cidv1Base58Regex = /^z[1-9A-HJ-NP-Za-km-z]{48,}$/;
+  
+  // CIDv1 base16 (hex): starts with 'f' (multibase prefix for base16) followed by hex chars
+  const cidv1Base16Regex = /^f[0-9a-f]{64,}$/i;
+  
+  // Raw hex format (without multibase prefix): starts with hex chars
+  // This is used by some clients, particularly for avatars and images
+  // Format: version (1 byte) + codec (varint) + multihash (variable length)
+  // Common pattern: starts with 01 (version 1) followed by codec and hash
+  const rawHexRegex = /^[0-9a-f]{64,}$/i;
+  
+  // Check if it matches any valid CID format
+  const isValid = 
+    cidv0Regex.test(cid) ||
+    cidv1Base32Regex.test(cid) ||
+    cidv1Base58Regex.test(cid) ||
+    cidv1Base16Regex.test(cid) ||
+    rawHexRegex.test(cid);
   
   return isValid;
 }
