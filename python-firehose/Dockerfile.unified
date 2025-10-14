@@ -15,8 +15,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy unified worker
+# Copy unified worker and related services
 COPY unified_worker.py .
+COPY backfill_service.py .
+COPY did_resolver.py .
+COPY pds_data_fetcher.py .
+COPY label_service.py .
 
 # Set environment defaults
 ENV RELAY_URL=wss://bsky.network
