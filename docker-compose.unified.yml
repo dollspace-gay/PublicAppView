@@ -101,6 +101,47 @@ services:
         reservations:
           memory: 1G
 
+  # Python Unified Worker with Backfill Support
+  # Connects directly to firehose and processes to PostgreSQL with optional historical backfill
+  # Set BACKFILL_DAYS environment variable to enable: 0=disabled, -1=all history, >0=specific days
+  python-backfill-worker:
+    build:
+      context: ./python-firehose
+      dockerfile: Dockerfile.unified
+    environment:
+      - RELAY_URL=${RELAY_URL:-wss://bsky.network}
+      - DATABASE_URL=postgresql://postgres:password@db:5432/atproto
+      - DB_POOL_SIZE=20
+      - LOG_LEVEL=INFO
+      # Backfill configuration - Set BACKFILL_DAYS to enable automatic backfill
+      - BACKFILL_DAYS=${BACKFILL_DAYS:-0}
+      - BACKFILL_BATCH_SIZE=${BACKFILL_BATCH_SIZE:-5}
+      - BACKFILL_BATCH_DELAY_MS=${BACKFILL_BATCH_DELAY_MS:-2000}
+      - BACKFILL_MAX_CONCURRENT=${BACKFILL_MAX_CONCURRENT:-2}
+      - BACKFILL_MAX_MEMORY_MB=${BACKFILL_MAX_MEMORY_MB:-512}
+      - BACKFILL_USE_IDLE=${BACKFILL_USE_IDLE:-true}
+      - BACKFILL_DB_POOL_SIZE=${BACKFILL_DB_POOL_SIZE:-2}
+      # Worker ID (backfill only runs on worker 0)
+      - WORKER_ID=0
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import asyncpg; import asyncio; asyncio.run(asyncpg.connect('postgresql://postgres:password@db:5432/atproto', timeout=5).close())\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
   # Frontend/API server - Lightweight since it's not processing firehose
   app:
     volumes:
