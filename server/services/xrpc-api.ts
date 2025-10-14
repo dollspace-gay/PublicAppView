@@ -669,10 +669,10 @@ export class XRPCApi {
     // Check for falsy values and the literal string "undefined"
     if (!blobCid || blobCid === 'undefined') return undefined;
     
-    // Always use Bluesky CDN for image hosting
-    const cdnUrl = `https://cdn.bsky.app/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
-    console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cdnUrl}`);
-    return cdnUrl;
+    // Use local image proxy to fetch from Bluesky CDN
+    const proxyUrl = `/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
+    console.log(`[CDN_TRANSFORM] ${blobCid} -> ${proxyUrl}`);
+    return proxyUrl;
   }
   
   // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name

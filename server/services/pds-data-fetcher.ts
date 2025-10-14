@@ -56,9 +56,9 @@ export class PDSDataFetcher {
   private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
     if (!blobCid || blobCid === 'undefined') return undefined;
     
-    // Always use Bluesky CDN for image hosting
+    // Use local image proxy to fetch from Bluesky CDN
     const sizeStr = format === 'avatar' || format === 'banner' ? 'plain' : 'fullsize';
-    return `https://cdn.bsky.app/img/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
+    return `/img/${format}/${sizeStr}/${userDid}/${blobCid}@jpeg`;
   }
 
   constructor() {
