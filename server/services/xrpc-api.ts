@@ -3760,7 +3760,7 @@ export class XRPCApi {
               did: user.did,
               handle: user.handle,
               displayName: user.displayName || user.handle, // Fallback to handle if displayName is null/undefined
-              avatar: user.avatarUrl ? this.transformBlobToCdnUrl(user.avatarUrl, user.did, 'avatar') : undefined,
+              ...this.maybeAvatar(user.avatarUrl, user.did),
               viewer,
               indexedAt: repost.indexedAt.toISOString(),
             };
