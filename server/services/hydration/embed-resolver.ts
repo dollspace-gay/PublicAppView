@@ -95,9 +95,12 @@ export class EmbedResolver {
           resolved = {
             $type: 'app.bsky.embed.recordWithMedia#view',
             record: {
-              $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
-              uri: recordUri,
-              notFound: true
+              $type: 'app.bsky.embed.record#view',
+              record: {
+                $type: 'app.bsky.embed.record#viewNotFound',  // Placeholder, will be hydrated
+                uri: recordUri,
+                notFound: true
+              }
             },
             media: this.resolveMediaEmbed(embed.media, post.authorDid)
           };
@@ -249,9 +252,11 @@ export class EmbedResolver {
             embed.record = childEmbeds.get(recordUri);
           }
         } else if (embed && embed.$type === 'app.bsky.embed.recordWithMedia#view') {
-          const recordUri = embed.record?.uri;
+          const recordUri = embed.record?.record?.uri;
           if (recordUri && childEmbeds.has(recordUri)) {
-            embed.record = childEmbeds.get(recordUri);
+            // For recordWithMedia, the record field is already wrapped in app.bsky.embed.record#view
+            // We just need to update the nested record property
+            embed.record.record = childEmbeds.get(recordUri);
           }
         }
       }
