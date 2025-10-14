@@ -91,17 +91,50 @@ class DatabasePool:
         self.pool: Optional[asyncpg.Pool] = None
         
     async def connect(self):
-        """Initialize database connection pool"""
+        """Initialize database connection pool with retry logic for schema initialization"""
         logger.info(f"Creating database pool with {self.pool_size} connections...")
-        self.pool = await asyncpg.create_pool(
-            self.database_url,
-            min_size=10,
-            max_size=self.pool_size,
-            command_timeout=60,
-            max_queries=50000,
-            max_inactive_connection_lifetime=300,
-        )
-        logger.info("Database pool created successfully")
+        
+        # Retry logic to wait for database schema to be created
+        max_retries = 30
+        retry_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                self.pool = await asyncpg.create_pool(
+                    self.database_url,
+                    min_size=10,
+                    max_size=self.pool_size,
+                    command_timeout=60,
+                    max_queries=50000,
+                    max_inactive_connection_lifetime=300,
+                )
+                
+                # Verify schema exists by checking for users table
+                async with self.pool.acquire() as conn:
+                    await conn.fetchval("SELECT COUNT(*) FROM users LIMIT 1")
+                
+                logger.info("Database pool created successfully and schema verified")
+                return
+                
+            except asyncpg.exceptions.UndefinedTableError:
+                logger.warning(f"Database schema not ready (attempt {attempt + 1}/{max_retries}). Waiting for schema creation...")
+                if self.pool:
+                    await self.pool.close()
+                    self.pool = None
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("Database schema not created after maximum retries. Ensure the 'app' service has completed migrations.")
+                    raise
+            except Exception as e:
+                logger.error(f"Error creating database pool (attempt {attempt + 1}/{max_retries}): {e}")
+                if self.pool:
+                    await self.pool.close()
+                    self.pool = None
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    raise
         
     async def close(self):
         """Close database connection pool"""

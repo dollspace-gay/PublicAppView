@@ -84,6 +84,8 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+      app:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import asyncio; import redis.asyncio as redis; asyncio.run(redis.from_url('redis://redis:6379').ping())\" || exit 1"]
       interval: 30s
