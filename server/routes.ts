@@ -725,13 +725,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const schema = z.object({
-        days: z.number().min(1).max(365),
+        days: z.number().min(0).max(3650), // 0 = all data, max 10 years
       });
 
       const data = schema.parse(req.body);
       const userDid = session.userDid;
 
-      if (data.days > 3) {
+      if (data.days === 0 || data.days > 3) {
         const { repoBackfillService } = await import("./services/repo-backfill");
         
         repoBackfillService.backfillSingleRepo(userDid, data.days).then(() => {
@@ -740,8 +740,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error(`[USER_BACKFILL] Failed repository backfill for ${userDid}:`, error);
         });
         
+        const message = data.days === 0 
+          ? `Backfill started for ALL your data. Your complete repository is being imported from your PDS.`
+          : `Backfill started for the last ${data.days} days. Your repository is being imported from your PDS.`;
+        
         res.json({ 
-          message: `Backfill started for ${data.days} days. Your complete repository is being imported from your PDS.`,
+          message,
           type: "repository"
         });
       } else {

@@ -140,7 +140,6 @@ export class EventProcessor {
   private userCreationCount = 0; // Counter for batch logging
   private readonly USER_BATCH_LOG_SIZE = 5000; // Log every 5000 user creations
   private skipPdsFetching = false; // Flag to disable PDS fetching during bulk operations
-  private skipDataCollectionCheck = false; // Flag to bypass data collection check for user-initiated backfills
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
@@ -183,27 +182,11 @@ export class EventProcessor {
   }
   
   /**
-   * Enable/disable data collection forbidden checks
-   * Should be disabled during user-initiated backfills (users importing their own data)
-   */
-  setSkipDataCollectionCheck(skip: boolean) {
-    this.skipDataCollectionCheck = skip;
-  }
-  
-  /**
    * Check if data collection is forbidden for a user
    * Returns true if collection is forbidden, false otherwise
    * Caches results to avoid repeated database queries
-   * 
-   * Note: During user-initiated backfills (skipDataCollectionCheck=true),
-   * this always returns false to allow users to import their own data
    */
   private async isDataCollectionForbidden(did: string): Promise<boolean> {
-    // Skip check during user-initiated backfills
-    if (this.skipDataCollectionCheck) {
-      return false;
-    }
-    
     // Check cache first
     if (this.dataCollectionCache.has(did)) {
       return this.dataCollectionCache.get(did)!;

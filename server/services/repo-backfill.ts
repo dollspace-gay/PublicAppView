@@ -99,13 +99,15 @@ export class RepoBackfillService {
     const backfillDuration = days !== undefined ? days : this.backfillDays;
 
     // Set cutoff date if needed
+    // days === 0 means "all time" (no date filter)
+    // days > 0 means "last N days"
     if (backfillDuration > 0) {
       this.cutoffDate = new Date();
       this.cutoffDate.setDate(this.cutoffDate.getDate() - backfillDuration);
       console.log(`[REPO_BACKFILL] Cutoff date for ${did}: ${this.cutoffDate.toISOString()} (${backfillDuration} days)`);
     } else {
       this.cutoffDate = null;
-      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (fetching all records)`);
+      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (importing all records)`);
     }
 
     console.log(`[REPO_BACKFILL] Fetching complete repository for ${did}...`);
@@ -343,10 +345,6 @@ export class RepoBackfillService {
       // Disable PDS fetching during bulk import to prevent connection overload
       repoEventProcessor.setSkipPdsFetching(true);
       
-      // Disable data collection check for user-initiated backfills
-      // Users explicitly requesting their own data should bypass the dataCollectionForbidden setting
-      repoEventProcessor.setSkipDataCollectionCheck(true);
-      
       let recordsProcessed = 0;
       let recordsSkipped = 0;
       const collectionsFound = new Set<string>();
@@ -396,9 +394,8 @@ export class RepoBackfillService {
           console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
         }
       } finally {
-        // Always re-enable PDS fetching and data collection checks, even if there was an error
+        // Always re-enable PDS fetching, even if there was an error
         repoEventProcessor.setSkipPdsFetching(false);
-        repoEventProcessor.setSkipDataCollectionCheck(false);
       }
 
       // Update progress
