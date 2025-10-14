@@ -543,11 +543,11 @@ class EventProcessor:
         
         # Query database
         settings = await conn.fetchrow(
-            'SELECT "dataCollectionForbidden" FROM "userSettings" WHERE did = $1',
+            'SELECT data_collection_forbidden FROM user_settings WHERE user_did = $1',
             did
         )
         
-        forbidden = settings['dataCollectionForbidden'] if settings else False
+        forbidden = settings['data_collection_forbidden'] if settings else False
         self.data_collection_cache[did] = forbidden
         
         return forbidden
@@ -1822,7 +1822,7 @@ class EventProcessor:
                 await conn.execute("DELETE FROM verifications WHERE uri = $1", uri)
             
             elif collection == "app.bsky.feed.postgate":
-                await conn.execute('DELETE FROM "postGates" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM post_gates WHERE uri = $1', uri)
             
             elif collection == "app.bsky.feed.threadgate":
                 # Thread gates are stored as metadata on posts, not in a separate table
@@ -1830,10 +1830,11 @@ class EventProcessor:
                 logger.debug(f"Thread gate deletion requested for {uri} - handled via post metadata")
             
             elif collection == "app.bsky.graph.listblock":
-                await conn.execute('DELETE FROM "listBlocks" WHERE uri = $1', uri)
+                await conn.execute('DELETE FROM list_blocks WHERE uri = $1', uri)
             
             elif collection == "app.bsky.notification.declaration":
-                await conn.execute('DELETE FROM "notificationDeclarations" WHERE uri = $1', uri)
+                # This record type is not stored in our schema
+                logger.debug(f"Notification declaration deletion requested for {uri} - not stored")
             
             else:
                 # Unknown record type - try to delete from generic records
