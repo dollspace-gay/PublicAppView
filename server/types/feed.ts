@@ -58,15 +58,15 @@ export interface ProfileViewerState {
     purpose: string;
   };
   blockedBy?: boolean;
-  blocking?: string; // URI, not boolean
+  blocking?: string | null; // URI string when blocked, null otherwise (not boolean)
   blockingByList?: {
     $type: 'app.bsky.graph.defs#listViewBasic';
     uri: string;
     name: string;
     purpose: string;
   };
-  following?: string; // URI, not boolean
-  followedBy?: string; // URI, not boolean
+  following?: string | null; // URI string when following, null otherwise (not boolean)
+  followedBy?: string | null; // URI string when followed, null otherwise (not boolean)
   knownFollowers?: {
     $type: 'app.bsky.actor.defs#knownFollowers';
     count: number;

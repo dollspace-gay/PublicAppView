@@ -78,8 +78,9 @@ export class Hydrator {
     for (const did of actorDids) {
       const state: ProfileViewerState = {};
       
-      if (blocking.some(b => b.blockedDid === did)) {
-        state.blocking = true;
+      const blockRecord = blocking.find(b => b.blockedDid === did);
+      if (blockRecord) {
+        state.blocking = blockRecord.uri;
       }
       
       if (blockedBy.some(b => b.blockerDid === did)) {
