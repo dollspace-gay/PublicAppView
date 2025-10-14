@@ -1,0 +1,25 @@
+[Unit]
+Description=AT Protocol Python Unified Worker with Backfill
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/workspace/python-firehose
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+EnvironmentFile=/workspace/.env
+ExecStart=/usr/bin/python3 /workspace/python-firehose/unified_worker.py
+Restart=always
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=2G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
