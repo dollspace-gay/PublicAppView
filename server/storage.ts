@@ -3017,7 +3017,24 @@ export class DatabaseStorage implements IStorage {
 
   // Post viewer states operations
   async createPostViewerState(viewerState: InsertPostViewerState): Promise<PostViewerState> {
-    const [result] = await this.db.insert(postViewerStates).values(viewerState).returning();
+    // Use upsert to handle cases where viewer state already exists
+    const [result] = await this.db
+      .insert(postViewerStates)
+      .values(viewerState)
+      .onConflictDoUpdate({
+        target: [postViewerStates.postUri, postViewerStates.viewerDid],
+        set: {
+          likeUri: viewerState.likeUri !== undefined ? viewerState.likeUri : sql`${postViewerStates.likeUri}`,
+          repostUri: viewerState.repostUri !== undefined ? viewerState.repostUri : sql`${postViewerStates.repostUri}`,
+          bookmarked: viewerState.bookmarked !== undefined ? viewerState.bookmarked : sql`${postViewerStates.bookmarked}`,
+          threadMuted: viewerState.threadMuted !== undefined ? viewerState.threadMuted : sql`${postViewerStates.threadMuted}`,
+          replyDisabled: viewerState.replyDisabled !== undefined ? viewerState.replyDisabled : sql`${postViewerStates.replyDisabled}`,
+          embeddingDisabled: viewerState.embeddingDisabled !== undefined ? viewerState.embeddingDisabled : sql`${postViewerStates.embeddingDisabled}`,
+          pinned: viewerState.pinned !== undefined ? viewerState.pinned : sql`${postViewerStates.pinned}`,
+          updatedAt: sql`NOW()`
+        }
+      })
+      .returning();
     return result;
   }
 
