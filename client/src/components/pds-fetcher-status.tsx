@@ -27,8 +27,10 @@ export function PDSFetcherStatus() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/api/admin/pds-fetcher/stats');
-      setStats((response as any).stats);
+      const response = await api.get<{ stats: PDSFetcherStats }>(
+        '/api/admin/pds-fetcher/stats'
+      );
+      setStats(response.stats);
     } catch (error) {
       console.error('Failed to fetch PDS fetcher stats:', error);
     } finally {

@@ -12,7 +12,7 @@ export interface EnrichedEvent {
     action: 'create' | 'update' | 'delete';
     path: string;
     cid?: string;
-    record?: any;
+    record?: unknown;
   }>;
 
   // Enriched metadata
@@ -51,7 +51,11 @@ export class EventEnricher {
     this.enrichWithHandles = options.enrichWithHandles ?? true;
   }
 
-  async enrich(event: any): Promise<EnrichedEvent> {
+  async enrich(event: {
+    type: string;
+    seq?: string;
+    data?: Record<string, unknown>;
+  }): Promise<EnrichedEvent> {
     const enriched: EnrichedEvent = {
       type: event.type,
       seq: event.seq,
@@ -93,7 +97,7 @@ export class EventEnricher {
           const author = result.rows[0];
 
           // Filter based on enrichment settings
-          const enrichedAuthor: any = {};
+          const enrichedAuthor: Record<string, unknown> = {};
 
           if (this.enrichWithHandles && author.handle) {
             enrichedAuthor.handle = author.handle;

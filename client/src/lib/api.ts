@@ -69,12 +69,12 @@ async function refreshCSRFToken(): Promise<string> {
 fetchCSRFToken();
 
 // --- Main API Request Logic ---
-const request = async (
+const request = async <T = unknown>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   url: string,
-  body?: any,
+  body?: unknown,
   retryCount = 0
-): Promise<any> => {
+): Promise<T> => {
   const csrf = await fetchCSRFToken();
 
   const headers: Record<string, string> = {
@@ -114,7 +114,7 @@ const request = async (
           await refreshCSRFToken();
           return request(method, url, body, retryCount + 1);
         }
-      } catch (e) {
+      } catch {
         // If we can't parse the error, continue with normal error handling
       }
     }
@@ -124,10 +124,12 @@ const request = async (
       queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
     }
 
-    const error: any = new Error(`HTTP error! status: ${response.status}`);
+    const error = new Error(
+      `HTTP error! status: ${response.status}`
+    ) as Error & { data?: unknown };
     try {
       error.data = await response.json();
-    } catch (e) {
+    } catch {
       error.data = { message: 'Could not parse error response.' };
     }
     throw error;
@@ -141,10 +143,12 @@ const request = async (
 };
 
 const api = {
-  get: <T>(url: string): Promise<T> => request('GET', url),
-  post: <T>(url: string, body: any): Promise<T> => request('POST', url, body),
-  put: <T>(url: string, body: any): Promise<T> => request('PUT', url, body),
-  delete: <T>(url: string): Promise<T> => request('DELETE', url),
+  get: <T = unknown>(url: string): Promise<T> => request<T>('GET', url),
+  post: <T = unknown>(url: string, body: unknown): Promise<T> =>
+    request<T>('POST', url, body),
+  put: <T = unknown>(url: string, body: unknown): Promise<T> =>
+    request<T>('PUT', url, body),
+  delete: <T = unknown>(url: string): Promise<T> => request<T>('DELETE', url),
   // Expose refresh function for manual CSRF token refresh if needed
   refreshCSRFToken,
 };

@@ -154,8 +154,9 @@ export class RedisAdapter implements InputAdapter {
       console.log(
         `[${this.getName()}] Created consumer group: ${this.consumerGroup}`
       );
-    } catch (error: any) {
-      if (error.message.includes('BUSYGROUP')) {
+    } catch (error: unknown) {
+      const err = error as Error;
+      if (err.message.includes('BUSYGROUP')) {
         console.log(
           `[${this.getName()}] Consumer group already exists: ${this.consumerGroup}`
         );
@@ -276,9 +277,10 @@ export class RedisAdapter implements InputAdapter {
       }
 
       return events;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       // Handle READONLY errors specifically
-      if (error.message && error.message.includes('READONLY')) {
+      if (err.message && err.message.includes('READONLY')) {
         console.error(
           `[${this.getName()}] READONLY error - Redis is configured as a read-only replica. XREADGROUP requires write access. Please connect to the master Redis instance.`
         );

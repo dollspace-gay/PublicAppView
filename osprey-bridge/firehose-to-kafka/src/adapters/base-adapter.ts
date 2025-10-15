@@ -30,6 +30,6 @@ export type EventHandler = (event: AdapterEvent) => Promise<void>;
 export interface AdapterEvent {
   type: 'commit' | 'identity' | 'account';
   did: string;
-  data: any;
+  data: unknown;
   seq?: string;
 }

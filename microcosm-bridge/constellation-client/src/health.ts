@@ -87,7 +87,7 @@ export class HealthCheckServer {
       try {
         const healthy = await this.apiClient.healthCheck();
         res.status(healthy ? 200 : 503).send(healthy ? 'ready' : 'not ready');
-      } catch (error) {
+      } catch {
         res.status(503).send('not ready');
       }
     });

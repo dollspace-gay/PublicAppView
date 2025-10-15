@@ -95,7 +95,7 @@ const db = createDbPool(
 
 // For backwards compatibility, export a pool variable (though the actual pool is internal to drizzle)
 // This is used by some legacy code that checks pool status
-export const pool = db as any;
+export const pool = db as unknown;
 
 // Export main db connection
 export { db };

@@ -42,7 +42,7 @@ export class KafkaProducerClient {
     console.log('[KAFKA] Connected successfully');
   }
 
-  async publishEvent(event: any): Promise<void> {
+  async publishEvent(event: Record<string, unknown>): Promise<void> {
     if (!this.isConnected) {
       throw new Error('Kafka producer not connected');
     }
@@ -65,7 +65,7 @@ export class KafkaProducerClient {
     }
   }
 
-  async publishBatch(events: any[]): Promise<void> {
+  async publishBatch(events: Record<string, unknown>[]): Promise<void> {
     if (!this.isConnected) {
       throw new Error('Kafka producer not connected');
     }

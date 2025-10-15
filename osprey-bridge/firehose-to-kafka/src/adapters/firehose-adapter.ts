@@ -5,7 +5,7 @@ import { InputAdapter, EventHandler, AdapterEvent } from './base-adapter';
 
 // Make WebSocket available globally for @skyware/firehose in Node.js environment
 if (typeof globalThis.WebSocket === 'undefined') {
-  (global as any).WebSocket = WebSocket;
+  (global as typeof WebSocket & { prototype: WebSocket }).WebSocket = WebSocket;
 }
 
 export interface FirehoseAdapterConfig {
@@ -39,7 +39,7 @@ export class FirehoseAdapter implements InputAdapter {
     const savedCursor = this.loadCursor();
 
     // Create firehose client
-    const firehoseOptions: any = {
+    const firehoseOptions: { relay: string; cursor?: string } = {
       relay: this.config.url,
     };
 
@@ -64,7 +64,7 @@ export class FirehoseAdapter implements InputAdapter {
         data: {
           repo: commit.repo,
           ops: commit.ops.map((op) => {
-            const baseOp: any = {
+            const baseOp: Record<string, unknown> = {
               action: op.action,
               path: op.path,
             };
@@ -113,7 +113,7 @@ export class FirehoseAdapter implements InputAdapter {
       console.log(`[${this.getName()}] Disconnected from firehose`);
     });
 
-    this.firehose.on('error', (error: any) => {
+    this.firehose.on('error', (error: unknown) => {
       console.error(`[${this.getName()}] Firehose error:`, error);
     });
 

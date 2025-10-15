@@ -28,8 +28,6 @@ import {
   AlertCircle,
   LogIn,
   LogOut,
-  RefreshCw,
-  Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PDSFetcherStatus } from '@/components/pds-fetcher-status';
@@ -49,6 +47,18 @@ interface InstanceLabel {
   severity: string;
   reason: string;
   description: string;
+}
+
+interface MetricsData {
+  firehoseStatus?: {
+    connected: boolean;
+  };
+  eventCounts?: {
+    '#commit': number;
+    '#identity': number;
+    '#account': number;
+  };
+  errorRate?: number;
 }
 
 export default function AdminControlPanel() {
@@ -99,7 +109,7 @@ export default function AdminControlPanel() {
         }
         // Redirect to PDS for OAuth authorization
         window.location.href = data.authUrl;
-      } catch (error) {
+      } catch {
         toast({
           title: 'Login Failed',
           description: 'Invalid authentication URL returned from server',
@@ -129,7 +139,7 @@ export default function AdminControlPanel() {
   });
 
   // Fetch firehose status
-  const { data: metrics } = useQuery({
+  const { data: metrics } = useQuery<MetricsData>({
     queryKey: ['/api/metrics'],
     refetchInterval: 5000,
   });
@@ -137,13 +147,12 @@ export default function AdminControlPanel() {
   // Update firehose stats when metrics change
   useEffect(() => {
     if (metrics) {
-      const metricsData = metrics as any;
-      setFirehoseConnected(metricsData.firehoseStatus?.connected || false);
+      setFirehoseConnected(metrics.firehoseStatus?.connected || false);
       setFirehoseStats({
-        commits: metricsData.eventCounts?.['#commit'] || 0,
-        identity: metricsData.eventCounts?.['#identity'] || 0,
-        account: metricsData.eventCounts?.['#account'] || 0,
-        errorRate: metricsData.errorRate || 0,
+        commits: metrics.eventCounts?.['#commit'] || 0,
+        identity: metrics.eventCounts?.['#identity'] || 0,
+        account: metrics.eventCounts?.['#account'] || 0,
+        errorRate: metrics.errorRate || 0,
       });
     }
   }, [metrics]);
@@ -156,7 +165,7 @@ export default function AdminControlPanel() {
         title: 'Reconnect Initiated',
         description: 'Attempting to reconnect to firehose...',
       });
-    } catch (error) {
+    } catch {
       toast({
         title: 'Reconnect Failed',
         description: 'Failed to reconnect to firehose',
@@ -245,19 +254,6 @@ export default function AdminControlPanel() {
   const handleSearch = () => {
     if (searchQuery) {
       refetchLabels();
-    }
-  };
-
-  const getLabelColor = (reason: string) => {
-    switch (reason) {
-      case 'legal':
-        return 'destructive';
-      case 'safety':
-        return 'default';
-      case 'quality':
-        return 'secondary';
-      default:
-        return 'outline';
     }
   };
 

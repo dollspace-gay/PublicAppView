@@ -76,7 +76,7 @@ export class HealthCheckServer {
 
         const statusCode = health.status === 'healthy' ? 200 : 503;
         res.status(statusCode).json(health);
-      } catch (error) {
+      } catch {
         res.status(503).json({
           status: 'unhealthy',
           error: 'Failed to get health status',
@@ -95,7 +95,7 @@ export class HealthCheckServer {
             .status(503)
             .json({ ready: false, timestamp: new Date().toISOString() });
         }
-      } catch (error) {
+      } catch {
         res.status(503).json({
           ready: false,
           error: 'Failed to get readiness status',

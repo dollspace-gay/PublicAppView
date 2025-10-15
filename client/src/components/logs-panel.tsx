@@ -8,7 +8,7 @@ interface LogEntry {
   timestamp: string;
   level: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'EVENT';
   message: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 const getLevelColor = (level: LogEntry['level']) => {

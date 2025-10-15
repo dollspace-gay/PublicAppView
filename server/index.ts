@@ -5,7 +5,6 @@ import { registerRoutes } from './routes';
 import { setupVite, serveStatic, log } from './vite';
 import { logCollector } from './services/log-collector';
 import { cacheService } from './services/cache';
-import { spawn } from 'child_process';
 
 const app = express();
 
@@ -67,7 +66,7 @@ const safeJsonParser = (req: Request, res: Response, next: NextFunction) => {
     const bodyBuffer = Buffer.concat(chunks);
 
     // Replicate the 'verify' functionality to store the raw body
-    (req as any).rawBody = bodyBuffer;
+    (req as Request & { rawBody?: Buffer }).rawBody = bodyBuffer;
 
     if (bodyBuffer.length === 0) {
       req.body = {};
@@ -175,7 +174,7 @@ const MAX_LOG_LINE_LENGTH_TRUNCATED = 79;
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -211,21 +210,28 @@ app.use((req, res, next) => {
 
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || 'Internal Server Error';
+  app.use(
+    (
+      err: Error & { status?: number; statusCode?: number },
+      _req: Request,
+      res: Response,
+      _next: NextFunction
+    ) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || 'Internal Server Error';
 
-    // Log error for debugging
-    console.error('[ERROR]', err);
-    logCollector.error('Request error', {
-      error: message,
-      status,
-      stack: err.stack,
-    });
+      // Log error for debugging
+      console.error('[ERROR]', err);
+      logCollector.error('Request error', {
+        error: message,
+        status,
+        stack: err.stack,
+      });
 
-    res.status(status).json({ message });
-    // DO NOT throw after sending response - this would crash the server
-  });
+      res.status(status).json({ message });
+      // DO NOT throw after sending response - this would crash the server
+    }
+  );
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -273,9 +279,11 @@ app.use((req, res, next) => {
         });
 
       // Initialize data pruning service (if enabled)
-      import('./services/data-pruning').then(({ dataPruningService }) => {
-        // Service auto-initializes in its constructor
-      });
+      import('./services/data-pruning').then(
+        ({ dataPruningService: _dataPruningService }) => {
+          // Service auto-initializes in its constructor
+        }
+      );
 
       // TypeScript backfill service is PERMANENTLY DISABLED
       // Backfill functionality has been moved to Python (python-firehose/backfill_service.py)

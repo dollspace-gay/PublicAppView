@@ -138,7 +138,7 @@ export class LabelConsumer {
     }
   }
 
-  private isValidLabel(data: any): boolean {
+  private isValidLabel(data: unknown): boolean {
     return (
       typeof data === 'object' &&
       typeof data.ver === 'number' &&

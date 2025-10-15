@@ -91,9 +91,7 @@ import {
   type VideoJob,
   type InsertVideoJob,
   type FirehoseCursor,
-  type InsertFirehoseCursor,
   type Bookmark,
-  insertBookmarkSchema,
   type Quote,
   type InsertQuote,
   type Verification,
@@ -111,7 +109,7 @@ import {
   type GenericRecord,
   type InsertGenericRecord,
 } from '@shared/schema';
-import { db, pool, type DbConnection } from './db';
+import { db, type DbConnection } from './db';
 import { eq, desc, and, or, sql, inArray, isNull } from 'drizzle-orm';
 import { encryptionService } from './services/encryption';
 import { sanitizeObject } from './utils/sanitize';
@@ -381,8 +379,12 @@ export interface IStorage {
   deleteCorruptedSessions(): Promise<number>;
 
   // OAuth state operations
-  saveOAuthState(state: string, stateData: any, expiresAt: Date): Promise<void>;
-  getOAuthState(state: string): Promise<any | undefined>;
+  saveOAuthState(
+    state: string,
+    stateData: unknown,
+    expiresAt: Date
+  ): Promise<void>;
+  getOAuthState(state: string): Promise<unknown | undefined>;
   deleteOAuthState(state: string): Promise<void>;
   deleteExpiredOAuthStates(): Promise<void>;
 
@@ -667,7 +669,7 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   private db: DbConnection;
-  private statsCache: { data: any; timestamp: number } | null = null;
+  private statsCache: { data: unknown; timestamp: number } | null = null;
   private readonly STATS_CACHE_TTL = 60000;
   private statsQueryInProgress = false;
   private backgroundRefreshInterval: NodeJS.Timeout | null = null;
@@ -1062,7 +1064,8 @@ export class DatabaseStorage implements IStorage {
     feedType?: string
   ): Promise<{ items: FeedItem[]; cursor?: string }> {
     // Build all conditions to apply them together with AND
-    const conditions: any[] = [eq(feedItems.originatorDid, actorDid)];
+    import type { SQL } from 'drizzle-orm';
+    const conditions: SQL[] = [eq(feedItems.originatorDid, actorDid)];
 
     // Apply feed type filtering
     if (feedType === 'posts_no_replies') {
@@ -2393,7 +2396,7 @@ export class DatabaseStorage implements IStorage {
           ? await encryptionService.decrypt(session.refreshToken)
           : null,
       };
-    } catch (error) {
+    } catch {
       // Decryption failed (corrupted data) - delete the session
       console.error(
         `[STORAGE] Failed to decrypt session ${id}, deleting corrupted session`
@@ -2420,7 +2423,7 @@ export class DatabaseStorage implements IStorage {
             ? await encryptionService.decrypt(session.refreshToken)
             : null,
         });
-      } catch (error) {
+      } catch {
         // Decryption failed - delete corrupted session
         console.error(
           `[STORAGE] Failed to decrypt session ${session.id}, deleting corrupted session`
@@ -2438,7 +2441,9 @@ export class DatabaseStorage implements IStorage {
     >
   ): Promise<Session | undefined> {
     // Encrypt tokens if provided
-    const updateData: any = {};
+    const updateData: Partial<
+      Pick<InsertSession, 'accessToken' | 'refreshToken' | 'expiresAt'>
+    > = {};
     if (data.accessToken) {
       updateData.accessToken = await encryptionService.encrypt(
         data.accessToken
@@ -2494,7 +2499,7 @@ export class DatabaseStorage implements IStorage {
         if (session.refreshToken) {
           await encryptionService.decrypt(session.refreshToken);
         }
-      } catch (error) {
+      } catch {
         // Decryption failed - delete this corrupted session
         console.log(`[STORAGE] Deleting corrupted session ${session.id}`);
         await this.db.delete(sessions).where(eq(sessions.id, session.id));
@@ -2507,7 +2512,7 @@ export class DatabaseStorage implements IStorage {
 
   async saveOAuthState(
     state: string,
-    stateData: any,
+    stateData: unknown,
     expiresAt: Date
   ): Promise<void> {
     const { oauthStates } = await import('@shared/schema');
@@ -3304,7 +3309,8 @@ export class DatabaseStorage implements IStorage {
     limit = 50,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    const conditions: any[] = [];
+    import type { SQL } from 'drizzle-orm';
+    const conditions: SQL[] = [];
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
@@ -3327,7 +3333,8 @@ export class DatabaseStorage implements IStorage {
     limit = 50,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    const conditions: any[] = [eq(starterPacks.creatorDid, creatorDid)];
+    import type { SQL } from 'drizzle-orm';
+    const conditions: SQL[] = [eq(starterPacks.creatorDid, creatorDid)];
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
     }
@@ -3350,7 +3357,8 @@ export class DatabaseStorage implements IStorage {
     limit = 25,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    const conditions: any[] = [
+    import type { SQL } from 'drizzle-orm';
+    const conditions: SQL[] = [
       sql`${starterPacks.name} ILIKE ${'%' + q + '%'}`,
     ];
     if (cursor) {
@@ -3650,7 +3658,7 @@ export class DatabaseStorage implements IStorage {
           timestamp: Date.now(),
         };
       }
-    } catch (error) {
+    } catch {
       // Silent failure - cache will just be stale
     } finally {
       this.statsQueryInProgress = false;
@@ -3726,9 +3734,11 @@ export class DatabaseStorage implements IStorage {
       const result = await Promise.race([statsPromise, timeoutPromise]);
 
       const stats: Record<string, number> = {};
-      result.rows.forEach((row: any) => {
-        stats[row.relname] = Number(row.count || 0);
-      });
+      result.rows.forEach(
+        (row: { relname: string; count: string | number }) => {
+          stats[row.relname] = Number(row.count || 0);
+        }
+      );
 
       const data = {
         totalUsers: stats.users || 0,

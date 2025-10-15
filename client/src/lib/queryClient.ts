@@ -10,8 +10,9 @@ export const getQueryFn =
     try {
       const data = await api.get<T>(url);
       return data;
-    } catch (error: any) {
-      if (options?.on401 === 'returnNull' && error.response?.status === 401) {
+    } catch (error: unknown) {
+      const err = error as { response?: { status?: number } };
+      if (options?.on401 === 'returnNull' && err.response?.status === 401) {
         return null as T;
       }
       // Re-throw other errors to be handled by React Query
@@ -26,11 +27,12 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      retry: (failureCount, error: any) => {
+      retry: (failureCount, error: unknown) => {
+        const err = error as { response?: { status?: number } };
         if (
-          error.response?.status === 401 ||
-          error.response?.status === 403 ||
-          error.response?.status === 404
+          err.response?.status === 401 ||
+          err.response?.status === 403 ||
+          err.response?.status === 404
         ) {
           return false;
         }
