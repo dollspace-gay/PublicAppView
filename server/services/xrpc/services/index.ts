@@ -40,3 +40,12 @@ export {
   listActivitySubscriptions,
   putActivitySubscription,
 } from './notification-service';
+
+// Starter Pack Service
+export {
+  getStarterPack,
+  getStarterPacks,
+  getActorStarterPacks,
+  getStarterPacksWithMembership,
+  getOnboardingSuggestedStarterPacks,
+} from './starter-pack-service';

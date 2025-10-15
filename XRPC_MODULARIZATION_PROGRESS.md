@@ -10,7 +10,7 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 ### Current Status
 
 - ✅ **Foundation Complete**: All infrastructure built (schemas, utilities, types, orchestrator)
-- 🚧 **Service Extraction**: 29 of 62 endpoints extracted (47% complete)
+- 🚧 **Service Extraction**: 34 of 62 endpoints extracted (55% complete)
 - ✅ **Code Quality**: 0 linter warnings in all new code
 - ⚠️ **Legacy Code**: Original file still has 417 warnings (to be fixed incrementally)
 
@@ -33,9 +33,9 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 - **Quality**: ✅ 0 warnings
 
 #### Phase 3: Service Extraction (In Progress)
-- **Files**: 7 files, 1,224 lines
-- **Services Created**: 5
-- **Endpoints Extracted**: 29 of 62 (47%)
+- **Files**: 8 files, 1,605 lines
+- **Services Created**: 6
+- **Endpoints Extracted**: 34 of 62 (55%)
 - **Quality**: ✅ 0 warnings
 
 **Extracted Services:**
@@ -44,6 +44,7 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 3. ✅ **Utility Service** (4 endpoints) - `getServices`, `getJobStatus`, `getUploadLimits`, `sendInteractions`
 4. ✅ **Preferences Service** (2 endpoints) - `getPreferences`, `putPreferences`
 5. ✅ **Notification Service** (8 endpoints) - `listNotifications`, `getUnreadCount`, `updateSeen`, `getNotificationPreferences`, `putNotificationPreferences`, `putNotificationPreferencesV2`, `listActivitySubscriptions`, `putActivitySubscription`
+6. ✅ **Starter Pack Service** (5 endpoints) - `getStarterPack`, `getStarterPacks`, `getActorStarterPacks`, `getStarterPacksWithMembership`, `getOnboardingSuggestedStarterPacks`
 
 #### Phase 4: Orchestrator/Facade
 - **Files**: 2 files, 347 lines + docs
@@ -91,12 +92,13 @@ server/services/xrpc/
 │   ├── index.ts
 │   └── README.md
 │
-├── services/ (Phase 3)                     ← 7 files, 1,224 lines 🚧
+├── services/ (Phase 3)                     ← 8 files, 1,605 lines 🚧
 │   ├── bookmark-service.ts                 ✅ 3 endpoints
 │   ├── search-service.ts                   ✅ 4 endpoints
 │   ├── utility-service.ts                  ✅ 4 endpoints
-│   ├── preferences-service.ts              ✅ 2 endpoints (NEW!)
-│   ├── notification-service.ts             ✅ 8 endpoints (NEW!)
+│   ├── preferences-service.ts              ✅ 2 endpoints
+│   ├── notification-service.ts             ✅ 8 endpoints
+│   ├── starter-pack-service.ts             ✅ 5 endpoints (NEW!)
 │   ├── index.ts
 │   └── README.md
 │
@@ -112,22 +114,18 @@ Original file (unchanged):
 server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 ```
 
-**Total Created**: 40 files, 4,746 lines  
+**Total Created**: 41 files, 5,127 lines  
 **Code Quality**: ✅ 0 warnings in all new code  
-**Original File**: Still 4,734 lines (33 endpoints remaining)
+**Original File**: Still 4,734 lines (28 endpoints remaining)
 
 ---
 
 ## 🎯 What Remains
 
-### 33 Endpoints Still in Original File (53% remaining)
+### 28 Endpoints Still in Original File (45% remaining)
 
 **Next Priority - Simple Services:**
-1. **Starter Pack Service** (5 endpoints)
-   - `getStarterPack`, `getStarterPacks`, `getActorStarterPacks`
-   - `getStarterPacksWithMembership`, `getOnboardingSuggestedStarterPacks`
-   
-2. **Push Notification Service** (2 endpoints)
+1. **Push Notification Service** (2 endpoints)
    - `registerPush`, `unregisterPush`
 
 **Medium Complexity:**
@@ -191,7 +189,7 @@ server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 ## 🚀 Next Steps
 
 ### Immediate (This Week)
-1. Extract Starter Pack Service (5 endpoints) - ~2 hours
+1. ✅ ~~Extract Starter Pack Service (5 endpoints)~~ - COMPLETED
 2. Extract Push Notification Service (2 endpoints) - ~1 hour
 
 ### Short Term (Next 2 Weeks)
@@ -231,7 +229,8 @@ server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 ### Progress This Session
 - ✅ Extracted Preferences Service (2 endpoints)
 - ✅ Extracted Notification Service (8 endpoints)
-- ✅ Updated orchestrator for new services
+- ✅ Extracted Starter Pack Service (5 endpoints)
+- ✅ Updated orchestrator for all new services
 - ✅ Verified 0 linter warnings on all new code
 - ✅ Cleaned up old documentation files
 
@@ -279,7 +278,7 @@ export async function endpointName(
 
 ## 🎉 Conclusion
 
-**Status**: Foundation complete, 47% of endpoints extracted  
+**Status**: Foundation complete, 55% of endpoints extracted (past halfway!)  
 **Quality**: All new code has 0 linter warnings  
 **Path Forward**: Clear and achievable  
 **Breaking Changes**: None  
@@ -287,4 +286,6 @@ export async function endpointName(
 
 The modularization is progressing smoothly. Each extracted service maintains the same API interface while improving code organization, testability, and maintainability. The orchestrator ensures zero breaking changes during the migration.
 
-**Next**: Continue extracting simple services (Starter Packs, Push Notifications) before tackling more complex ones.
+**Progress**: We've now extracted 6 services with 34 endpoints, crossing the halfway mark! Only 28 endpoints remain.
+
+**Next**: Extract Push Notifications, then move on to Feed Generators and Lists before tackling the complex services.

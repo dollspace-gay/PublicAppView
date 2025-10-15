@@ -18,6 +18,7 @@ import * as searchService from './services/search-service';
 import * as utilityService from './services/utility-service';
 import * as preferencesService from './services/preferences-service';
 import * as notificationService from './services/notification-service';
+import * as starterPackService from './services/starter-pack-service';
 
 /**
  * XRPC Orchestrator Class
@@ -128,6 +129,33 @@ export class XRPCOrchestrator {
 
   async putActivitySubscription(req: Request, res: Response): Promise<void> {
     return notificationService.putActivitySubscription(req, res);
+  }
+
+  // Starter Pack Service (5 endpoints)
+  async getStarterPack(req: Request, res: Response): Promise<void> {
+    return starterPackService.getStarterPack(req, res);
+  }
+
+  async getStarterPacks(req: Request, res: Response): Promise<void> {
+    return starterPackService.getStarterPacks(req, res);
+  }
+
+  async getActorStarterPacks(req: Request, res: Response): Promise<void> {
+    return starterPackService.getActorStarterPacks(req, res);
+  }
+
+  async getStarterPacksWithMembership(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return starterPackService.getStarterPacksWithMembership(req, res);
+  }
+
+  async getOnboardingSuggestedStarterPacks(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return starterPackService.getOnboardingSuggestedStarterPacks(req, res);
   }
 
   // ============================================================================
@@ -280,26 +308,6 @@ export class XRPCOrchestrator {
     return this.legacy.getSuggestedFeedsUnspecced(req, res);
   }
 
-  // Starter Pack endpoints
-  async getStarterPack(req: Request, res: Response): Promise<void> {
-    return this.legacy.getStarterPack(req, res);
-  }
-
-  async getStarterPacks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getStarterPacks(req, res);
-  }
-
-  async getActorStarterPacks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getActorStarterPacks(req, res);
-  }
-
-  async getStarterPacksWithMembership(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.getStarterPacksWithMembership(req, res);
-  }
-
   // Push notification endpoints (still in legacy)
   async registerPush(req: Request, res: Response): Promise<void> {
     return this.legacy.registerPush(req, res);
@@ -310,13 +318,6 @@ export class XRPCOrchestrator {
   }
 
   // Unspecced/misc endpoints
-  async getOnboardingSuggestedStarterPacks(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.getOnboardingSuggestedStarterPacks(req, res);
-  }
-
   async getTaggedSuggestions(req: Request, res: Response): Promise<void> {
     return this.legacy.getTaggedSuggestions(req, res);
   }
