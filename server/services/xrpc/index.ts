@@ -16,6 +16,8 @@ import { xrpcApi } from '../xrpc-api';
 import * as bookmarkService from './services/bookmark-service';
 import * as searchService from './services/search-service';
 import * as utilityService from './services/utility-service';
+import * as preferencesService from './services/preferences-service';
+import * as notificationService from './services/notification-service';
 
 /**
  * XRPC Orchestrator Class
@@ -79,6 +81,55 @@ export class XRPCOrchestrator {
     return utilityService.sendInteractions(req, res);
   }
 
+  // Preferences Service (2 endpoints)
+  async getPreferences(req: Request, res: Response): Promise<void> {
+    return preferencesService.getPreferences(req, res);
+  }
+
+  async putPreferences(req: Request, res: Response): Promise<void> {
+    return preferencesService.putPreferences(req, res);
+  }
+
+  // Notification Service (8 endpoints)
+  async listNotifications(req: Request, res: Response): Promise<void> {
+    return notificationService.listNotifications(req, res);
+  }
+
+  async getUnreadCount(req: Request, res: Response): Promise<void> {
+    return notificationService.getUnreadCount(req, res);
+  }
+
+  async updateSeen(req: Request, res: Response): Promise<void> {
+    return notificationService.updateSeen(req, res);
+  }
+
+  async updateNotificationSeen(req: Request, res: Response): Promise<void> {
+    return notificationService.updateSeen(req, res);
+  }
+
+  async getNotificationPreferences(req: Request, res: Response): Promise<void> {
+    return notificationService.getNotificationPreferences(req, res);
+  }
+
+  async putNotificationPreferences(req: Request, res: Response): Promise<void> {
+    return notificationService.putNotificationPreferences(req, res);
+  }
+
+  async putNotificationPreferencesV2(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return notificationService.putNotificationPreferencesV2(req, res);
+  }
+
+  async listActivitySubscriptions(req: Request, res: Response): Promise<void> {
+    return notificationService.listActivitySubscriptions(req, res);
+  }
+
+  async putActivitySubscription(req: Request, res: Response): Promise<void> {
+    return notificationService.putActivitySubscription(req, res);
+  }
+
   // ============================================================================
   // LEGACY ENDPOINTS (Not yet extracted)
   // These delegate to the original XRPCApi class
@@ -136,15 +187,6 @@ export class XRPCOrchestrator {
 
   async getSuggestedUsersUnspecced(req: Request, res: Response): Promise<void> {
     return this.legacy.getSuggestedUsersUnspecced(req, res);
-  }
-
-  // Preferences endpoints
-  async getPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPreferences(req, res);
-  }
-
-  async putPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.putPreferences(req, res);
   }
 
   // Social Graph endpoints
@@ -258,48 +300,13 @@ export class XRPCOrchestrator {
     return this.legacy.getStarterPacksWithMembership(req, res);
   }
 
-  // Notification endpoints
+  // Push notification endpoints (still in legacy)
   async registerPush(req: Request, res: Response): Promise<void> {
     return this.legacy.registerPush(req, res);
   }
 
   async unregisterPush(req: Request, res: Response): Promise<void> {
     return this.legacy.unregisterPush(req, res);
-  }
-
-  async getNotificationPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.getNotificationPreferences(req, res);
-  }
-
-  async putNotificationPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.putNotificationPreferences(req, res);
-  }
-
-  async putNotificationPreferencesV2(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.putNotificationPreferencesV2(req, res);
-  }
-
-  async listActivitySubscriptions(req: Request, res: Response): Promise<void> {
-    return this.legacy.listActivitySubscriptions(req, res);
-  }
-
-  async putActivitySubscription(req: Request, res: Response): Promise<void> {
-    return this.legacy.putActivitySubscription(req, res);
-  }
-
-  async listNotifications(req: Request, res: Response): Promise<void> {
-    return this.legacy.listNotifications(req, res);
-  }
-
-  async updateNotificationSeen(req: Request, res: Response): Promise<void> {
-    return this.legacy.updateNotificationSeen(req, res);
-  }
-
-  async getUnreadCount(req: Request, res: Response): Promise<void> {
-    return this.legacy.getUnreadCount(req, res);
   }
 
   // Unspecced/misc endpoints
