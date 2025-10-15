@@ -1,0 +1,92 @@
+# Local Development Docker Compose Configuration
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This override file adds:
+# - Volume mounts for hot-reload (code changes apply immediately)
+# - Lower resource limits suitable for local development
+# - Debug logging enabled
+# - Ports exposed for direct access
+
+services:
+  # Database with lower resource settings for local dev
+  db:
+    command: postgres -c max_connections=100 -c shared_buffers=1GB -c effective_cache_size=2GB -c work_mem=16MB -c maintenance_work_mem=256MB
+    ports:
+      - "5432:5432"
+    shm_size: 1gb
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Redis with lower memory for local dev
+  redis:
+    command: redis-server --maxmemory 512mb --maxmemory-policy noeviction --appendonly yes --appendfsync everysec
+    ports:
+      - "6379:6379"
+
+  # Python Firehose with hot-reload
+  python-firehose:
+    volumes:
+      - ./python-firehose:/app:rw
+    environment:
+      - LOG_LEVEL=DEBUG
+      - REDIS_MAX_STREAM_LEN=10000
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Python Worker with hot-reload
+  python-worker:
+    volumes:
+      - ./python-firehose:/app:rw
+    environment:
+      - LOG_LEVEL=DEBUG
+      - DB_POOL_SIZE=10
+      - BATCH_SIZE=5
+      - PARALLEL_CONSUMERS=2
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # Python Unified Worker with hot-reload (the one we just fixed!)
+  python-backfill-worker:
+    volumes:
+      - ./python-firehose:/app:rw
+    environment:
+      - LOG_LEVEL=DEBUG
+      - DB_POOL_SIZE=10
+      - BACKFILL_DAYS=0
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # App service with hot-reload
+  app:
+    volumes:
+      - ./appview-signing-key.json:/app/appview-signing-key.json:ro
+      - ./appview-private.pem:/app/appview-private.pem:ro
+      - ./public/did.json:/app/public/did.json:ro
+      - ./oauth-keyset.json:/app/oauth-keyset.json:ro
+      - ./src:/app/src:rw
+      - ./public:/app/public:rw
+    environment:
+      - LOG_LEVEL=DEBUG
+      - DB_POOL_SIZE=20
+      - NODE_ENV=development
+    ports:
+      - "5000:5000"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Constellation bridge with lower limits
+  constellation-bridge:
+    deploy:
+      resources:
+        limits:
+          memory: 256M

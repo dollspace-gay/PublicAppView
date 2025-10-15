@@ -783,6 +783,9 @@ class EventProcessor:
 
             bookmarked_value = 'true' if bookmarked else 'false'
 
+            # Debug logging to trace the bug
+            logger.debug(f"[VIEWER_STATE_DEBUG] like_param={repr(like_param)}, repost_param={repr(repost_param)}, bookmarked_value={repr(bookmarked_value)}, insert_params_count={len(insert_params)}")
+
             # Build update clauses
             update_idx = 3
             update_params = [post_uri, viewer_did]

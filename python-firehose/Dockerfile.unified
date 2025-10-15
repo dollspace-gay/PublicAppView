@@ -21,12 +21,14 @@ COPY backfill_service.py .
 COPY did_resolver.py .
 COPY pds_data_fetcher.py .
 COPY label_service.py .
+COPY verify_code.py .
 
 # Set environment defaults
 ENV RELAY_URL=wss://bsky.network
 ENV DATABASE_URL=postgresql://postgres:password@db:5432/atproto
 ENV DB_POOL_SIZE=20
 ENV LOG_LEVEL=INFO
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
