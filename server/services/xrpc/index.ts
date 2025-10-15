@@ -21,6 +21,13 @@ import * as notificationService from './services/notification-service';
 import * as starterPackService from './services/starter-pack-service';
 import * as pushNotificationService from './services/push-notification-service';
 import * as feedGeneratorService from './services/feed-generator-service';
+import * as listService from './services/list-service';
+import * as graphService from './services/graph-service';
+import * as timelineService from './services/timeline-service';
+import * as actorService from './services/actor-service';
+import * as moderationService from './services/moderation-service';
+import * as unspeccedService from './services/unspecced-service';
+import * as timelineService from './services/timeline-service';
 
 /**
  * XRPC Orchestrator Class
@@ -198,151 +205,164 @@ export class XRPCOrchestrator {
     return feedGeneratorService.getSuggestedFeedsUnspecced(req, res);
   }
 
-  // ============================================================================
-  // LEGACY ENDPOINTS (Not yet extracted)
-  // These delegate to the original XRPCApi class
-  // ============================================================================
-
-  // Timeline & Feed endpoints
-  async getTimeline(req: Request, res: Response): Promise<void> {
-    return this.legacy.getTimeline(req, res);
+  // List Service (6 endpoints)
+  async getList(req: Request, res: Response): Promise<void> {
+    return listService.getList(req, res);
   }
 
-  async getAuthorFeed(req: Request, res: Response): Promise<void> {
-    return this.legacy.getAuthorFeed(req, res);
+  async getLists(req: Request, res: Response): Promise<void> {
+    return listService.getLists(req, res);
   }
 
-  async getPostThread(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThread(req, res);
-  }
-
-  async getFeed(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeed(req, res);
-  }
-
-  async getPostThreadV2(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThreadV2(req, res);
-  }
-
-  async getPostThreadOtherV2(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThreadOtherV2(req, res);
-  }
-
-  // Actor/Profile endpoints
-  async getProfile(req: Request, res: Response): Promise<void> {
-    return this.legacy.getProfile(req, res);
-  }
-
-  async getProfiles(req: Request, res: Response): Promise<void> {
-    return this.legacy.getProfiles(req, res);
-  }
-
-  async getFollows(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFollows(req, res);
-  }
-
-  async getFollowers(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFollowers(req, res);
-  }
-
-  async getSuggestions(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestions(req, res);
-  }
-
-  async getSuggestedFollowsByActor(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedFollowsByActor(req, res);
-  }
-
-  async getSuggestedUsersUnspecced(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedUsersUnspecced(req, res);
-  }
-
-  // Social Graph endpoints
-  async getRelationships(req: Request, res: Response): Promise<void> {
-    return this.legacy.getRelationships(req, res);
-  }
-
-  async getKnownFollowers(req: Request, res: Response): Promise<void> {
-    return this.legacy.getKnownFollowers(req, res);
+  async getListFeed(req: Request, res: Response): Promise<void> {
+    return listService.getListFeed(req, res);
   }
 
   async getListsWithMembership(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListsWithMembership(req, res);
-  }
-
-  // Moderation endpoints
-  async getBlocks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getBlocks(req, res);
-  }
-
-  async getMutes(req: Request, res: Response): Promise<void> {
-    return this.legacy.getMutes(req, res);
-  }
-
-  async muteActor(req: Request, res: Response): Promise<void> {
-    return this.legacy.muteActor(req, res);
-  }
-
-  async unmuteActor(req: Request, res: Response): Promise<void> {
-    return this.legacy.unmuteActor(req, res);
+    return listService.getListsWithMembership(req, res);
   }
 
   async getListMutes(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListMutes(req, res);
+    return listService.getListMutes(req, res);
   }
 
   async getListBlocks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListBlocks(req, res);
+    return listService.getListBlocks(req, res);
+  }
+
+  // Graph Service (4 endpoints)
+  async getRelationships(req: Request, res: Response): Promise<void> {
+    return graphService.getRelationships(req, res);
+  }
+
+  async getKnownFollowers(req: Request, res: Response): Promise<void> {
+    return graphService.getKnownFollowers(req, res);
+  }
+
+  async getFollows(req: Request, res: Response): Promise<void> {
+    return graphService.getFollows(req, res);
+  }
+
+  async getFollowers(req: Request, res: Response): Promise<void> {
+    return graphService.getFollowers(req, res);
+  }
+
+  // Timeline Service (6 endpoints)
+  async getTimeline(req: Request, res: Response): Promise<void> {
+    return timelineService.getTimeline(req, res);
+  }
+
+  async getAuthorFeed(req: Request, res: Response): Promise<void> {
+    return timelineService.getAuthorFeed(req, res);
+  }
+
+  async getPostThread(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThread(req, res);
+  }
+
+  async getFeed(req: Request, res: Response): Promise<void> {
+    return timelineService.getFeed(req, res);
+  }
+
+  async getPostThreadV2(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThreadV2(req, res);
+  }
+
+  async getPostThreadOtherV2(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThreadOtherV2(req, res);
+  }
+
+  // Actor/Profile Service (5 endpoints)
+  async getProfile(req: Request, res: Response): Promise<void> {
+    return actorService.getProfile(req, res);
+  }
+
+  async getProfiles(req: Request, res: Response): Promise<void> {
+    return actorService.getProfiles(req, res);
+  }
+
+  async getSuggestions(req: Request, res: Response): Promise<void> {
+    return actorService.getSuggestions(req, res);
+  }
+
+  async getSuggestedFollowsByActor(req: Request, res: Response): Promise<void> {
+    return actorService.getSuggestedFollowsByActor(req, res);
+  }
+
+  async getSuggestedUsersUnspecced(req: Request, res: Response): Promise<void> {
+    return actorService.getSuggestedUsersUnspecced(req, res);
+  }
+
+  // Moderation Service (10 endpoints)
+  async getBlocks(req: Request, res: Response): Promise<void> {
+    return moderationService.getBlocks(req, res);
+  }
+
+  async getMutes(req: Request, res: Response): Promise<void> {
+    return moderationService.getMutes(req, res);
+  }
+
+  async muteActor(req: Request, res: Response): Promise<void> {
+    return moderationService.muteActor(req, res);
+  }
+
+  async unmuteActor(req: Request, res: Response): Promise<void> {
+    return moderationService.unmuteActor(req, res);
   }
 
   async muteActorList(req: Request, res: Response): Promise<void> {
-    return this.legacy.muteActorList(req, res);
+    return moderationService.muteActorList(req, res);
   }
 
   async unmuteActorList(req: Request, res: Response): Promise<void> {
-    return this.legacy.unmuteActorList(req, res);
+    return moderationService.unmuteActorList(req, res);
   }
 
   async muteThread(req: Request, res: Response): Promise<void> {
-    return this.legacy.muteThread(req, res);
+    return moderationService.muteThread(req, res);
   }
 
   async unmuteThread(req: Request, res: Response): Promise<void> {
-    return this.legacy.unmuteThread(req, res);
+    return moderationService.unmuteThread(req, res);
   }
 
   async queryLabels(req: Request, res: Response): Promise<void> {
-    return this.legacy.queryLabels(req, res);
+    return moderationService.queryLabels(req, res);
   }
 
   async createReport(req: Request, res: Response): Promise<void> {
-    return this.legacy.createReport(req, res);
+    return moderationService.createReport(req, res);
   }
 
-  // Unspecced/misc endpoints
+  // Unspecced Service (6 endpoints)
   async getTaggedSuggestions(req: Request, res: Response): Promise<void> {
-    return this.legacy.getTaggedSuggestions(req, res);
+    return unspeccedService.getTaggedSuggestions(req, res);
   }
 
   async getTrendingTopics(req: Request, res: Response): Promise<void> {
-    return this.legacy.getTrendingTopics(req, res);
+    return unspeccedService.getTrendingTopics(req, res);
   }
 
   async getTrends(req: Request, res: Response): Promise<void> {
-    return this.legacy.getTrends(req, res);
+    return unspeccedService.getTrends(req, res);
   }
 
   async getUnspeccedConfig(req: Request, res: Response): Promise<void> {
-    return this.legacy.getUnspeccedConfig(req, res);
+    return unspeccedService.getUnspeccedConfig(req, res);
   }
 
   async getAgeAssuranceState(req: Request, res: Response): Promise<void> {
-    return this.legacy.getAgeAssuranceState(req, res);
+    return unspeccedService.getAgeAssuranceState(req, res);
   }
 
   async initAgeAssurance(req: Request, res: Response): Promise<void> {
-    return this.legacy.initAgeAssurance(req, res);
+    return unspeccedService.initAgeAssurance(req, res);
   }
+
+  // ============================================================================
+  // ALL ENDPOINTS NOW EXTRACTED!
+  // Legacy instance kept for backward compatibility and cache access
+  // ============================================================================
 
   // Public utility method (still delegated to legacy for cache access)
   invalidatePreferencesCache(userDid: string): void {

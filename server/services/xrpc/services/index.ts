@@ -63,3 +63,64 @@ export {
   getPopularFeedGenerators,
   getSuggestedFeedsUnspecced,
 } from './feed-generator-service';
+
+// List Service
+export {
+  getList,
+  getLists,
+  getListFeed,
+  getListsWithMembership,
+  getListMutes,
+  getListBlocks,
+} from './list-service';
+
+// Graph Service
+export {
+  getRelationships,
+  getKnownFollowers,
+  getFollows,
+  getFollowers,
+} from './graph-service';
+
+// Timeline Service
+export {
+  getTimeline,
+  getAuthorFeed,
+  getPostThread,
+  getFeed,
+  getPostThreadV2,
+  getPostThreadOtherV2,
+} from './timeline-service';
+
+// Actor/Profile Service
+export {
+  getProfile,
+  getProfiles,
+  getSuggestions,
+  getSuggestedFollowsByActor,
+  getSuggestedUsersUnspecced,
+} from './actor-service';
+
+// Moderation Service
+export {
+  getBlocks,
+  getMutes,
+  muteActor,
+  unmuteActor,
+  muteActorList,
+  unmuteActorList,
+  muteThread,
+  unmuteThread,
+  queryLabels,
+  createReport,
+} from './moderation-service';
+
+// Unspecced Service
+export {
+  getTaggedSuggestions,
+  getTrendingTopics,
+  getTrends,
+  getUnspeccedConfig,
+  getAgeAssuranceState,
+  initAgeAssurance,
+} from './unspecced-service';
