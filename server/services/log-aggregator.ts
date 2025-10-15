@@ -1,6 +1,6 @@
 /**
  * Log Aggregator Service
- * 
+ *
  * Reduces log spam by aggregating similar log messages and only outputting
  * them periodically with counts and summaries.
  */
@@ -48,7 +48,11 @@ export class LogAggregator {
     }, this.config.flushInterval);
   }
 
-  private createLogKey(message: string, level: string, metadata?: Record<string, any>): string {
+  private createLogKey(
+    message: string,
+    level: string,
+    metadata?: Record<string, any>
+  ): string {
     // Create a key that groups similar log messages together
     // Remove dynamic parts like DIDs, URIs, and timestamps
     let key = message
@@ -84,8 +88,9 @@ export class LogAggregator {
       // Check if we're at capacity
       if (this.aggregatedLogs.size >= this.config.maxAggregatedLogs) {
         // Remove oldest entry
-        const oldestKey = Array.from(this.aggregatedLogs.entries())
-          .sort(([,a], [,b]) => a.firstSeen - b.firstSeen)[0][0];
+        const oldestKey = Array.from(this.aggregatedLogs.entries()).sort(
+          ([, a], [, b]) => a.firstSeen - b.firstSeen
+        )[0][0];
         this.aggregatedLogs.delete(oldestKey);
       }
 
@@ -116,8 +121,9 @@ export class LogAggregator {
       existing.lastSeen = now;
     } else {
       if (this.aggregatedLogs.size >= this.config.maxAggregatedLogs) {
-        const oldestKey = Array.from(this.aggregatedLogs.entries())
-          .sort(([,a], [,b]) => a.firstSeen - b.firstSeen)[0][0];
+        const oldestKey = Array.from(this.aggregatedLogs.entries()).sort(
+          ([, a], [, b]) => a.firstSeen - b.firstSeen
+        )[0][0];
         this.aggregatedLogs.delete(oldestKey);
       }
 
@@ -148,8 +154,9 @@ export class LogAggregator {
       existing.lastSeen = now;
     } else {
       if (this.aggregatedLogs.size >= this.config.maxAggregatedLogs) {
-        const oldestKey = Array.from(this.aggregatedLogs.entries())
-          .sort(([,a], [,b]) => a.firstSeen - b.firstSeen)[0][0];
+        const oldestKey = Array.from(this.aggregatedLogs.entries()).sort(
+          ([, a], [, b]) => a.firstSeen - b.firstSeen
+        )[0][0];
         this.aggregatedLogs.delete(oldestKey);
       }
 
@@ -171,18 +178,21 @@ export class LogAggregator {
     }
 
     const logs = Array.from(this.aggregatedLogs.values());
-    
+
     // Sort by count (descending) to show most frequent issues first
     logs.sort((a, b) => b.count - a.count);
 
-    console.log(`\n[LOG_AGGREGATOR] Flushing ${logs.length} aggregated log entries:`);
-    
+    console.log(
+      `\n[LOG_AGGREGATOR] Flushing ${logs.length} aggregated log entries:`
+    );
+
     for (const log of logs) {
       const duration = Math.round((log.lastSeen - log.firstSeen) / 1000);
-      const countText = log.count > 1 ? ` (${log.count}x over ${duration}s)` : '';
-      
+      const countText =
+        log.count > 1 ? ` (${log.count}x over ${duration}s)` : '';
+
       const formattedMessage = log.message + countText;
-      
+
       if (log.level === 'error') {
         console.error(`[AGGREGATED] ${formattedMessage}`);
       } else if (log.level === 'warn') {
@@ -209,7 +219,7 @@ export class LogAggregator {
   // Update configuration
   updateConfig(newConfig: Partial<LogAggregatorConfig>) {
     this.config = { ...this.config, ...newConfig };
-    
+
     if (this.config.enableAggregation && !this.flushTimer) {
       this.startFlushTimer();
     } else if (!this.config.enableAggregation && this.flushTimer) {
@@ -236,13 +246,14 @@ function getLogAggregator(): LogAggregator {
   if (!_logAggregator) {
     // Only initialize if we're in a runtime environment, not during build
     // Check for common build tool indicators
-    const isBuildTime = process.env.NODE_ENV === 'production' && 
-                       (process.argv.includes('build') || 
-                        process.argv.includes('esbuild') || 
-                        process.argv.includes('vite') ||
-                        process.argv.includes('tsc') ||
-                        process.argv.includes('--bundle'));
-    
+    const isBuildTime =
+      process.env.NODE_ENV === 'production' &&
+      (process.argv.includes('build') ||
+        process.argv.includes('esbuild') ||
+        process.argv.includes('vite') ||
+        process.argv.includes('tsc') ||
+        process.argv.includes('--bundle'));
+
     if (isBuildTime) {
       // During build, return a no-op aggregator that just logs directly
       _logAggregator = new LogAggregator({
@@ -252,14 +263,22 @@ function getLogAggregator(): LogAggregator {
       });
     } else {
       _logAggregator = new LogAggregator({
-        flushInterval: parseInt(process.env.LOG_AGGREGATION_INTERVAL || '100000'), // 100 seconds default
-        maxAggregatedLogs: parseInt(process.env.LOG_AGGREGATION_MAX_LOGS || '1000'),
+        flushInterval: parseInt(
+          process.env.LOG_AGGREGATION_INTERVAL || '100000'
+        ), // 100 seconds default
+        maxAggregatedLogs: parseInt(
+          process.env.LOG_AGGREGATION_MAX_LOGS || '1000'
+        ),
         enableAggregation: process.env.LOG_AGGREGATION_ENABLED !== 'false',
       });
 
       // Only add event listeners once, and only if we're in a runtime environment
       // (not during build/compilation)
-      if (!_eventListenersAdded && typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
+      if (
+        !_eventListenersAdded &&
+        typeof process !== 'undefined' &&
+        process.env.NODE_ENV !== 'test'
+      ) {
         process.on('SIGINT', () => {
           _logAggregator?.destroy();
         });
@@ -267,7 +286,7 @@ function getLogAggregator(): LogAggregator {
         process.on('SIGTERM', () => {
           _logAggregator?.destroy();
         });
-        
+
         _eventListenersAdded = true;
       }
     }
@@ -281,5 +300,5 @@ export const logAggregator = new Proxy({} as LogAggregator, {
     const aggregator = getLogAggregator();
     const value = (aggregator as any)[prop];
     return typeof value === 'function' ? value.bind(aggregator) : value;
-  }
+  },
 });

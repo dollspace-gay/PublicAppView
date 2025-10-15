@@ -1,6 +1,6 @@
 /**
  * Constellation Bridge Service
- * 
+ *
  * Main entry point for the Constellation API bridge.
  * Connects to Constellation's backlink index and provides enriched stats via Redis cache.
  */
@@ -56,7 +56,9 @@ class ConstellationBridge {
 
     console.log('[BRIDGE] Constellation bridge initialized');
     console.log(`[BRIDGE] API URL: ${config.constellation.url}`);
-    console.log(`[BRIDGE] Cache: ${config.cache.enabled ? 'enabled' : 'disabled'} (TTL: ${config.cache.ttl}s)`);
+    console.log(
+      `[BRIDGE] Cache: ${config.cache.enabled ? 'enabled' : 'disabled'} (TTL: ${config.cache.ttl}s)`
+    );
   }
 
   async start(): Promise<void> {
@@ -71,7 +73,9 @@ class ConstellationBridge {
     try {
       const healthy = await this.apiClient.healthCheck();
       if (!healthy) {
-        console.warn('[BRIDGE] Warning: Constellation API health check failed, but continuing...');
+        console.warn(
+          '[BRIDGE] Warning: Constellation API health check failed, but continuing...'
+        );
       } else {
         console.log('[BRIDGE] Constellation API connection verified');
       }
@@ -133,10 +137,14 @@ class ConstellationBridge {
 async function main() {
   const config: BridgeConfig = {
     constellation: {
-      url: process.env.CONSTELLATION_URL || 'https://constellation.microcosm.blue',
+      url:
+        process.env.CONSTELLATION_URL || 'https://constellation.microcosm.blue',
       timeout: parseInt(process.env.CONSTELLATION_TIMEOUT || '5000', 10),
       userAgent: process.env.USER_AGENT || 'AppView-Constellation-Bridge/1.0',
-      maxRequestsPerSecond: parseInt(process.env.MAX_REQUESTS_PER_SECOND || '10', 10),
+      maxRequestsPerSecond: parseInt(
+        process.env.MAX_REQUESTS_PER_SECOND || '10',
+        10
+      ),
     },
     cache: {
       enabled: process.env.CACHE_ENABLED !== 'false',
@@ -152,7 +160,9 @@ async function main() {
 
   // Graceful shutdown
   const shutdown = async () => {
-    console.log('\n[BRIDGE] Received shutdown signal, shutting down gracefully...');
+    console.log(
+      '\n[BRIDGE] Received shutdown signal, shutting down gracefully...'
+    );
     await bridge.stop();
     process.exit(0);
   };
@@ -167,7 +177,12 @@ async function main() {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('[BRIDGE] Unhandled rejection at:', promise, 'reason:', reason);
+    console.error(
+      '[BRIDGE] Unhandled rejection at:',
+      promise,
+      'reason:',
+      reason
+    );
   });
 
   // Start the bridge
@@ -180,7 +195,7 @@ async function main() {
       const cacheStats = status.cacheStats;
       console.log(
         `[BRIDGE] Status: ${status.running ? 'Running' : 'Stopped'} | ` +
-        `Cache: ${cacheStats.hitRate} hit rate (${cacheStats.statsRequested} requests)`
+          `Cache: ${cacheStats.hitRate} hit rate (${cacheStats.statsRequested} requests)`
       );
     }, 60000); // Every 60 seconds
   } catch (error) {

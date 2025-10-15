@@ -1,6 +1,6 @@
 /**
  * Health Check Server
- * 
+ *
  * Provides HTTP health check endpoint for monitoring the Constellation bridge service.
  * Returns detailed status information including API connectivity and cache stats.
  */
@@ -55,9 +55,9 @@ export class HealthCheckServer {
       try {
         // Check Constellation API connectivity
         const constellationHealthy = await this.apiClient.healthCheck();
-        
+
         const cacheStats = this.enricher.getCacheStats();
-        
+
         const status: HealthStatus = {
           status: constellationHealthy ? 'healthy' : 'degraded',
           timestamp: new Date().toISOString(),
@@ -112,12 +112,22 @@ export class HealthCheckServer {
     this.setupRoutes();
 
     this.server = this.app.listen(this.port, () => {
-      console.log(`[HEALTH] Health check server listening on port ${this.port}`);
+      console.log(
+        `[HEALTH] Health check server listening on port ${this.port}`
+      );
       console.log(`[HEALTH] Endpoints:`);
-      console.log(`[HEALTH]   GET http://localhost:${this.port}/health - Full health status`);
-      console.log(`[HEALTH]   GET http://localhost:${this.port}/ready  - Readiness probe`);
-      console.log(`[HEALTH]   GET http://localhost:${this.port}/live   - Liveness probe`);
-      console.log(`[HEALTH]   GET http://localhost:${this.port}/stats  - Cache statistics`);
+      console.log(
+        `[HEALTH]   GET http://localhost:${this.port}/health - Full health status`
+      );
+      console.log(
+        `[HEALTH]   GET http://localhost:${this.port}/ready  - Readiness probe`
+      );
+      console.log(
+        `[HEALTH]   GET http://localhost:${this.port}/live   - Liveness probe`
+      );
+      console.log(
+        `[HEALTH]   GET http://localhost:${this.port}/stats  - Cache statistics`
+      );
     });
   }
 

@@ -1,21 +1,30 @@
-import { HydrationState, FeedItem, FeedViewPost, ProfileViewerState } from '../types/feed';
+import {
+  HydrationState,
+  FeedItem,
+  FeedViewPost,
+  ProfileViewerState,
+} from '../types/feed';
 
 export class Views {
   /**
    * Transform blob CID to CDN URL (matching xrpc-api pattern)
    */
-  private transformBlobToCdnUrl(blobCid: string | null | undefined, userDid: string, format: 'avatar' | 'banner' = 'avatar'): string | undefined {
+  private transformBlobToCdnUrl(
+    blobCid: string | null | undefined,
+    userDid: string,
+    format: 'avatar' | 'banner' = 'avatar'
+  ): string | undefined {
     if (!blobCid || blobCid === 'undefined') return undefined;
     return `/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
   }
 
   feedViewPost(
     item: FeedItem,
-    state: HydrationState,
+    state: HydrationState
   ): FeedViewPost | undefined {
     const postInfo = state.posts?.get(item.post.uri);
     let reason: any = undefined;
-    
+
     if (item.authorPinned) {
       reason = this.reasonPin(postInfo?.author?.did || '', state);
     } else if (item.repost) {
@@ -25,14 +34,14 @@ export class Views {
       reason = this.reasonRepost(item.repost.uri, repost, state);
       if (!reason) return;
     }
-    
+
     const post = this.post(item.post.uri, state);
     if (!post) return;
-    
+
     const reply = !postInfo?.violatesThreadGate
       ? this.replyRef(item.post.uri, state)
       : undefined;
-      
+
     return {
       post,
       reason,
@@ -50,7 +59,7 @@ export class Views {
 
     // Get thread context if available
     const threadContext = state.threadContexts?.get(uri);
-    
+
     return {
       uri: postInfo.uri,
       cid: postInfo.cid,
@@ -62,19 +71,23 @@ export class Views {
       bookmarkCount: aggregations?.bookmarkCount || 0,
       quoteCount: aggregations?.quoteCount || 0,
       indexedAt: postInfo.indexedAt,
-      viewer: viewerState ? {
-        like: viewerState.likeUri || undefined,
-        repost: viewerState.repostUri || undefined,
-        bookmarked: viewerState.bookmarked || false,
-        threadMuted: viewerState.threadMuted || false,
-        replyDisabled: viewerState.replyDisabled || false,
-        embeddingDisabled: viewerState.embeddingDisabled || false,
-        pinned: viewerState.pinned || false,
-      } : {},
+      viewer: viewerState
+        ? {
+            like: viewerState.likeUri || undefined,
+            repost: viewerState.repostUri || undefined,
+            bookmarked: viewerState.bookmarked || false,
+            threadMuted: viewerState.threadMuted || false,
+            replyDisabled: viewerState.replyDisabled || false,
+            embeddingDisabled: viewerState.embeddingDisabled || false,
+            pinned: viewerState.pinned || false,
+          }
+        : {},
       labels: state.labels?.get(uri) || [],
-      threadContext: threadContext ? {
-        rootAuthorLike: threadContext.rootAuthorLikeUri || undefined,
-      } : undefined,
+      threadContext: threadContext
+        ? {
+            rootAuthorLike: threadContext.rootAuthorLikeUri || undefined,
+          }
+        : undefined,
     };
   }
 
@@ -82,14 +95,16 @@ export class Views {
     const post = state.posts?.get(uri);
     if (!post?.reply) return;
 
-    let root = this.maybePost(post.reply.root?.uri, state);
-    let parent = this.maybePost(post.reply.parent?.uri, state);
+    const root = this.maybePost(post.reply.root?.uri, state);
+    const parent = this.maybePost(post.reply.parent?.uri, state);
 
     // Only return reply if both root and parent are successfully loaded
     // This prevents returning { root: undefined, parent: undefined } which causes
     // "Cannot read properties of undefined" errors on the client
     if (!root || !parent) {
-      console.warn(`[VIEWS] Missing reply posts for ${uri}: parent=${post.reply.parent?.uri}, root=${post.reply.root?.uri}`);
+      console.warn(
+        `[VIEWS] Missing reply posts for ${uri}: parent=${post.reply.parent?.uri}, root=${post.reply.root?.uri}`
+      );
       return;
     }
 
@@ -99,7 +114,10 @@ export class Views {
     };
   }
 
-  private maybePost(uri: string | undefined, state: HydrationState): any | undefined {
+  private maybePost(
+    uri: string | undefined,
+    state: HydrationState
+  ): any | undefined {
     if (!uri) return undefined;
     return this.post(uri, state);
   }
@@ -107,21 +125,22 @@ export class Views {
   private reasonPin(authorDid: string, state: HydrationState): any | undefined {
     // Get the author's profile information for pinned posts
     const authorProfile = state.profileViewers?.get(authorDid);
-    
+
     // Return undefined if author doesn't have a valid handle
     if (!authorProfile || !authorProfile.handle) {
       return undefined;
     }
-    
-    const avatarUrl = authorProfile.avatarUrl 
+
+    const avatarUrl = authorProfile.avatarUrl
       ? this.transformBlobToCdnUrl(authorProfile.avatarUrl, authorDid, 'avatar')
       : undefined;
 
     // Ensure displayName is always a string
-    const displayName = (authorProfile.displayName && typeof authorProfile.displayName === 'string')
-      ? authorProfile.displayName
-      : authorProfile.handle;
-    
+    const displayName =
+      authorProfile.displayName && typeof authorProfile.displayName === 'string'
+        ? authorProfile.displayName
+        : authorProfile.handle;
+
     return {
       $type: 'app.bsky.feed.defs#reasonPin',
       by: {
@@ -130,7 +149,9 @@ export class Views {
         handle: authorProfile.handle,
         displayName: displayName,
         pronouns: authorProfile.pronouns,
-        ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
+        ...(avatarUrl &&
+          typeof avatarUrl === 'string' &&
+          avatarUrl.trim() !== '' && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
@@ -161,19 +182,29 @@ export class Views {
     };
   }
 
-  private reasonRepost(uri: string, repost: any, state: HydrationState): any | undefined {
+  private reasonRepost(
+    uri: string,
+    repost: any,
+    state: HydrationState
+  ): any | undefined {
     // Get the reposter's profile information
     const reposterProfile = state.profileViewers?.get(repost.userDid);
     if (!reposterProfile || !reposterProfile.handle) return undefined;
-    
+
     const avatarUrl = reposterProfile.avatarUrl
-      ? this.transformBlobToCdnUrl(reposterProfile.avatarUrl, repost.userDid, 'avatar')
+      ? this.transformBlobToCdnUrl(
+          reposterProfile.avatarUrl,
+          repost.userDid,
+          'avatar'
+        )
       : undefined;
 
     // Ensure displayName is always a string
-    const displayName = (reposterProfile.displayName && typeof reposterProfile.displayName === 'string')
-      ? reposterProfile.displayName
-      : reposterProfile.handle;
+    const displayName =
+      reposterProfile.displayName &&
+      typeof reposterProfile.displayName === 'string'
+        ? reposterProfile.displayName
+        : reposterProfile.handle;
 
     return {
       $type: 'app.bsky.feed.defs#reasonRepost',
@@ -183,7 +214,9 @@ export class Views {
         handle: reposterProfile.handle,
         displayName: displayName,
         pronouns: reposterProfile.pronouns,
-        ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
+        ...(avatarUrl &&
+          typeof avatarUrl === 'string' &&
+          avatarUrl.trim() !== '' && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
@@ -216,7 +249,10 @@ export class Views {
     };
   }
 
-  feedItemBlocksAndMutes(item: FeedItem, state: HydrationState): {
+  feedItemBlocksAndMutes(
+    item: FeedItem,
+    state: HydrationState
+  ): {
     authorBlocked: boolean;
     originatorBlocked: boolean;
     authorMuted: boolean;
@@ -224,11 +260,16 @@ export class Views {
   } {
     const postInfo = state.posts?.get(item.post.uri);
     const authorDid = postInfo?.author?.did;
-    const originatorDid = item.repost ? 
-      state.reposts?.get(item.repost.uri)?.record?.subject?.uri : authorDid;
+    const originatorDid = item.repost
+      ? state.reposts?.get(item.repost.uri)?.record?.subject?.uri
+      : authorDid;
 
-    const authorViewer = authorDid ? state.profileViewers?.get(authorDid) : undefined;
-    const originatorViewer = originatorDid ? state.profileViewers?.get(originatorDid) : undefined;
+    const authorViewer = authorDid
+      ? state.profileViewers?.get(authorDid)
+      : undefined;
+    const originatorViewer = originatorDid
+      ? state.profileViewers?.get(originatorDid)
+      : undefined;
 
     return {
       authorBlocked: authorViewer?.blocking || false,
@@ -238,12 +279,18 @@ export class Views {
     };
   }
 
-  blockingByList(relationship: ProfileViewerState, state: HydrationState): boolean {
+  blockingByList(
+    relationship: ProfileViewerState,
+    state: HydrationState
+  ): boolean {
     // TODO: implement list-based blocking
     return false;
   }
 
-  blockedByList(relationship: ProfileViewerState, state: HydrationState): boolean {
+  blockedByList(
+    relationship: ProfileViewerState,
+    state: HydrationState
+  ): boolean {
     // TODO: implement list-based blocking
     return false;
   }

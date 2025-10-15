@@ -48,19 +48,19 @@ export class LabelApplier {
 
   async applyLabel(label: OspreyLabel): Promise<void> {
     const client = await this.pool.connect();
-    
+
     try {
       // Parse created timestamp
       const createdAt = new Date(label.cts);
-      
+
       // Check if this is a negation
       const isNegation = label.neg === true;
-      
+
       if (isNegation) {
         console.log(`[LABEL] Negating label ${label.val} for ${label.uri}`);
-        
+
         await client.query('BEGIN');
-        
+
         try {
           // Find ALL existing positive labels for this (src, subject, val) tuple
           const existingLabels = await client.query(
@@ -88,12 +88,16 @@ export class LabelApplier {
             }
 
             const count = deleteResult.rows.length;
-            console.log(`[LABEL] Removed ${count} existing label(s): ${label.val} → ${label.uri}`);
+            console.log(
+              `[LABEL] Removed ${count} existing label(s): ${label.val} → ${label.uri}`
+            );
             this.labelsNegated += count;
           } else {
-            console.log(`[LABEL] No existing labels to negate: ${label.val} → ${label.uri}`);
+            console.log(
+              `[LABEL] No existing labels to negate: ${label.val} → ${label.uri}`
+            );
           }
-          
+
           await client.query('COMMIT');
         } catch (error) {
           await client.query('ROLLBACK');
@@ -101,10 +105,10 @@ export class LabelApplier {
         }
       } else {
         console.log(`[LABEL] Applying label ${label.val} to ${label.uri}`);
-        
+
         // Generate label URI (unique identifier)
         const labelUri = `at://${this.ospreyLabelerDid}/app.bsky.labeler.label/${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        
+
         // Check if label already exists (prevent duplicates)
         const existing = await client.query(
           `SELECT uri FROM labels 
@@ -114,7 +118,9 @@ export class LabelApplier {
         );
 
         if (existing.rows.length > 0) {
-          console.log(`[LABEL] Label already exists: ${label.val} → ${label.uri}`);
+          console.log(
+            `[LABEL] Label already exists: ${label.val} → ${label.uri}`
+          );
           return;
         }
 
@@ -125,9 +131,9 @@ export class LabelApplier {
           [
             labelUri,
             this.ospreyLabelerDid, // Use Osprey labeler DID as source
-            label.uri,             // Subject (post/account URI)
-            label.val,             // Label value
-            createdAt,             // Original creation time
+            label.uri, // Subject (post/account URI)
+            label.val, // Label value
+            createdAt, // Original creation time
           ]
         );
 
@@ -138,13 +144,14 @@ export class LabelApplier {
           [labelUri, 'created']
         );
 
-        console.log(`[LABEL] Successfully applied label: ${label.val} → ${label.uri}`);
+        console.log(
+          `[LABEL] Successfully applied label: ${label.val} → ${label.uri}`
+        );
         this.labelsApplied++;
       }
-      
+
       this.lastSuccessfulQuery = new Date();
       this.isConnected = true;
-      
     } catch (error) {
       console.error('[LABEL] Error applying label:', error);
       console.error('[LABEL] Label data:', label);

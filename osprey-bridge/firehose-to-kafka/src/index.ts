@@ -1,6 +1,12 @@
 import { KafkaProducerClient } from './kafka-producer';
 import { EventEnricher } from './event-enricher';
-import { InputAdapter, AdapterEvent, FirehoseAdapter, RedisAdapter, DirectAdapter } from './adapters';
+import {
+  InputAdapter,
+  AdapterEvent,
+  FirehoseAdapter,
+  RedisAdapter,
+  DirectAdapter,
+} from './adapters';
 import { HealthCheckServer } from './health';
 import dotenv from 'dotenv';
 
@@ -44,13 +50,10 @@ class FirehoseKafkaBridge {
   constructor(config: BridgeConfig) {
     this.config = config;
     this.kafka = new KafkaProducerClient(config.kafka);
-    this.enricher = new EventEnricher(
-      config.enrichment.databaseUrl,
-      {
-        enrichWithProfiles: config.enrichment.enrichWithProfiles,
-        enrichWithHandles: config.enrichment.enrichWithHandles,
-      }
-    );
+    this.enricher = new EventEnricher(config.enrichment.databaseUrl, {
+      enrichWithProfiles: config.enrichment.enrichWithProfiles,
+      enrichWithHandles: config.enrichment.enrichWithHandles,
+    });
   }
 
   private createAdapter(): InputAdapter {
@@ -99,7 +102,9 @@ class FirehoseKafkaBridge {
 
       this.eventCount++;
       if (this.eventCount % 100 === 0) {
-        console.log(`[BRIDGE] Processed ${this.eventCount} events (adapter: ${this.config.adapter.type})`);
+        console.log(
+          `[BRIDGE] Processed ${this.eventCount} events (adapter: ${this.config.adapter.type})`
+        );
       }
     } catch (error) {
       console.error('[BRIDGE] Error processing event:', error);
@@ -112,7 +117,9 @@ class FirehoseKafkaBridge {
       return;
     }
 
-    console.log(`[BRIDGE] Starting bridge with ${this.config.adapter.type} adapter...`);
+    console.log(
+      `[BRIDGE] Starting bridge with ${this.config.adapter.type} adapter...`
+    );
 
     // Connect to Kafka
     await this.kafka.connect();
@@ -123,7 +130,9 @@ class FirehoseKafkaBridge {
 
     // Start health check server
     const healthPort = parseInt(process.env.HEALTH_PORT || '3001', 10);
-    this.healthServer = new HealthCheckServer(healthPort, () => this.getStatus());
+    this.healthServer = new HealthCheckServer(healthPort, () =>
+      this.getStatus()
+    );
     this.healthServer.start();
 
     this.isRunning = true;
@@ -170,14 +179,18 @@ class FirehoseKafkaBridge {
 
 // Main execution
 async function main() {
-  const adapterType = (process.env.ADAPTER_TYPE || 'firehose') as 'firehose' | 'redis' | 'direct';
+  const adapterType = (process.env.ADAPTER_TYPE || 'firehose') as
+    | 'firehose'
+    | 'redis'
+    | 'direct';
 
   const config: BridgeConfig = {
     adapter: {
       type: adapterType,
       firehose: {
         url: process.env.RELAY_URL || 'wss://bsky.network',
-        cursorFile: process.env.FIREHOSE_CURSOR_FILE || '/data/osprey-cursor.txt',
+        cursorFile:
+          process.env.FIREHOSE_CURSOR_FILE || '/data/osprey-cursor.txt',
       },
       redis: {
         redisUrl: process.env.REDIS_URL || 'redis://redis:6379',
@@ -216,11 +229,13 @@ async function main() {
   // Start the bridge
   try {
     await bridge.start();
-    
+
     // Keep the process alive and log status periodically
     setInterval(() => {
       const status = bridge.getStatus();
-      console.log(`[BRIDGE] Status: ${status.running ? 'Running' : 'Stopped'}, Adapter: ${status.adapterType}, Events: ${status.eventsProcessed}`);
+      console.log(
+        `[BRIDGE] Status: ${status.running ? 'Running' : 'Stopped'}, Adapter: ${status.adapterType}, Events: ${status.eventsProcessed}`
+      );
     }, 30000); // Every 30 seconds
   } catch (error) {
     console.error('[BRIDGE] Fatal error:', error);

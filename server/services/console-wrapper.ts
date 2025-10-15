@@ -1,6 +1,6 @@
 /**
  * Console Wrapper with Log Aggregation
- * 
+ *
  * Provides aggregated console methods that reduce log spam by grouping
  * similar messages and only outputting them periodically.
  */
@@ -16,22 +16,26 @@ interface ConsoleWrapper {
 
 class AggregatedConsole implements ConsoleWrapper {
   log(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
     logAggregator.log(fullMessage);
   }
 
   warn(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
     logAggregator.warn(fullMessage);
   }
 
   error(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
     logAggregator.error(fullMessage);
   }
 
   info(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
     logAggregator.log(fullMessage);
   }
 }
@@ -46,14 +50,15 @@ export function shouldAggregateLog(message: string): boolean {
     /\[DID_RESOLVER\].*(?:Timeout|Network error|Attempt.*failed|Circuit breaker)/,
   ];
 
-  return spammyPatterns.some(pattern => pattern.test(message));
+  return spammyPatterns.some((pattern) => pattern.test(message));
 }
 
 // Enhanced console wrapper that conditionally aggregates
 export class SmartConsole implements ConsoleWrapper {
   log(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
-    
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
+
     if (shouldAggregateLog(fullMessage)) {
       logAggregator.log(fullMessage);
     } else {
@@ -62,8 +67,9 @@ export class SmartConsole implements ConsoleWrapper {
   }
 
   warn(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
-    
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
+
     if (shouldAggregateLog(fullMessage)) {
       logAggregator.warn(fullMessage);
     } else {
@@ -72,8 +78,9 @@ export class SmartConsole implements ConsoleWrapper {
   }
 
   error(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
-    
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
+
     if (shouldAggregateLog(fullMessage)) {
       logAggregator.error(fullMessage);
     } else {
@@ -82,8 +89,9 @@ export class SmartConsole implements ConsoleWrapper {
   }
 
   info(message: string, ...args: any[]) {
-    const fullMessage = args.length > 0 ? `${message} ${args.join(' ')}` : message;
-    
+    const fullMessage =
+      args.length > 0 ? `${message} ${args.join(' ')}` : message;
+
     if (shouldAggregateLog(fullMessage)) {
       logAggregator.log(fullMessage);
     } else {

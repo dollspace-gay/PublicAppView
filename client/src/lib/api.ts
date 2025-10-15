@@ -1,4 +1,4 @@
-import { queryClient } from "./queryClient";
+import { queryClient } from './queryClient';
 
 // A simple wrapper around fetch to handle auth and errors
 
@@ -14,10 +14,10 @@ let csrfTokenPromise: Promise<string> | null = null;
 async function fetchCSRFToken(): Promise<string> {
   // Return cached token if available
   if (csrfToken) return csrfToken;
-  
+
   // Return existing promise if one is in progress
   if (csrfTokenPromise) return csrfTokenPromise;
-  
+
   // Create new promise for token fetch
   csrfTokenPromise = (async () => {
     try {
@@ -25,10 +25,10 @@ async function fetchCSRFToken(): Promise<string> {
       const res = await fetch('/api/csrf-token', {
         credentials: 'include', // Ensure cookies are sent
         headers: {
-          'Accept': 'application/json',
-        }
+          Accept: 'application/json',
+        },
       });
-      
+
       if (res.ok) {
         const data = await res.json();
         if (data.csrfToken) {
@@ -39,17 +39,21 @@ async function fetchCSRFToken(): Promise<string> {
           console.warn('[CSRF] No token in response:', data);
         }
       } else {
-        console.warn('[CSRF] Failed to fetch token:', res.status, res.statusText);
+        console.warn(
+          '[CSRF] Failed to fetch token:',
+          res.status,
+          res.statusText
+        );
       }
     } catch (error) {
       console.warn('[CSRF] Failed to fetch token:', error);
     }
-    
+
     // Clear the promise on error so we can retry
     csrfTokenPromise = null;
     return '';
   })();
-  
+
   return csrfTokenPromise;
 }
 
@@ -69,12 +73,12 @@ const request = async (
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   url: string,
   body?: any,
-  retryCount = 0,
+  retryCount = 0
 ): Promise<any> => {
   const csrf = await fetchCSRFToken();
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    'Content-Type': 'application/json',
   };
 
   // Add CSRF token for state-changing requests
@@ -82,10 +86,10 @@ const request = async (
     headers['X-CSRF-Token'] = csrf;
   }
 
-  console.log(`[API] ${method} ${url}`, { 
-    hasCSRF: !!csrf, 
+  console.log(`[API] ${method} ${url}`, {
+    hasCSRF: !!csrf,
     retryCount,
-    usingCookieAuth: true
+    usingCookieAuth: true,
   });
 
   const response = await fetch(url, {
@@ -100,9 +104,13 @@ const request = async (
     if (response.status === 403 && method !== 'GET' && retryCount === 0) {
       try {
         const errorData = await response.json();
-        if (errorData.error === 'CSRF validation failed' || 
-            errorData.message?.includes('CSRF')) {
-          console.warn('[CSRF] Token validation failed, refreshing token and retrying...');
+        if (
+          errorData.error === 'CSRF validation failed' ||
+          errorData.message?.includes('CSRF')
+        ) {
+          console.warn(
+            '[CSRF] Token validation failed, refreshing token and retrying...'
+          );
           await refreshCSRFToken();
           return request(method, url, body, retryCount + 1);
         }
@@ -115,7 +123,7 @@ const request = async (
     if (response.status === 401) {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/session'] });
     }
-    
+
     const error: any = new Error(`HTTP error! status: ${response.status}`);
     try {
       error.data = await response.json();

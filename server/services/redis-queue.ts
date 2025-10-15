@@ -1,25 +1,25 @@
-import Redis from "ioredis";
+import Redis from 'ioredis';
 
 export interface FirehoseEvent {
-  type: "commit" | "identity" | "account";
+  type: 'commit' | 'identity' | 'account';
   data: any;
   seq?: string;
 }
 
 class RedisQueue {
   private redis: Redis | null = null;
-  private readonly STREAM_KEY = "firehose:events";
-  private readonly CONSUMER_GROUP = "firehose-processors";
-  private readonly DEAD_LETTER_STREAM_KEY = "firehose:dead-letters";
-  private readonly METRICS_KEY = "cluster:metrics";
+  private readonly STREAM_KEY = 'firehose:events';
+  private readonly CONSUMER_GROUP = 'firehose-processors';
+  private readonly DEAD_LETTER_STREAM_KEY = 'firehose:dead-letters';
+  private readonly METRICS_KEY = 'cluster:metrics';
   private isInitialized = false;
-  
+
   // Buffered metrics for periodic flush
   private metricsBuffer = {
     totalEvents: 0,
-    "#commit": 0,
-    "#identity": 0,
-    "#account": 0,
+    '#commit': 0,
+    '#identity': 0,
+    '#account': 0,
     errors: 0,
   };
   private flushInterval: NodeJS.Timeout | null = null;
@@ -29,7 +29,7 @@ class RedisQueue {
       return;
     }
 
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     console.log(`[REDIS] Connecting to ${redisUrl}...`);
 
     this.redis = new Redis(redisUrl, {
@@ -45,79 +45,99 @@ class RedisQueue {
       },
     });
 
-    this.redis.on("connect", () => {
-      console.log("[REDIS] Connected");
+    this.redis.on('connect', () => {
+      console.log('[REDIS] Connected');
     });
 
-    this.redis.on("error", (error: any) => {
+    this.redis.on('error', (error: any) => {
       // Handle READONLY errors specifically - indicates connection to replica instead of master
       if (error.message && error.message.includes('READONLY')) {
-        console.error("[REDIS] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.");
-        console.error("[REDIS] XREADGROUP and other write commands require connection to Redis master.");
+        console.error(
+          '[REDIS] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.'
+        );
+        console.error(
+          '[REDIS] XREADGROUP and other write commands require connection to Redis master.'
+        );
       }
-      console.error("[REDIS] Error:", error);
+      console.error('[REDIS] Error:', error);
     });
 
     await this.ensureStreamAndGroup();
-    
+
     // Verify we're connected to master (not replica)
     await this.verifyMasterConnection();
-    
+
     this.isInitialized = true;
-    
+
     // Start periodic metrics flush (every 500ms)
     this.startMetricsFlush();
   }
-  
+
   private startMetricsFlush() {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
     }
-    
+
     this.flushInterval = setInterval(async () => {
       await this.flushMetrics();
     }, 500);
   }
-  
+
   private async flushMetrics() {
     if (!this.redis || !this.isInitialized) return;
-    
+
     // Only flush if there are buffered increments
-    const hasUpdates = Object.values(this.metricsBuffer).some(v => v > 0);
+    const hasUpdates = Object.values(this.metricsBuffer).some((v) => v > 0);
     if (!hasUpdates) return;
-    
+
     try {
       const pipeline = this.redis.pipeline();
-      
+
       // Increment cluster-wide counters atomically
       if (this.metricsBuffer.totalEvents > 0) {
-        pipeline.hincrby(this.METRICS_KEY, "totalEvents", this.metricsBuffer.totalEvents);
+        pipeline.hincrby(
+          this.METRICS_KEY,
+          'totalEvents',
+          this.metricsBuffer.totalEvents
+        );
       }
-      if (this.metricsBuffer["#commit"] > 0) {
-        pipeline.hincrby(this.METRICS_KEY, "#commit", this.metricsBuffer["#commit"]);
+      if (this.metricsBuffer['#commit'] > 0) {
+        pipeline.hincrby(
+          this.METRICS_KEY,
+          '#commit',
+          this.metricsBuffer['#commit']
+        );
       }
-      if (this.metricsBuffer["#identity"] > 0) {
-        pipeline.hincrby(this.METRICS_KEY, "#identity", this.metricsBuffer["#identity"]);
+      if (this.metricsBuffer['#identity'] > 0) {
+        pipeline.hincrby(
+          this.METRICS_KEY,
+          '#identity',
+          this.metricsBuffer['#identity']
+        );
       }
-      if (this.metricsBuffer["#account"] > 0) {
-        pipeline.hincrby(this.METRICS_KEY, "#account", this.metricsBuffer["#account"]);
+      if (this.metricsBuffer['#account'] > 0) {
+        pipeline.hincrby(
+          this.METRICS_KEY,
+          '#account',
+          this.metricsBuffer['#account']
+        );
       }
       if (this.metricsBuffer.errors > 0) {
-        pipeline.hincrby(this.METRICS_KEY, "errors", this.metricsBuffer.errors);
+        pipeline.hincrby(this.METRICS_KEY, 'errors', this.metricsBuffer.errors);
       }
-      
+
       await pipeline.exec();
-      
+
       // Reset buffer after successful flush
       this.metricsBuffer = {
         totalEvents: 0,
-        "#commit": 0,
-        "#identity": 0,
-        "#account": 0,
+        '#commit': 0,
+        '#identity': 0,
+        '#account': 0,
         errors: 0,
       };
     } catch (error) {
-      console.error("[REDIS] Error flushing metrics:", error);
+      console.error('[REDIS] Error flushing metrics:', error);
     }
   }
 
@@ -127,11 +147,15 @@ class RedisQueue {
     try {
       // Check if we're connected to a master or replica
       const info = await this.redis.info('replication');
-      
+
       if (info.includes('role:slave') || info.includes('role:replica')) {
-        console.error('[REDIS] WARNING: Connected to Redis replica (read-only)!');
+        console.error(
+          '[REDIS] WARNING: Connected to Redis replica (read-only)!'
+        );
         console.error('[REDIS] Write operations like XREADGROUP will fail.');
-        console.error('[REDIS] Please update REDIS_URL to point to the master Redis instance.');
+        console.error(
+          '[REDIS] Please update REDIS_URL to point to the master Redis instance.'
+        );
       } else if (info.includes('role:master')) {
         console.log('[REDIS] Verified connection to master (read-write)');
       }
@@ -147,24 +171,24 @@ class RedisQueue {
       // Create consumer group if it doesn't exist
       // Use MKSTREAM to create the stream if it doesn't exist
       await this.redis.xgroup(
-        "CREATE",
+        'CREATE',
         this.STREAM_KEY,
         this.CONSUMER_GROUP,
-        "0",
-        "MKSTREAM"
+        '0',
+        'MKSTREAM'
       );
       console.log(`[REDIS] Created consumer group: ${this.CONSUMER_GROUP}`);
     } catch (error: any) {
       // BUSYGROUP error means group already exists, which is fine
-      if (!error.message.includes("BUSYGROUP")) {
-        console.error("[REDIS] Error creating consumer group:", error);
+      if (!error.message.includes('BUSYGROUP')) {
+        console.error('[REDIS] Error creating consumer group:', error);
       }
     }
   }
 
   async push(event: FirehoseEvent): Promise<void> {
     if (!this.redis || !this.isInitialized) {
-      throw new Error("Redis not connected");
+      throw new Error('Redis not connected');
     }
 
     try {
@@ -174,19 +198,19 @@ class RedisQueue {
       // Approximate trimming (~) is more efficient than exact trimming
       await this.redis.xadd(
         this.STREAM_KEY,
-        "MAXLEN",
-        "~",
-        "500000",
-        "*",
-        "type",
+        'MAXLEN',
+        '~',
+        '500000',
+        '*',
+        'type',
         event.type,
-        "data",
+        'data',
         JSON.stringify(event.data),
-        "seq",
-        event.seq || ""
+        'seq',
+        event.seq || ''
       );
     } catch (error) {
-      console.error("[REDIS] Error pushing event:", error);
+      console.error('[REDIS] Error pushing event:', error);
       throw error;
     }
   }
@@ -196,23 +220,23 @@ class RedisQueue {
     count: number = 10
   ): Promise<Array<FirehoseEvent & { messageId: string }>> {
     if (!this.redis || !this.isInitialized) {
-      throw new Error("Redis not connected");
+      throw new Error('Redis not connected');
     }
 
     try {
       // XREADGROUP to consume events as a consumer group member
       // Block for 1 second if no messages available
       const results = await this.redis.xreadgroup(
-        "GROUP",
+        'GROUP',
         this.CONSUMER_GROUP,
         consumerId,
-        "COUNT",
+        'COUNT',
         count,
-        "BLOCK",
+        'BLOCK',
         100, // 100ms block timeout for low latency
-        "STREAMS",
+        'STREAMS',
         this.STREAM_KEY,
-        ">"
+        '>'
       );
 
       if (!results || results.length === 0) {
@@ -223,16 +247,20 @@ class RedisQueue {
       for (const [_stream, messages] of results as any[]) {
         for (const [messageId, fields] of messages as any[]) {
           try {
-            const type = fields[1] as "commit" | "identity" | "account";
+            const type = fields[1] as 'commit' | 'identity' | 'account';
             const data = JSON.parse(fields[3]);
             const seq = fields[5] || undefined;
 
             // Return event with messageId so caller can acknowledge after processing
             events.push({ type, data, seq, messageId });
           } catch (error) {
-            console.error("[REDIS] Error parsing message:", error);
+            console.error('[REDIS] Error parsing message:', error);
             // Acknowledge malformed messages to prevent retry loop
-            await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, messageId);
+            await this.redis.xack(
+              this.STREAM_KEY,
+              this.CONSUMER_GROUP,
+              messageId
+            );
           }
         }
       }
@@ -240,39 +268,58 @@ class RedisQueue {
       return events;
     } catch (error: any) {
       const errorMsg = error.message || error.toString() || '';
-      
+
       // Handle READONLY error - connected to replica instead of master
       if (errorMsg.includes('READONLY')) {
-        console.error('[REDIS] READONLY error - Redis is configured as a read-only replica.');
-        console.error('[REDIS] XREADGROUP requires write access. Please connect to the master Redis instance.');
-        console.error('[REDIS] Check that REDIS_URL points to master, not a replica.');
+        console.error(
+          '[REDIS] READONLY error - Redis is configured as a read-only replica.'
+        );
+        console.error(
+          '[REDIS] XREADGROUP requires write access. Please connect to the master Redis instance.'
+        );
+        console.error(
+          '[REDIS] Check that REDIS_URL points to master, not a replica.'
+        );
         return [];
       }
-      
+
       // Handle NOGROUP error - stream or consumer group was deleted (Redis restart, memory eviction, etc.)
-      const isNogroupError = errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
-      
+      const isNogroupError =
+        errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
+
       if (isNogroupError) {
-        console.warn(`[REDIS] Stream/group missing (${errorMsg}), recreating...`);
+        console.warn(
+          `[REDIS] Stream/group missing (${errorMsg}), recreating...`
+        );
         try {
           // Use Redis SET NX as a distributed lock to prevent multiple workers from recreating simultaneously
           const lockKey = 'firehose:stream:recreate-lock';
-          const lockAcquired = await this.redis.set(lockKey, '1', 'EX', 5, 'NX');
-          
+          const lockAcquired = await this.redis.set(
+            lockKey,
+            '1',
+            'EX',
+            5,
+            'NX'
+          );
+
           if (lockAcquired) {
             // We got the lock, recreate the stream/group
             await this.ensureStreamAndGroup();
-            console.log(`[REDIS] Successfully recreated stream and consumer group`);
+            console.log(
+              `[REDIS] Successfully recreated stream and consumer group`
+            );
           } else {
             // Another worker is already recreating, wait a bit
-            console.log(`[REDIS] Another worker is recreating stream/group, waiting...`);
-            await new Promise(resolve => setTimeout(resolve, 100));
+            console.log(
+              `[REDIS] Another worker is recreating stream/group, waiting...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 100));
           }
         } catch (retryError) {
           console.error('[REDIS] Failed to recreate stream/group:', retryError);
         }
       } else {
-        console.error("[REDIS] Error consuming events:", error);
+        console.error('[REDIS] Error consuming events:', error);
       }
       return [];
     }
@@ -287,12 +334,15 @@ class RedisQueue {
     try {
       await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, messageId);
     } catch (error) {
-      console.error("[REDIS] Error acknowledging message:", error);
+      console.error('[REDIS] Error acknowledging message:', error);
     }
   }
 
   // Claim pending messages from dead/slow consumers (for recovery)
-  async claimPendingMessages(consumerId: string, idleTimeMs: number = 30000): Promise<Array<FirehoseEvent & { messageId: string }>> {
+  async claimPendingMessages(
+    consumerId: string,
+    idleTimeMs: number = 30000
+  ): Promise<Array<FirehoseEvent & { messageId: string }>> {
     if (!this.redis || !this.isInitialized) {
       return [];
     }
@@ -302,8 +352,8 @@ class RedisQueue {
       const pending = await this.redis.xpending(
         this.STREAM_KEY,
         this.CONSUMER_GROUP,
-        "-",
-        "+",
+        '-',
+        '+',
         100
       );
 
@@ -312,9 +362,15 @@ class RedisQueue {
       }
 
       const events: Array<FirehoseEvent & { messageId: string }> = [];
-      
-      const maxDeliveries = parseInt(process.env.REDIS_MAX_DELIVERIES || '10', 10);
-      const deadLetterMaxLen = parseInt(process.env.REDIS_DEAD_LETTER_MAXLEN || '10000', 10);
+
+      const maxDeliveries = parseInt(
+        process.env.REDIS_MAX_DELIVERIES || '10',
+        10
+      );
+      const deadLetterMaxLen = parseInt(
+        process.env.REDIS_DEAD_LETTER_MAXLEN || '10000',
+        10
+      );
 
       for (const entry of pending as any[]) {
         const messageId = entry[0];
@@ -339,39 +395,52 @@ class RedisQueue {
             if (claimed && claimed.length > 0) {
               const [claimedId, fields] = claimed[0] as any[];
               try {
-                const type = fields[1] as "commit" | "identity" | "account";
+                const type = fields[1] as 'commit' | 'identity' | 'account';
                 const data = JSON.parse(fields[3]);
                 const seq = fields[5] || undefined;
 
                 // Write to dead-letter stream (bounded length)
                 await this.redis.xadd(
                   this.DEAD_LETTER_STREAM_KEY,
-                  "MAXLEN",
-                  "~",
+                  'MAXLEN',
+                  '~',
                   String(deadLetterMaxLen),
-                  "*",
-                  "type",
+                  '*',
+                  'type',
                   type,
-                  "data",
+                  'data',
                   JSON.stringify(data),
-                  "seq",
-                  seq || "",
-                  "origId",
+                  'seq',
+                  seq || '',
+                  'origId',
                   claimedId,
-                  "deliveries",
+                  'deliveries',
                   String(deliveries)
                 );
 
                 // Ack to remove from pending
-                await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, claimedId);
-                console.warn(`[REDIS] Moved poison message to dead-letter after ${deliveries} deliveries: ${claimedId}`);
+                await this.redis.xack(
+                  this.STREAM_KEY,
+                  this.CONSUMER_GROUP,
+                  claimedId
+                );
+                console.warn(
+                  `[REDIS] Moved poison message to dead-letter after ${deliveries} deliveries: ${claimedId}`
+                );
               } catch (parseErr) {
-                console.error("[REDIS] Error handling dead-letter message:", parseErr);
-                await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, claimedId);
+                console.error(
+                  '[REDIS] Error handling dead-letter message:',
+                  parseErr
+                );
+                await this.redis.xack(
+                  this.STREAM_KEY,
+                  this.CONSUMER_GROUP,
+                  claimedId
+                );
               }
             }
           } catch (claimErr) {
-            console.error("[REDIS] Error claiming poison message:", claimErr);
+            console.error('[REDIS] Error claiming poison message:', claimErr);
           }
           continue;
         }
@@ -389,18 +458,22 @@ class RedisQueue {
           if (claimed && claimed.length > 0) {
             for (const [claimedId, fields] of claimed as any[]) {
               try {
-                const type = fields[1] as "commit" | "identity" | "account";
+                const type = fields[1] as 'commit' | 'identity' | 'account';
                 const data = JSON.parse(fields[3]);
                 const seq = fields[5] || undefined;
                 events.push({ type, data, seq, messageId: claimedId });
               } catch (error) {
-                console.error("[REDIS] Error parsing claimed message:", error);
-                await this.redis.xack(this.STREAM_KEY, this.CONSUMER_GROUP, claimedId);
+                console.error('[REDIS] Error parsing claimed message:', error);
+                await this.redis.xack(
+                  this.STREAM_KEY,
+                  this.CONSUMER_GROUP,
+                  claimedId
+                );
               }
             }
           }
         } catch (err) {
-          console.error("[REDIS] Error claiming pending messages:", err);
+          console.error('[REDIS] Error claiming pending messages:', err);
         }
       }
 
@@ -408,12 +481,15 @@ class RedisQueue {
     } catch (error: any) {
       // Handle NOGROUP error gracefully
       const errorMsg = error.message || error.toString() || '';
-      const isNogroupError = errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
-      
+      const isNogroupError =
+        errorMsg.includes('NOGROUP') || errorMsg.includes('No such key');
+
       if (isNogroupError) {
-        console.warn(`[REDIS] Stream/group missing during claim, will be recreated by consume loop`);
+        console.warn(
+          `[REDIS] Stream/group missing during claim, will be recreated by consume loop`
+        );
       } else {
-        console.error("[REDIS] Error claiming pending messages:", error);
+        console.error('[REDIS] Error claiming pending messages:', error);
       }
       return [];
     }
@@ -426,7 +502,10 @@ class RedisQueue {
     }
 
     try {
-      const summary = await this.redis.xpending(this.STREAM_KEY, this.CONSUMER_GROUP);
+      const summary = await this.redis.xpending(
+        this.STREAM_KEY,
+        this.CONSUMER_GROUP
+      );
       // summary = [ pending, smallestId, greatestId, [ [consumer, count], ... ] ]
       if (Array.isArray(summary) && summary.length > 0) {
         const pendingTotal = Number(summary[0] || 0);
@@ -461,12 +540,20 @@ class RedisQueue {
     }
   }
 
-  async getDeadLetters(count: number = 100): Promise<Array<Record<string, any>>> {
+  async getDeadLetters(
+    count: number = 100
+  ): Promise<Array<Record<string, any>>> {
     if (!this.redis || !this.isInitialized) {
       return [];
     }
     try {
-      const items = await this.redis.xrevrange(this.DEAD_LETTER_STREAM_KEY, '+', '-', 'COUNT', count);
+      const items = await this.redis.xrevrange(
+        this.DEAD_LETTER_STREAM_KEY,
+        '+',
+        '-',
+        'COUNT',
+        count
+      );
       return (items as any[]).map((entry: any[]) => {
         const [id, fields] = entry;
         const obj: Record<string, any> = { id };
@@ -481,35 +568,43 @@ class RedisQueue {
   }
 
   // Store firehose status for cluster-wide visibility
-  async setFirehoseStatus(status: { connected: boolean; url: string; currentCursor: string | null }): Promise<void> {
+  async setFirehoseStatus(status: {
+    connected: boolean;
+    url: string;
+    currentCursor: string | null;
+  }): Promise<void> {
     if (!this.redis || !this.isInitialized) {
       return;
     }
 
     try {
       await this.redis.setex(
-        "firehose:status",
+        'firehose:status',
         10, // Expire after 10 seconds (will be refreshed by worker 0)
         JSON.stringify(status)
       );
     } catch (error) {
-      console.error("[REDIS] Error setting firehose status:", error);
+      console.error('[REDIS] Error setting firehose status:', error);
     }
   }
 
-  async getFirehoseStatus(): Promise<{ connected: boolean; url: string; currentCursor: string | null } | null> {
+  async getFirehoseStatus(): Promise<{
+    connected: boolean;
+    url: string;
+    currentCursor: string | null;
+  } | null> {
     if (!this.redis || !this.isInitialized) {
       return null;
     }
 
     try {
-      const data = await this.redis.get("firehose:status");
+      const data = await this.redis.get('firehose:status');
       if (data) {
         return JSON.parse(data);
       }
       return null;
     } catch (error) {
-      console.error("[REDIS] Error getting firehose status:", error);
+      console.error('[REDIS] Error getting firehose status:', error);
       return null;
     }
   }
@@ -522,12 +617,12 @@ class RedisQueue {
 
     try {
       await this.redis.setex(
-        "firehose:recent_events",
+        'firehose:recent_events',
         10, // Expire after 10 seconds (will be refreshed by worker 0)
         JSON.stringify(events)
       );
     } catch (error) {
-      console.error("[REDIS] Error setting recent events:", error);
+      console.error('[REDIS] Error setting recent events:', error);
     }
   }
 
@@ -537,58 +632,58 @@ class RedisQueue {
     }
 
     try {
-      const data = await this.redis.get("firehose:recent_events");
+      const data = await this.redis.get('firehose:recent_events');
       if (data) {
         return JSON.parse(data);
       }
       return [];
     } catch (error) {
-      console.error("[REDIS] Error getting recent events:", error);
+      console.error('[REDIS] Error getting recent events:', error);
       return [];
     }
   }
 
   // Cluster-wide metrics methods
-  incrementClusterMetric(type: "#commit" | "#identity" | "#account") {
+  incrementClusterMetric(type: '#commit' | '#identity' | '#account') {
     // Buffer locally for periodic flush
     this.metricsBuffer[type]++;
     this.metricsBuffer.totalEvents++;
   }
-  
+
   incrementClusterError() {
     this.metricsBuffer.errors++;
   }
-  
+
   async getClusterMetrics(): Promise<{
     totalEvents: number;
-    eventCounts: { "#commit": number; "#identity": number; "#account": number };
+    eventCounts: { '#commit': number; '#identity': number; '#account': number };
     errors: number;
   }> {
     if (!this.redis || !this.isInitialized) {
       return {
         totalEvents: 0,
-        eventCounts: { "#commit": 0, "#identity": 0, "#account": 0 },
+        eventCounts: { '#commit': 0, '#identity': 0, '#account': 0 },
         errors: 0,
       };
     }
-    
+
     try {
       const metrics = await this.redis.hgetall(this.METRICS_KEY);
-      
+
       return {
-        totalEvents: parseInt(metrics.totalEvents || "0"),
+        totalEvents: parseInt(metrics.totalEvents || '0'),
         eventCounts: {
-          "#commit": parseInt(metrics["#commit"] || "0"),
-          "#identity": parseInt(metrics["#identity"] || "0"),
-          "#account": parseInt(metrics["#account"] || "0"),
+          '#commit': parseInt(metrics['#commit'] || '0'),
+          '#identity': parseInt(metrics['#identity'] || '0'),
+          '#account': parseInt(metrics['#account'] || '0'),
         },
-        errors: parseInt(metrics.errors || "0"),
+        errors: parseInt(metrics.errors || '0'),
       };
     } catch (error) {
-      console.error("[REDIS] Error getting cluster metrics:", error);
+      console.error('[REDIS] Error getting cluster metrics:', error);
       return {
         totalEvents: 0,
-        eventCounts: { "#commit": 0, "#identity": 0, "#account": 0 },
+        eventCounts: { '#commit': 0, '#identity': 0, '#account': 0 },
         errors: 0,
       };
     }
@@ -604,7 +699,7 @@ class RedisQueue {
     }
 
     // Create separate Redis client for pub/sub
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     this.subscriber = new Redis(redisUrl, {
       // Ensure we connect to master, not replica
       role: 'master',
@@ -615,18 +710,18 @@ class RedisQueue {
       },
     });
 
-    this.subscriber.on("message", (_channel: string, message: string) => {
+    this.subscriber.on('message', (_channel: string, message: string) => {
       try {
         const event = JSON.parse(message);
         // Broadcast to all registered callbacks
-        this.eventCallbacks.forEach(callback => callback(event));
+        this.eventCallbacks.forEach((callback) => callback(event));
       } catch (error) {
-        console.error("[REDIS] Error parsing pub/sub message:", error);
+        console.error('[REDIS] Error parsing pub/sub message:', error);
       }
     });
 
-    await this.subscriber.subscribe("firehose:events:broadcast");
-    console.log("[REDIS] Subscribed to event broadcasts");
+    await this.subscriber.subscribe('firehose:events:broadcast');
+    console.log('[REDIS] Subscribed to event broadcasts');
   }
 
   async publishEvent(event: any) {
@@ -635,9 +730,12 @@ class RedisQueue {
     }
 
     try {
-      await this.redis.publish("firehose:events:broadcast", JSON.stringify(event));
+      await this.redis.publish(
+        'firehose:events:broadcast',
+        JSON.stringify(event)
+      );
     } catch (error) {
-      console.error("[REDIS] Error publishing event:", error);
+      console.error('[REDIS] Error publishing event:', error);
     }
   }
 
@@ -646,7 +744,7 @@ class RedisQueue {
   }
 
   offEventBroadcast(callback: (event: any) => void) {
-    this.eventCallbacks = this.eventCallbacks.filter(cb => cb !== callback);
+    this.eventCallbacks = this.eventCallbacks.filter((cb) => cb !== callback);
   }
 
   // Database record counters (faster than COUNT queries)
@@ -656,9 +754,9 @@ class RedisQueue {
     }
 
     try {
-      await this.redis.hincrby("db:record_counts", table, delta);
+      await this.redis.hincrby('db:record_counts', table, delta);
     } catch (error) {
-      console.error("[REDIS] Error incrementing record count:", error);
+      console.error('[REDIS] Error incrementing record count:', error);
     }
   }
 
@@ -668,14 +766,14 @@ class RedisQueue {
     }
 
     try {
-      const counts = await this.redis.hgetall("db:record_counts");
+      const counts = await this.redis.hgetall('db:record_counts');
       const result: Record<string, number> = {};
       for (const [key, value] of Object.entries(counts)) {
         result[key] = parseInt(value) || 0;
       }
       return result;
     } catch (error) {
-      console.error("[REDIS] Error getting record counts:", error);
+      console.error('[REDIS] Error getting record counts:', error);
       return {};
     }
   }
@@ -685,12 +783,12 @@ class RedisQueue {
       clearInterval(this.flushInterval);
       this.flushInterval = null;
     }
-    
+
     if (this.subscriber) {
       await this.subscriber.quit();
       this.subscriber = null;
     }
-    
+
     if (this.redis) {
       await this.redis.quit();
       this.redis = null;

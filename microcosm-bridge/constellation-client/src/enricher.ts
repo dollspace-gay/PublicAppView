@@ -1,6 +1,6 @@
 /**
  * Post and Profile Stats Enricher
- * 
+ *
  * Enriches posts and profiles with accurate interaction statistics from Constellation.
  * Includes Redis caching to minimize API calls and improve performance.
  */
@@ -37,10 +37,7 @@ export class StatsEnricher {
   private cacheHits = 0;
   private cacheMisses = 0;
 
-  constructor(
-    client: ConstellationAPIClient,
-    config: EnricherConfig
-  ) {
+  constructor(client: ConstellationAPIClient, config: EnricherConfig) {
     this.client = client;
     this.cacheEnabled = config.cacheEnabled;
     this.cacheTTL = config.cacheTTL;
@@ -163,7 +160,8 @@ export class StatsEnricher {
 
       const stats: ProfileStats = {
         followers: allLinks['app.bsky.graph.follow']?.['.subject'] || 0,
-        mentions: allLinks['app.bsky.feed.post']?.['facets[].features[].did'] || 0,
+        mentions:
+          allLinks['app.bsky.feed.post']?.['facets[].features[].did'] || 0,
         blocks: allLinks['app.bsky.graph.block']?.['.subject'] || 0,
         lists: allLinks['app.bsky.graph.listitem']?.['.subject'] || 0,
       };
@@ -225,9 +223,10 @@ export class StatsEnricher {
    * Get cache statistics for monitoring
    */
   getCacheStats() {
-    const hitRate = this.statsRequested > 0 
-      ? (this.cacheHits / this.statsRequested * 100).toFixed(2)
-      : '0.00';
+    const hitRate =
+      this.statsRequested > 0
+        ? ((this.cacheHits / this.statsRequested) * 100).toFixed(2)
+        : '0.00';
 
     return {
       enabled: this.cacheEnabled,

@@ -1,22 +1,22 @@
-import type { Request, Response } from "express";
-import { storage } from "../storage";
-import { authService, validateAndRefreshSession } from "./auth";
-import { contentFilter } from "./content-filter";
-import { feedAlgorithm } from "./feed-algorithm";
-import { feedGeneratorClient } from "./feed-generator-client";
-import { pdsClient } from "./pds-client";
-import { pdsDataFetcher } from "./pds-data-fetcher";
-import { labelService } from "./label";
-import { moderationService } from "./moderation";
-import { searchService } from "./search";
-import { isUrlSafeToFetch } from "../utils/security";
-import { z } from "zod";
-import type { UserSettings } from "@shared/schema";
-import { Hydrator } from "./hydration";
-import { Views } from "./views";
-import { enhancedHydrator, optimizedHydrator } from "./hydration/index";
-import { dataLoaderHydrator } from "./hydration/dataloader-hydrator";
-import { getRequestDataLoader } from "../middleware/dataloader";
+import type { Request, Response } from 'express';
+import { storage } from '../storage';
+import { authService, validateAndRefreshSession } from './auth';
+import { contentFilter } from './content-filter';
+import { feedAlgorithm } from './feed-algorithm';
+import { feedGeneratorClient } from './feed-generator-client';
+import { pdsClient } from './pds-client';
+import { pdsDataFetcher } from './pds-data-fetcher';
+import { labelService } from './label';
+import { moderationService } from './moderation';
+import { searchService } from './search';
+import { isUrlSafeToFetch } from '../utils/security';
+import { z } from 'zod';
+import type { UserSettings } from '@shared/schema';
+import { Hydrator } from './hydration';
+import { Views } from './views';
+import { enhancedHydrator, optimizedHydrator } from './hydration/index';
+import { dataLoaderHydrator } from './hydration/dataloader-hydrator';
+import { getRequestDataLoader } from '../middleware/dataloader';
 
 // Query schemas
 const getTimelineSchema = z.object({
@@ -29,7 +29,15 @@ const getAuthorFeedSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
-  filter: z.enum(['posts_with_replies', 'posts_no_replies', 'posts_with_media', 'posts_and_author_threads', 'posts_with_video']).default('posts_with_replies'),
+  filter: z
+    .enum([
+      'posts_with_replies',
+      'posts_no_replies',
+      'posts_with_media',
+      'posts_and_author_threads',
+      'posts_with_video',
+    ])
+    .default('posts_with_replies'),
   includePins: z.coerce.boolean().default(false),
 });
 
@@ -49,22 +57,29 @@ const getFollowsSchema = z.object({
 });
 
 const queryLabelsSchema = z.object({
-  uriPatterns: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ).optional(),
-  sources: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ).optional(),
+  uriPatterns: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val))
+    .optional(),
+  sources: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val))
+    .optional(),
   limit: z.coerce.number().min(1).max(250).default(50),
   cursor: z.coerce.number().optional(),
 });
 
 const createReportSchema = z.object({
-  reasonType: z.string().transform(val => {
-    // Strip AT Protocol prefix if present (e.g., "com.atproto.moderation.defs#reasonSpam" -> "spam")
-    const match = val.match(/^com\.atproto\.moderation\.defs#reason(.+)$/);
-    return match ? match[1].toLowerCase() : val;
-  }).pipe(z.enum(["spam", "violation", "misleading", "sexual", "rude", "other"])),
+  reasonType: z
+    .string()
+    .transform((val) => {
+      // Strip AT Protocol prefix if present (e.g., "com.atproto.moderation.defs#reasonSpam" -> "spam")
+      const match = val.match(/^com\.atproto\.moderation\.defs#reason(.+)$/);
+      return match ? match[1].toLowerCase() : val;
+    })
+    .pipe(
+      z.enum(['spam', 'violation', 'misleading', 'sexual', 'rude', 'other'])
+    ),
   reason: z.string().optional(),
   subject: z.object({
     $type: z.string(),
@@ -80,22 +95,26 @@ const searchPostsSchema = z.object({
   cursor: z.string().optional(),
 });
 
-const searchActorsSchema = z.object({
-  q: z.string().optional(),
-  term: z.string().optional(),
-  limit: z.coerce.number().min(1).max(100).default(25),
-  cursor: z.string().optional(),
-}).refine(data => data.q || data.term, {
-  message: "Either 'q' or 'term' parameter is required"
-});
+const searchActorsSchema = z
+  .object({
+    q: z.string().optional(),
+    term: z.string().optional(),
+    limit: z.coerce.number().min(1).max(100).default(25),
+    cursor: z.string().optional(),
+  })
+  .refine((data) => data.q || data.term, {
+    message: "Either 'q' or 'term' parameter is required",
+  });
 
-const searchActorsTypeaheadSchema = z.object({
-  q: z.string().optional(),
-  term: z.string().optional(),
-  limit: z.coerce.number().min(1).max(10).default(10),
-}).refine(data => data.q || data.term, {
-  message: "Either 'q' or 'term' parameter is required"
-});
+const searchActorsTypeaheadSchema = z
+  .object({
+    q: z.string().optional(),
+    term: z.string().optional(),
+    limit: z.coerce.number().min(1).max(10).default(10),
+  })
+  .refine((data) => data.q || data.term, {
+    message: "Either 'q' or 'term' parameter is required",
+  });
 
 const listNotificationsSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
@@ -133,7 +152,7 @@ const getPostsSchema = z.object({
       z
         .array(z.string())
         .min(1, 'uris parameter cannot be empty')
-        .max(25, 'Maximum 25 uris allowed'),
+        .max(25, 'Maximum 25 uris allowed')
     ),
 });
 
@@ -172,7 +191,7 @@ const getProfilesSchema = z.object({
       z
         .array(z.string())
         .min(1, 'actors parameter cannot be empty')
-        .max(25, 'Maximum 25 actors allowed'),
+        .max(25, 'Maximum 25 actors allowed')
     ),
 });
 
@@ -197,9 +216,10 @@ const getBlocksSchema = z.object({
 
 const getRelationshipsSchema = z.object({
   actor: z.string(),
-  others: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ).optional(),
+  others: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val))
+    .optional(),
 });
 
 const getListMutesSchema = z.object({
@@ -246,9 +266,9 @@ const getFeedGeneratorSchema = z.object({
 });
 
 const getFeedGeneratorsSchema = z.object({
-  feeds: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ),
+  feeds: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val)),
 });
 
 const getActorFeedsSchema = z.object({
@@ -277,15 +297,15 @@ const getStarterPackSchema = z.object({
 });
 
 const getStarterPacksSchema = z.object({
-  uris: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ),
+  uris: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val)),
 });
 
 const getLabelerServicesSchema = z.object({
-  dids: z.union([z.string(), z.array(z.string())]).transform(val => 
-    typeof val === 'string' ? [val] : val
-  ),
+  dids: z
+    .union([z.string(), z.array(z.string())])
+    .transform((val) => (typeof val === 'string' ? [val] : val)),
   detailed: z.coerce.boolean().default(false).optional(),
 });
 
@@ -324,12 +344,17 @@ const unregisterPushSchema = z.object({
 
 // Actor preferences schemas - proper validation like Bluesky
 const putActorPreferencesSchema = z.object({
-  preferences: z.array(z.object({
-    $type: z.string().min(1, "Preference must have a $type"),
-    // Allow any additional properties for flexibility
-  }).passthrough()).default([]),
+  preferences: z
+    .array(
+      z
+        .object({
+          $type: z.string().min(1, 'Preference must have a $type'),
+          // Allow any additional properties for flexibility
+        })
+        .passthrough()
+    )
+    .default([]),
 });
-
 
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
@@ -360,7 +385,7 @@ const sendInteractionsSchema = z.object({
         subject: z.any().optional(),
         event: z.string().optional(),
         createdAt: z.string().optional(),
-      }),
+      })
     )
     .default([]),
 });
@@ -386,11 +411,17 @@ const unspeccedNoParamsSchema = z.object({});
 
 export class XRPCApi {
   // Preferences cache: DID -> { preferences: any[], timestamp: number }
-  private preferencesCache = new Map<string, { preferences: any[]; timestamp: number }>();
+  private preferencesCache = new Map<
+    string,
+    { preferences: any[]; timestamp: number }
+  >();
   private readonly PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-  
+
   // Handle resolution cache: handle -> { did: string, timestamp: number }
-  private handleResolutionCache = new Map<string, { did: string; timestamp: number }>();
+  private handleResolutionCache = new Map<
+    string,
+    { did: string; timestamp: number }
+  >();
   private readonly HANDLE_RESOLUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor() {
@@ -409,16 +440,21 @@ export class XRPCApi {
     if (!req) {
       return process.env.PUBLIC_URL || 'http://localhost:3000';
     }
-    
-    const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
-    const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
+
+    const protocol =
+      req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+    const host =
+      req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
   }
 
   /**
    * Check if preferences cache entry is expired
    */
-  private isPreferencesCacheExpired(cached: { preferences: any[]; timestamp: number }): boolean {
+  private isPreferencesCacheExpired(cached: {
+    preferences: any[];
+    timestamp: number;
+  }): boolean {
     return Date.now() - cached.timestamp > this.PREFERENCES_CACHE_TTL;
   }
 
@@ -428,14 +464,14 @@ export class XRPCApi {
   private cleanExpiredPreferencesCache(): void {
     const now = Date.now();
     const expiredDids: string[] = [];
-    
+
     this.preferencesCache.forEach((cached, did) => {
       if (now - cached.timestamp > this.PREFERENCES_CACHE_TTL) {
         expiredDids.push(did);
       }
     });
-    
-    expiredDids.forEach(did => {
+
+    expiredDids.forEach((did) => {
       this.preferencesCache.delete(did);
     });
   }
@@ -443,7 +479,10 @@ export class XRPCApi {
   /**
    * Check if handle resolution cache entry is expired
    */
-  private isHandleResolutionCacheExpired(cached: { did: string; timestamp: number }): boolean {
+  private isHandleResolutionCacheExpired(cached: {
+    did: string;
+    timestamp: number;
+  }): boolean {
     return Date.now() - cached.timestamp > this.HANDLE_RESOLUTION_CACHE_TTL;
   }
 
@@ -453,14 +492,14 @@ export class XRPCApi {
   private cleanExpiredHandleResolutionCache(): void {
     const now = Date.now();
     const expiredHandles: string[] = [];
-    
+
     this.handleResolutionCache.forEach((cached, handle) => {
       if (now - cached.timestamp > this.HANDLE_RESOLUTION_CACHE_TTL) {
         expiredHandles.push(handle);
       }
     });
-    
-    expiredHandles.forEach(handle => {
+
+    expiredHandles.forEach((handle) => {
       this.handleResolutionCache.delete(handle);
     });
   }
@@ -497,21 +536,24 @@ export class XRPCApi {
 
       // Look for PDS endpoint in service endpoints
       const services = didDoc.service || [];
-      const pdsService = services.find((service: any) => 
-        service.type === 'AtprotoPersonalDataServer' || 
-        service.id === '#atproto_pds'
+      const pdsService = services.find(
+        (service: any) =>
+          service.type === 'AtprotoPersonalDataServer' ||
+          service.id === '#atproto_pds'
       );
 
       if (pdsService && pdsService.serviceEndpoint) {
         const endpoint = pdsService.serviceEndpoint;
-        
+
         // SECURITY: Validate PDS endpoint to prevent SSRF attacks
         // Malicious DID documents could point to internal services
         if (!isUrlSafeToFetch(endpoint)) {
-          console.error(`[XRPC] SECURITY: Blocked unsafe PDS endpoint for ${userDid}: ${endpoint}`);
+          console.error(
+            `[XRPC] SECURITY: Blocked unsafe PDS endpoint for ${userDid}: ${endpoint}`
+          );
           return null;
         }
-        
+
         return endpoint;
       }
 
@@ -529,7 +571,10 @@ export class XRPCApi {
 
       return null;
     } catch (error) {
-      console.error(`[PREFERENCES] Error resolving PDS endpoint for ${userDid}:`, error);
+      console.error(
+        `[PREFERENCES] Error resolving PDS endpoint for ${userDid}:`,
+        error
+      );
       return null;
     }
   }
@@ -543,7 +588,10 @@ export class XRPCApi {
       }
       return null;
     } catch (error) {
-      console.error(`[PREFERENCES] Error resolving DID document for ${did}:`, error);
+      console.error(
+        `[PREFERENCES] Error resolving DID document for ${did}:`,
+        error
+      );
       return null;
     }
   }
@@ -560,7 +608,7 @@ export class XRPCApi {
         console.log(`[AUTH] No token found in request to ${req.path}`);
         return null;
       }
-      
+
       const payload = await authService.verifyToken(token);
       if (!payload?.did) {
         console.log(`[AUTH] Token payload missing DID for ${req.path}`);
@@ -572,24 +620,33 @@ export class XRPCApi {
         const anyPayload: any = payload;
         const appviewDid = process.env.APPVIEW_DID;
         if (!appviewDid) {
-          return res.status(500).json({ error: "APPVIEW_DID not configured" });
+          console.error('[AUTH] APPVIEW_DID not configured');
+          return null;
         }
-        const nsid = req.path.startsWith('/xrpc/') ? req.path.slice('/xrpc/'.length) : undefined;
-        
+        const nsid = req.path.startsWith('/xrpc/')
+          ? req.path.slice('/xrpc/'.length)
+          : undefined;
+
         // Skip aud check for app password tokens (scope=com.atproto.appPassPrivileged)
-        const isAppPassword = anyPayload.scope === 'com.atproto.appPassPrivileged';
+        const isAppPassword =
+          anyPayload.scope === 'com.atproto.appPassPrivileged';
         if (!isAppPassword && anyPayload.aud) {
           // Accept both base AppView DID and service-specific DID (with #bsky_appview fragment)
           const isBaseAppViewDid = anyPayload.aud === appviewDid;
-          const isServiceAppViewDid = anyPayload.aud === `${appviewDid}#bsky_appview`;
-          
+          const isServiceAppViewDid =
+            anyPayload.aud === `${appviewDid}#bsky_appview`;
+
           if (!isBaseAppViewDid && !isServiceAppViewDid) {
-            console.warn(`[AUTH] aud mismatch. expected=${appviewDid} or ${appviewDid}#bsky_appview got=${anyPayload.aud}`);
+            console.warn(
+              `[AUTH] aud mismatch. expected=${appviewDid} or ${appviewDid}#bsky_appview got=${anyPayload.aud}`
+            );
             return null;
           }
         }
         if (anyPayload.lxm && nsid && anyPayload.lxm !== nsid) {
-          console.warn(`[AUTH] lxm mismatch. expected=${nsid} got=${anyPayload.lxm}`);
+          console.warn(
+            `[AUTH] lxm mismatch. expected=${nsid} got=${anyPayload.lxm}`
+          );
           return null;
         }
       } catch {}
@@ -597,7 +654,11 @@ export class XRPCApi {
       return payload.did;
     } catch (error) {
       // Token verification failed (malformed, expired, etc.)
-      console.error('[AUTH] Token verification failed for path:', { path: req.path }, error instanceof Error ? error.message : error);
+      console.error(
+        '[AUTH] Token verification failed for path:',
+        { path: req.path },
+        error instanceof Error ? error.message : error
+      );
       return null;
     }
   }
@@ -606,13 +667,16 @@ export class XRPCApi {
    * Require authentication and return user DID
    * Sends 401 error response if not authenticated
    */
-  private async requireAuthDid(req: Request, res: Response): Promise<string | null> {
+  private async requireAuthDid(
+    req: Request,
+    res: Response
+  ): Promise<string | null> {
     const did = await this.getAuthenticatedDid(req);
     if (!did) {
       console.log(`[AUTH] Authentication required but missing for ${req.path}`);
-      res.status(401).json({ 
-        error: "AuthMissing", 
-        message: "Authentication Required" 
+      res.status(401).json({
+        error: 'AuthMissing',
+        message: 'Authentication Required',
       });
       return null;
     }
@@ -628,46 +692,54 @@ export class XRPCApi {
     }
     // A simple check for a custom not found error or similar
     if (error instanceof Error && error.message.includes('NotFound')) {
-      return res.status(404).json({ error: 'NotFound', message: error.message });
+      return res
+        .status(404)
+        .json({ error: 'NotFound', message: error.message });
     }
     // Handle network/fetch errors and upstream service failures
     if (error instanceof Error) {
-      if (error.message.includes('fetch') || 
-          error.message.includes('network') || 
-          error.message.includes('ECONNREFUSED') ||
-          error.message.includes('ETIMEDOUT') ||
-          error.message.includes('upstream') ||
-          error.message.toLowerCase().includes('unreachable')) {
-        return res.status(502).json({ 
-          error: 'UpstreamServiceUnavailable', 
-          message: 'Upstream service is temporarily unavailable. Please try again later.'
+      if (
+        error.message.includes('fetch') ||
+        error.message.includes('network') ||
+        error.message.includes('ECONNREFUSED') ||
+        error.message.includes('ETIMEDOUT') ||
+        error.message.includes('upstream') ||
+        error.message.toLowerCase().includes('unreachable')
+      ) {
+        return res.status(502).json({
+          error: 'UpstreamServiceUnavailable',
+          message:
+            'Upstream service is temporarily unavailable. Please try again later.',
         });
       }
     }
-    res
-      .status(500)
-      .json({ error: 'InternalServerError', message: 'An internal error occurred' });
+    res.status(500).json({
+      error: 'InternalServerError',
+      message: 'An internal error occurred',
+    });
   }
 
   private async _resolveActor(
     res: Response,
-    actor: string,
+    actor: string
   ): Promise<string | null> {
     if (actor.startsWith('did:')) {
       // A small optimization would be to check if the user exists in the DB.
       // But for now, subsequent queries will fail, which is acceptable.
       return actor;
     }
-    
+
     const handle = actor.toLowerCase();
-    
+
     // Check cache first
     const cached = this.handleResolutionCache.get(handle);
     if (cached && !this.isHandleResolutionCacheExpired(cached)) {
-      console.log(`[RESOLVE_ACTOR] Cache hit for handle: ${actor} -> ${cached.did}`);
+      console.log(
+        `[RESOLVE_ACTOR] Cache hit for handle: ${actor} -> ${cached.did}`
+      );
       return cached.did;
     }
-    
+
     console.log(`[RESOLVE_ACTOR] Looking up handle: ${actor}`);
     const user = await storage.getUserByHandle(handle);
     if (!user) {
@@ -675,13 +747,13 @@ export class XRPCApi {
       res.status(404).json({ error: 'NotFound', message: 'Actor not found' });
       return null;
     }
-    
+
     // Cache the result
     this.handleResolutionCache.set(handle, {
       did: user.did,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
-    
+
     console.log(`[RESOLVE_ACTOR] Found user: ${actor} -> ${user.did}`);
     return user.did;
   }
@@ -697,45 +769,90 @@ export class XRPCApi {
     return (json?.['cid'] ?? '') as string;
   }
 
-  private transformBlobToCdnUrl(blobCid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize', req?: Request): string | undefined {
+  private transformBlobToCdnUrl(
+    blobCid: string,
+    userDid: string,
+    format:
+      | 'avatar'
+      | 'banner'
+      | 'feed_thumbnail'
+      | 'feed_fullsize' = 'feed_fullsize',
+    req?: Request
+  ): string | undefined {
     // Check for falsy values, empty strings, and the literal string "undefined" or "null"
-    if (!blobCid || blobCid === 'undefined' || blobCid === 'null' || blobCid.trim() === '') return undefined;
-    
+    if (
+      !blobCid ||
+      blobCid === 'undefined' ||
+      blobCid === 'null' ||
+      blobCid.trim() === ''
+    )
+      return undefined;
+
     // Use local image proxy to fetch from Bluesky CDN
     const baseUrl = this.getBaseUrl(req);
     const proxyUrl = `${baseUrl}/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
     console.log(`[CDN_TRANSFORM] ${blobCid} -> ${proxyUrl}`);
     return proxyUrl;
   }
-  
+
   // Transform a plain CID string (as stored in database) to CDN URL - same logic but clearer name
-  private directCidToCdnUrl(cid: string, userDid: string, format: 'avatar' | 'banner' | 'feed_thumbnail' | 'feed_fullsize' = 'feed_fullsize', req?: Request): string | undefined {
+  private directCidToCdnUrl(
+    cid: string,
+    userDid: string,
+    format:
+      | 'avatar'
+      | 'banner'
+      | 'feed_thumbnail'
+      | 'feed_fullsize' = 'feed_fullsize',
+    req?: Request
+  ): string | undefined {
     return this.transformBlobToCdnUrl(cid, userDid, format, req);
   }
 
   private transformEmbedUrls(embed: any, req?: Request): any {
     if (!embed) return embed;
-    
+
     const baseUrl = this.getBaseUrl(req);
-    
+
     // Deep clone the embed to avoid mutating the original
     const transformed = JSON.parse(JSON.stringify(embed));
-    
+
     // Transform URLs based on embed type
-    if (transformed.$type === 'app.bsky.embed.images#view' && transformed.images) {
+    if (
+      transformed.$type === 'app.bsky.embed.images#view' &&
+      transformed.images
+    ) {
       transformed.images = transformed.images.map((img: any) => ({
         ...img,
-        thumb: img.thumb?.startsWith('/') ? `${baseUrl}${img.thumb}` : img.thumb,
-        fullsize: img.fullsize?.startsWith('/') ? `${baseUrl}${img.fullsize}` : img.fullsize
+        thumb: img.thumb?.startsWith('/')
+          ? `${baseUrl}${img.thumb}`
+          : img.thumb,
+        fullsize: img.fullsize?.startsWith('/')
+          ? `${baseUrl}${img.fullsize}`
+          : img.fullsize,
       }));
-    } else if (transformed.$type === 'app.bsky.embed.external#view' && transformed.external?.thumb) {
-      if (typeof transformed.external.thumb === 'string' && transformed.external.thumb.startsWith('/')) {
+    } else if (
+      transformed.$type === 'app.bsky.embed.external#view' &&
+      transformed.external?.thumb
+    ) {
+      if (
+        typeof transformed.external.thumb === 'string' &&
+        transformed.external.thumb.startsWith('/')
+      ) {
         transformed.external.thumb = `${baseUrl}${transformed.external.thumb}`;
       }
-    } else if (transformed.$type === 'app.bsky.embed.record#view' && transformed.record) {
+    } else if (
+      transformed.$type === 'app.bsky.embed.record#view' &&
+      transformed.record
+    ) {
       // Handle record embeds recursively
-      if (transformed.record.embeds && Array.isArray(transformed.record.embeds)) {
-        transformed.record.embeds = transformed.record.embeds.map((e: any) => this.transformEmbedUrls(e, req));
+      if (
+        transformed.record.embeds &&
+        Array.isArray(transformed.record.embeds)
+      ) {
+        transformed.record.embeds = transformed.record.embeds.map((e: any) =>
+          this.transformEmbedUrls(e, req)
+        );
       }
       // Transform author avatar if it's a relative URL
       if (transformed.record.author?.avatar) {
@@ -743,7 +860,10 @@ export class XRPCApi {
           transformed.record.author.avatar = `${baseUrl}${transformed.record.author.avatar}`;
         }
         // Validate and remove invalid avatar URIs
-        if (typeof transformed.record.author.avatar !== 'string' || transformed.record.author.avatar.trim() === '') {
+        if (
+          typeof transformed.record.author.avatar !== 'string' ||
+          transformed.record.author.avatar.trim() === ''
+        ) {
           delete transformed.record.author.avatar;
         }
       }
@@ -754,50 +874,78 @@ export class XRPCApi {
       if (transformed.record) {
         transformed.record = this.transformEmbedUrls(transformed.record, req);
       }
-    } else if (transformed.$type === 'app.bsky.embed.video#view' && transformed.thumbnail?.startsWith('/')) {
+    } else if (
+      transformed.$type === 'app.bsky.embed.video#view' &&
+      transformed.thumbnail?.startsWith('/')
+    ) {
       transformed.thumbnail = `${baseUrl}${transformed.thumbnail}`;
     }
-    
+
     return transformed;
   }
 
   // Helper to conditionally include avatar field only if URL is valid
-  private maybeAvatar(avatarCid: string | null | undefined, did: string, req?: Request): { avatar: string } | {} {
+  private maybeAvatar(
+    avatarCid: string | null | undefined,
+    did: string,
+    req?: Request
+  ): { avatar: string } | {} {
     if (!avatarCid) return {};
     const url = this.transformBlobToCdnUrl(avatarCid, did, 'avatar', req);
     // Ensure the URL is a valid non-empty string before including it
-    return url && typeof url === 'string' && url.trim() !== '' ? { avatar: url } : {};
+    return url && typeof url === 'string' && url.trim() !== ''
+      ? { avatar: url }
+      : {};
   }
 
   // Helper to conditionally include banner field only if URL is valid
-  private maybeBanner(bannerCid: string | null | undefined, did: string, req?: Request): { banner: string } | {} {
+  private maybeBanner(
+    bannerCid: string | null | undefined,
+    did: string,
+    req?: Request
+  ): { banner: string } | {} {
     if (!bannerCid) return {};
     const url = this.transformBlobToCdnUrl(bannerCid, did, 'banner', req);
     // Ensure the URL is a valid non-empty string before including it
-    return url && typeof url === 'string' && url.trim() !== '' ? { banner: url } : {};
+    return url && typeof url === 'string' && url.trim() !== ''
+      ? { banner: url }
+      : {};
   }
 
-  private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>, listData?: Map<string, any>): any {
+  private createAuthorViewerState(
+    authorDid: string,
+    listMutes: Map<string, any>,
+    listBlocks: Map<string, any>,
+    listData?: Map<string, any>
+  ): any {
     const listMute = listMutes.get(authorDid);
     const listBlock = listBlocks.get(authorDid);
-    
+
     return {
       $type: 'app.bsky.actor.defs#viewerState',
       muted: !!listMute,
-      mutedByList: listMute ? {
-        $type: 'app.bsky.graph.defs#listViewBasic',
-        uri: listMute.listUri,
-        name: listData?.get(listMute.listUri)?.name || listMute.listUri,
-        purpose: listData?.get(listMute.listUri)?.purpose || 'app.bsky.graph.defs#modlist',
-      } : undefined,
+      mutedByList: listMute
+        ? {
+            $type: 'app.bsky.graph.defs#listViewBasic',
+            uri: listMute.listUri,
+            name: listData?.get(listMute.listUri)?.name || listMute.listUri,
+            purpose:
+              listData?.get(listMute.listUri)?.purpose ||
+              'app.bsky.graph.defs#modlist',
+          }
+        : undefined,
       blockedBy: false,
       blocking: undefined,
-      blockingByList: listBlock ? {
-        $type: 'app.bsky.graph.defs#listViewBasic',
-        uri: listBlock.listUri,
-        name: listData?.get(listBlock.listUri)?.name || listBlock.listUri,
-        purpose: listData?.get(listBlock.listUri)?.purpose || 'app.bsky.graph.defs#modlist',
-      } : undefined,
+      blockingByList: listBlock
+        ? {
+            $type: 'app.bsky.graph.defs#listViewBasic',
+            uri: listBlock.listUri,
+            name: listData?.get(listBlock.listUri)?.name || listBlock.listUri,
+            purpose:
+              listData?.get(listBlock.listUri)?.purpose ||
+              'app.bsky.graph.defs#modlist',
+          }
+        : undefined,
       following: undefined,
       followedBy: undefined,
       knownFollowers: undefined,
@@ -805,28 +953,34 @@ export class XRPCApi {
     };
   }
 
-  private async serializePostsEnhanced(posts: any[], viewerDid?: string, req?: Request) {
+  private async serializePostsEnhanced(
+    posts: any[],
+    viewerDid?: string,
+    req?: Request
+  ) {
     const startTime = performance.now();
-    
+
     if (posts.length === 0) {
       return [];
     }
 
     const postUris = posts.map((p) => p.uri);
-    
+
     // Use DataLoader hydrator if available, otherwise fall back to optimized hydrator
     const dataLoader = req ? getRequestDataLoader(req) : undefined;
-    const state = dataLoader 
+    const state = dataLoader
       ? await dataLoaderHydrator.hydratePosts(postUris, viewerDid, dataLoader)
       : await optimizedHydrator.hydratePosts(postUris, viewerDid);
-    
+
     const hydrationTime = performance.now() - startTime;
-    console.log(`[OPTIMIZED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`);
+    console.log(
+      `[OPTIMIZED_HYDRATION] Hydrated ${postUris.length} posts in ${hydrationTime.toFixed(2)}ms`
+    );
     console.log(`[OPTIMIZED_HYDRATION] Stats:`, {
       cacheHits: state.stats.cacheHits,
       cacheMisses: state.stats.cacheMisses,
       queryTime: `${state.stats.queryTime.toFixed(2)}ms`,
-      totalTime: `${state.stats.totalTime.toFixed(2)}ms`
+      totalTime: `${state.stats.totalTime.toFixed(2)}ms`,
     });
 
     const serializedPosts = posts.map((post) => {
@@ -845,10 +999,17 @@ export class XRPCApi {
       // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
       const INVALID_HANDLE = 'handle.invalid';
       let authorHandle = author?.handle;
-      
+
       // Fallback to handle.invalid if handle is missing, empty, or is a DID
-      if (!authorHandle || typeof authorHandle !== 'string' || authorHandle.trim() === '' || authorHandle.startsWith('did:')) {
-        console.warn(`[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`);
+      if (
+        !authorHandle ||
+        typeof authorHandle !== 'string' ||
+        authorHandle.trim() === '' ||
+        authorHandle.startsWith('did:')
+      ) {
+        console.warn(
+          `[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`
+        );
         authorHandle = INVALID_HANDLE;
       }
 
@@ -861,8 +1022,8 @@ export class XRPCApi {
       if (hydratedPost?.embed || post.embed) {
         const embedData = hydratedPost?.embed || post.embed;
         if (embedData && typeof embedData === 'object' && embedData.$type) {
-          let transformedEmbed = { ...embedData };
-          
+          const transformedEmbed = { ...embedData };
+
           if (embedData.$type === 'app.bsky.embed.images') {
             transformedEmbed.images = embedData.images?.map((img: any) => ({
               ...img,
@@ -870,68 +1031,82 @@ export class XRPCApi {
                 ...img.image,
                 ref: {
                   ...img.image.ref,
-                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize', req)
-                }
-              }
+                  link: this.transformBlobToCdnUrl(
+                    img.image.ref.$link,
+                    post.authorDid,
+                    'feed_fullsize',
+                    req
+                  ),
+                },
+              },
             }));
           } else if (embedData.$type === 'app.bsky.embed.external') {
             // Handle external embeds
             const external = { ...embedData.external };
-            
+
             // Only transform thumbnail if it exists and has a valid ref
             if (embedData.external?.thumb?.ref?.$link) {
-              const thumbUrl = this.transformBlobToCdnUrl(embedData.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
+              const thumbUrl = this.transformBlobToCdnUrl(
+                embedData.external.thumb.ref.$link,
+                post.authorDid,
+                'feed_thumbnail',
+                req
+              );
               if (thumbUrl) {
                 external.thumb = {
                   ...embedData.external.thumb,
                   ref: {
                     ...embedData.external.thumb.ref,
-                    link: thumbUrl
-                  }
+                    link: thumbUrl,
+                  },
                 };
               } else {
                 // Remove invalid thumb
                 delete external.thumb;
               }
             }
-            
+
             transformedEmbed.external = external;
           }
-          
+
           record.embed = transformedEmbed;
         }
       }
-      if (hydratedPost?.facets || post.facets) record.facets = hydratedPost?.facets || post.facets;
-      
+      if (hydratedPost?.facets || post.facets)
+        record.facets = hydratedPost?.facets || post.facets;
+
       // Build proper reply reference with CIDs from hydrated posts
       if (hydratedPost?.reply?.parent?.uri && hydratedPost?.reply?.root?.uri) {
         const parentPost = state.posts.get(hydratedPost.reply.parent.uri);
         const rootPost = state.posts.get(hydratedPost.reply.root.uri);
-        
+
         if (parentPost && rootPost) {
           record.reply = {
-            parent: { 
-              uri: hydratedPost.reply.parent.uri, 
-              cid: parentPost.cid 
+            parent: {
+              uri: hydratedPost.reply.parent.uri,
+              cid: parentPost.cid,
             },
-            root: { 
-              uri: hydratedPost.reply.root.uri, 
-              cid: rootPost.cid 
-            }
+            root: {
+              uri: hydratedPost.reply.root.uri,
+              cid: rootPost.cid,
+            },
           };
         }
       }
 
       const avatarUrl = author?.avatarUrl;
-      const avatarCdn = avatarUrl 
-        ? (avatarUrl.startsWith('http') ? avatarUrl : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req))
+      const avatarCdn = avatarUrl
+        ? avatarUrl.startsWith('http')
+          ? avatarUrl
+          : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req)
         : undefined;
 
       // Ensure displayName is always a string
-      const displayName = (author?.displayName && typeof author.displayName === 'string') 
-        ? author.displayName 
-        : authorHandle;
-      
+      const displayName =
+        author?.displayName && typeof author.displayName === 'string'
+          ? author.displayName
+          : authorHandle;
+
       const postView: any = {
         $type: 'app.bsky.feed.defs#postView',
         uri: post.uri,
@@ -942,7 +1117,9 @@ export class XRPCApi {
           handle: authorHandle,
           displayName: displayName,
           pronouns: author?.pronouns,
-          ...(avatarCdn && typeof avatarCdn === 'string' && avatarCdn.trim() !== '' && { avatar: avatarCdn }),
+          ...(avatarCdn &&
+            typeof avatarCdn === 'string' &&
+            avatarCdn.trim() !== '' && { avatar: avatarCdn }),
           viewer: actorViewerState || {},
           labels: authorLabels,
           createdAt: author?.createdAt?.toISOString(),
@@ -955,18 +1132,20 @@ export class XRPCApi {
         quoteCount: aggregation?.quoteCount || 0,
         indexedAt: hydratedPost?.indexedAt || post.indexedAt.toISOString(),
         labels: labels,
-        viewer: viewerState ? { 
-          $type: 'app.bsky.feed.defs#viewerState',
-          like: viewerState.likeUri || undefined, 
-          repost: viewerState.repostUri || undefined,
-          bookmarked: viewerState.bookmarked || false,
-          threadMuted: viewerState.threadMuted || false,
-          replyDisabled: viewerState.replyDisabled || false,
-          embeddingDisabled: viewerState.embeddingDisabled || false,
-          pinned: viewerState.pinned || false,
-        } : {},
+        viewer: viewerState
+          ? {
+              $type: 'app.bsky.feed.defs#viewerState',
+              like: viewerState.likeUri || undefined,
+              repost: viewerState.repostUri || undefined,
+              bookmarked: viewerState.bookmarked || false,
+              threadMuted: viewerState.threadMuted || false,
+              replyDisabled: viewerState.replyDisabled || false,
+              embeddingDisabled: viewerState.embeddingDisabled || false,
+              pinned: viewerState.pinned || false,
+            }
+          : {},
       };
-      
+
       // Add thread gate if present
       if (threadGate) {
         postView.threadgate = {
@@ -977,16 +1156,20 @@ export class XRPCApi {
             $type: 'app.bsky.feed.threadgate',
             post: post.uri,
             allow: [
-              ...(threadGate.allowMentions ? [{ $type: 'app.bsky.feed.threadgate#mentionRule' }] : []),
-              ...(threadGate.allowFollowing ? [{ $type: 'app.bsky.feed.threadgate#followingRule' }] : []),
-              ...(threadGate.allowListUris?.map((uri: string) => ({ 
+              ...(threadGate.allowMentions
+                ? [{ $type: 'app.bsky.feed.threadgate#mentionRule' }]
+                : []),
+              ...(threadGate.allowFollowing
+                ? [{ $type: 'app.bsky.feed.threadgate#followingRule' }]
+                : []),
+              ...(threadGate.allowListUris?.map((uri: string) => ({
                 $type: 'app.bsky.feed.threadgate#listRule',
-                list: uri 
-              })) || [])
+                list: uri,
+              })) || []),
             ],
-            createdAt: threadGate.createdAt || post.createdAt.toISOString()
+            createdAt: threadGate.createdAt || post.createdAt.toISOString(),
           },
-          lists: threadGate.allowListUris || []
+          lists: threadGate.allowListUris || [],
         };
       }
 
@@ -1004,12 +1187,17 @@ export class XRPCApi {
     });
 
     // Filter out any null entries (e.g., from missing authors or other edge cases)
-    return serializedPosts.filter(post => post !== null);
+    return serializedPosts.filter((post) => post !== null);
   }
 
-  private async serializePosts(posts: any[], viewerDid?: string, req?: Request) {
-    const useEnhancedHydration = process.env.ENHANCED_HYDRATION_ENABLED === 'true';
-    
+  private async serializePosts(
+    posts: any[],
+    viewerDid?: string,
+    req?: Request
+  ) {
+    const useEnhancedHydration =
+      process.env.ENHANCED_HYDRATION_ENABLED === 'true';
+
     if (useEnhancedHydration) {
       return this.serializePostsEnhanced(posts, viewerDid, req);
     }
@@ -1021,7 +1209,18 @@ export class XRPCApi {
     const authorDids = Array.from(new Set(posts.map((p) => p.authorDid)));
     const postUris = posts.map((p) => p.uri);
 
-    const [authors, likeUris, repostUris, aggregations, viewerStates, labels, authorLabels, listMutes, listBlocks, threadContexts] = await Promise.all([
+    const [
+      authors,
+      likeUris,
+      repostUris,
+      aggregations,
+      viewerStates,
+      labels,
+      authorLabels,
+      listMutes,
+      listBlocks,
+      threadContexts,
+    ] = await Promise.all([
       storage.getUsers(authorDids),
       viewerDid ? storage.getLikeUris(viewerDid, postUris) : new Map(),
       viewerDid ? storage.getRepostUris(viewerDid, postUris) : new Map(),
@@ -1029,48 +1228,66 @@ export class XRPCApi {
       viewerDid ? storage.getPostViewerStates(postUris, viewerDid) : new Map(),
       labelService.getActiveLabelsForSubjects(postUris),
       labelService.getActiveLabelsForSubjects(authorDids),
-      viewerDid ? storage.getListMutesForUsers(viewerDid, authorDids) : new Map(),
-      viewerDid ? storage.getListBlocksForUsers(viewerDid, authorDids) : new Map(),
+      viewerDid
+        ? storage.getListMutesForUsers(viewerDid, authorDids)
+        : new Map(),
+      viewerDid
+        ? storage.getListBlocksForUsers(viewerDid, authorDids)
+        : new Map(),
       storage.getThreadContexts(postUris),
     ]);
 
     // Check for missing authors (posts exist but authors don't)
     if (authors.length !== authorDids.length) {
-      const foundDids = new Set(authors.map(a => a.did));
-      const missingDids = authorDids.filter(did => !foundDids.has(did));
-      console.warn(`[XRPC] serializePosts: ${missingDids.length} authors missing from database:`, missingDids);
-      
+      const foundDids = new Set(authors.map((a) => a.did));
+      const missingDids = authorDids.filter((did) => !foundDids.has(did));
+      console.warn(
+        `[XRPC] serializePosts: ${missingDids.length} authors missing from database:`,
+        missingDids
+      );
+
       // Note: Missing authors will show as placeholder profiles
     }
 
     // Fetch counts for each author
-    const authorCounts = new Map<string, { lists: number; feedgens: number; starterPacks: number; isLabeler: boolean }>();
-    await Promise.all(authorDids.map(async (authorDid) => {
-      const [userLists, userFeedgens, userStarterPacks, labelerServices] = await Promise.all([
-        storage.getUserLists(authorDid),
-        storage.getActorFeeds(authorDid),
-        storage.getStarterPacksByCreator(authorDid),
-        storage.getLabelerServicesByCreator(authorDid)
-      ]);
-      
-      authorCounts.set(authorDid, {
-        lists: userLists.length,
-        feedgens: userFeedgens.generators.length,
-        starterPacks: userStarterPacks.starterPacks.length,
-        isLabeler: labelerServices.length > 0
-      });
-    }));
+    const authorCounts = new Map<
+      string,
+      {
+        lists: number;
+        feedgens: number;
+        starterPacks: number;
+        isLabeler: boolean;
+      }
+    >();
+    await Promise.all(
+      authorDids.map(async (authorDid) => {
+        const [userLists, userFeedgens, userStarterPacks, labelerServices] =
+          await Promise.all([
+            storage.getUserLists(authorDid),
+            storage.getActorFeeds(authorDid),
+            storage.getStarterPacksByCreator(authorDid),
+            storage.getLabelerServicesByCreator(authorDid),
+          ]);
+
+        authorCounts.set(authorDid, {
+          lists: userLists.length,
+          feedgens: userFeedgens.generators.length,
+          starterPacks: userStarterPacks.starterPacks.length,
+          isLabeler: labelerServices.length > 0,
+        });
+      })
+    );
 
     // Collect all unique list URIs from mutes and blocks
     const listUris = new Set<string>();
     listMutes.forEach((mute) => listUris.add(mute.listUri));
     listBlocks.forEach((block) => listUris.add(block.listUri));
-    
+
     // Fetch list data for all unique list URIs
     const listData = new Map<string, any>();
     if (listUris.size > 0) {
       const lists = await Promise.all(
-        Array.from(listUris).map(uri => storage.getList(uri))
+        Array.from(listUris).map((uri) => storage.getList(uri))
       );
       lists.forEach((list, index) => {
         if (list) {
@@ -1092,161 +1309,205 @@ export class XRPCApi {
     });
 
     const replyPosts = await storage.getPosts(
-      Array.from(replyParentUris).concat(Array.from(replyRootUris)),
+      Array.from(replyParentUris).concat(Array.from(replyRootUris))
     );
     const replyPostsByUri = new Map(replyPosts.map((p) => [p.uri, p]));
 
-    return posts.map((post) => {
-      const author = authorsByDid.get(post.authorDid);
-      const likeUri = likeUris.get(post.uri);
-      const repostUri = repostUris.get(post.uri);
-      const aggregation = aggregations.get(post.uri);
-      const viewerState = viewerStates.get(post.uri);
+    return posts
+      .map((post) => {
+        const author = authorsByDid.get(post.authorDid);
+        const likeUri = likeUris.get(post.uri);
+        const repostUri = repostUris.get(post.uri);
+        const aggregation = aggregations.get(post.uri);
+        const viewerState = viewerStates.get(post.uri);
 
-      // Handle must always be a valid handle string
-      // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
-      const INVALID_HANDLE = 'handle.invalid';
-      let authorHandle = author?.handle;
-      
-      // Fallback to handle.invalid if handle is missing, empty, or is a DID
-      if (!authorHandle || typeof authorHandle !== 'string' || authorHandle.trim() === '' || authorHandle.startsWith('did:')) {
-        console.warn(`[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`);
-        authorHandle = INVALID_HANDLE;
-      }
+        // Handle must always be a valid handle string
+        // Use 'handle.invalid' as fallback for missing/invalid handles (matches Bluesky's approach)
+        const INVALID_HANDLE = 'handle.invalid';
+        let authorHandle = author?.handle;
 
-      let reply = undefined;
-      if (post.parentUri) {
-        const parentPost = replyPostsByUri.get(post.parentUri);
-        const rootUri = post.rootUri || post.parentUri;
-        const rootPost = replyPostsByUri.get(rootUri);
-
-        if (parentPost && rootPost) {
-          reply = {
-            $type: 'app.bsky.feed.defs#replyRef',
-            root: { 
-              $type: 'com.atproto.repo.strongRef',
-              uri: rootUri, 
-              cid: rootPost.cid 
-            },
-            parent: { 
-              $type: 'com.atproto.repo.strongRef',
-              uri: post.parentUri, 
-              cid: parentPost.cid 
-            },
-          };
+        // Fallback to handle.invalid if handle is missing, empty, or is a DID
+        if (
+          !authorHandle ||
+          typeof authorHandle !== 'string' ||
+          authorHandle.trim() === '' ||
+          authorHandle.startsWith('did:')
+        ) {
+          console.warn(
+            `[XRPC] Author ${post.authorDid} has invalid handle (got: ${authorHandle || 'undefined'}), using fallback: ${INVALID_HANDLE}`
+          );
+          authorHandle = INVALID_HANDLE;
         }
-      }
 
-      const record: any = {
-        $type: 'app.bsky.feed.post',
-        text: post.text,
-        createdAt: post.createdAt.toISOString(),
-      };
+        let reply = undefined;
+        if (post.parentUri) {
+          const parentPost = replyPostsByUri.get(post.parentUri);
+          const rootUri = post.rootUri || post.parentUri;
+          const rootPost = replyPostsByUri.get(rootUri);
 
-      if (post.embed) {
-        // Ensure embed has proper $type field and is an object
-        if (post.embed && typeof post.embed === 'object' && post.embed.$type) {
-          // Transform blob references to CDN URLs
-          let transformedEmbed = { ...post.embed };
-          
-          if (post.embed.$type === 'app.bsky.embed.images') {
-            // Handle image embeds
-            transformedEmbed.images = post.embed.images?.map((img: any) => ({
-              ...img,
-              image: {
-                ...img.image,
-                ref: {
-                  ...img.image.ref,
-                  link: this.transformBlobToCdnUrl(img.image.ref.$link, post.authorDid, 'feed_fullsize', req)
+          if (parentPost && rootPost) {
+            reply = {
+              $type: 'app.bsky.feed.defs#replyRef',
+              root: {
+                $type: 'com.atproto.repo.strongRef',
+                uri: rootUri,
+                cid: rootPost.cid,
+              },
+              parent: {
+                $type: 'com.atproto.repo.strongRef',
+                uri: post.parentUri,
+                cid: parentPost.cid,
+              },
+            };
+          }
+        }
+
+        const record: any = {
+          $type: 'app.bsky.feed.post',
+          text: post.text,
+          createdAt: post.createdAt.toISOString(),
+        };
+
+        if (post.embed) {
+          // Ensure embed has proper $type field and is an object
+          if (
+            post.embed &&
+            typeof post.embed === 'object' &&
+            post.embed.$type
+          ) {
+            // Transform blob references to CDN URLs
+            const transformedEmbed = { ...post.embed };
+
+            if (post.embed.$type === 'app.bsky.embed.images') {
+              // Handle image embeds
+              transformedEmbed.images = post.embed.images?.map((img: any) => ({
+                ...img,
+                image: {
+                  ...img.image,
+                  ref: {
+                    ...img.image.ref,
+                    link: this.transformBlobToCdnUrl(
+                      img.image.ref.$link,
+                      post.authorDid,
+                      'feed_fullsize',
+                      req
+                    ),
+                  },
+                },
+              }));
+            } else if (post.embed.$type === 'app.bsky.embed.external') {
+              // Handle external embeds
+              const external = { ...post.embed.external };
+
+              // Only transform thumbnail if it exists and has a valid ref
+              if (post.embed.external?.thumb?.ref?.$link) {
+                const thumbUrl = this.transformBlobToCdnUrl(
+                  post.embed.external.thumb.ref.$link,
+                  post.authorDid,
+                  'feed_thumbnail',
+                  req
+                );
+                if (thumbUrl) {
+                  external.thumb = {
+                    ...post.embed.external.thumb,
+                    ref: {
+                      ...post.embed.external.thumb.ref,
+                      link: thumbUrl,
+                    },
+                  };
+                } else {
+                  // Remove invalid thumb
+                  delete external.thumb;
                 }
               }
-            }));
-          } else if (post.embed.$type === 'app.bsky.embed.external') {
-            // Handle external embeds
-            const external = { ...post.embed.external };
-            
-            // Only transform thumbnail if it exists and has a valid ref
-            if (post.embed.external?.thumb?.ref?.$link) {
-              const thumbUrl = this.transformBlobToCdnUrl(post.embed.external.thumb.ref.$link, post.authorDid, 'feed_thumbnail', req);
-              if (thumbUrl) {
-                external.thumb = {
-                  ...post.embed.external.thumb,
-                  ref: {
-                    ...post.embed.external.thumb.ref,
-                    link: thumbUrl
-                  }
-                };
-              } else {
-                // Remove invalid thumb
-                delete external.thumb;
-              }
-            }
-            
-            transformedEmbed.external = external;
-          }
-          
-          record.embed = transformedEmbed;
-        } else {
-          console.warn(`[SERIALIZE_POSTS] Invalid embed for post ${post.uri}:`, post.embed);
-          // Don't include invalid embeds
-        }
-      }
-      if (post.facets) record.facets = post.facets;
-      if (reply) record.reply = reply;
 
-      return {
-        $type: 'app.bsky.feed.defs#postView',
-        uri: post.uri,
-        cid: post.cid,
-        author: (() => {
-          const avatarUrl = author?.avatarUrl ? this.transformBlobToCdnUrl(author.avatarUrl, author.did, 'avatar', req) : undefined;
-          // Ensure displayName is always a string
-          const displayName = (author?.displayName && typeof author.displayName === 'string') 
-            ? author.displayName 
-            : authorHandle;
-          return {
-            $type: 'app.bsky.actor.defs#profileViewBasic',
-            did: post.authorDid,
-            handle: authorHandle,
-            displayName: displayName,
-            pronouns: author?.pronouns,
-            ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
-            associated: {
-            $type: 'app.bsky.actor.defs#profileAssociated',
-            lists: authorCounts.get(post.authorDid)?.lists || 0,
-            feedgens: authorCounts.get(post.authorDid)?.feedgens || 0,
-            starterPacks: authorCounts.get(post.authorDid)?.starterPacks || 0,
-            labeler: authorCounts.get(post.authorDid)?.isLabeler || false,
-            chat: undefined, // TODO: Implement chat settings when chat functionality is added
-            activitySubscription: undefined, // TODO: Implement activity subscription
-          },
-            viewer: this.createAuthorViewerState(post.authorDid, listMutes, listBlocks, listData),
-            labels: authorLabels.get(post.authorDid) || [],
-            createdAt: author?.createdAt?.toISOString(),
-            verification: undefined, // TODO: Implement verification state when verification functionality is added
-            status: undefined, // TODO: Implement status view
-          };
-        })(),
-        record,
-        replyCount: aggregation?.replyCount || 0,
-        repostCount: aggregation?.repostCount || 0,
-        likeCount: aggregation?.likeCount || 0,
-        bookmarkCount: aggregation?.bookmarkCount || 0,
-        quoteCount: aggregation?.quoteCount || 0,
-        indexedAt: post.indexedAt.toISOString(),
-        labels: labels.get(post.uri) || [],
-        viewer: viewerState ? { 
-          $type: 'app.bsky.feed.defs#viewerState',
-          like: viewerState.likeUri || undefined, 
-          repost: viewerState.repostUri || undefined,
-          bookmarked: viewerState.bookmarked || false,
-          threadMuted: viewerState.threadMuted || false,
-          replyDisabled: viewerState.replyDisabled || false,
-          embeddingDisabled: viewerState.embeddingDisabled || false,
-          pinned: viewerState.pinned || false,
-        } : {},
-      };
-    }).filter(post => post !== null);
+              transformedEmbed.external = external;
+            }
+
+            record.embed = transformedEmbed;
+          } else {
+            console.warn(
+              `[SERIALIZE_POSTS] Invalid embed for post ${post.uri}:`,
+              post.embed
+            );
+            // Don't include invalid embeds
+          }
+        }
+        if (post.facets) record.facets = post.facets;
+        if (reply) record.reply = reply;
+
+        return {
+          $type: 'app.bsky.feed.defs#postView',
+          uri: post.uri,
+          cid: post.cid,
+          author: (() => {
+            const avatarUrl = author?.avatarUrl
+              ? this.transformBlobToCdnUrl(
+                  author.avatarUrl,
+                  author.did,
+                  'avatar',
+                  req
+                )
+              : undefined;
+            // Ensure displayName is always a string
+            const displayName =
+              author?.displayName && typeof author.displayName === 'string'
+                ? author.displayName
+                : authorHandle;
+            return {
+              $type: 'app.bsky.actor.defs#profileViewBasic',
+              did: post.authorDid,
+              handle: authorHandle,
+              displayName: displayName,
+              pronouns: author?.pronouns,
+              ...(avatarUrl &&
+                typeof avatarUrl === 'string' &&
+                avatarUrl.trim() !== '' && { avatar: avatarUrl }),
+              associated: {
+                $type: 'app.bsky.actor.defs#profileAssociated',
+                lists: authorCounts.get(post.authorDid)?.lists || 0,
+                feedgens: authorCounts.get(post.authorDid)?.feedgens || 0,
+                starterPacks:
+                  authorCounts.get(post.authorDid)?.starterPacks || 0,
+                labeler: authorCounts.get(post.authorDid)?.isLabeler || false,
+                chat: undefined, // TODO: Implement chat settings when chat functionality is added
+                activitySubscription: undefined, // TODO: Implement activity subscription
+              },
+              viewer: this.createAuthorViewerState(
+                post.authorDid,
+                listMutes,
+                listBlocks,
+                listData
+              ),
+              labels: authorLabels.get(post.authorDid) || [],
+              createdAt: author?.createdAt?.toISOString(),
+              verification: undefined, // TODO: Implement verification state when verification functionality is added
+              status: undefined, // TODO: Implement status view
+            };
+          })(),
+          record,
+          replyCount: aggregation?.replyCount || 0,
+          repostCount: aggregation?.repostCount || 0,
+          likeCount: aggregation?.likeCount || 0,
+          bookmarkCount: aggregation?.bookmarkCount || 0,
+          quoteCount: aggregation?.quoteCount || 0,
+          indexedAt: post.indexedAt.toISOString(),
+          labels: labels.get(post.uri) || [],
+          viewer: viewerState
+            ? {
+                $type: 'app.bsky.feed.defs#viewerState',
+                like: viewerState.likeUri || undefined,
+                repost: viewerState.repostUri || undefined,
+                bookmarked: viewerState.bookmarked || false,
+                threadMuted: viewerState.threadMuted || false,
+                replyDisabled: viewerState.replyDisabled || false,
+                embeddingDisabled: viewerState.embeddingDisabled || false,
+                pinned: viewerState.pinned || false,
+              }
+            : {},
+        };
+      })
+      .filter((post) => post !== null);
   }
 
   async getTimeline(req: Request, res: Response) {
@@ -1259,14 +1520,22 @@ export class XRPCApi {
       // Debug: Check user's follow count and their posts
       const [followCount, userPostCount] = await Promise.all([
         storage.getUserFollowingCount(userDid),
-        storage.getUserPostCount(userDid)
+        storage.getUserPostCount(userDid),
       ]);
-      
-      console.log(`[TIMELINE_DEBUG] User ${userDid} is following ${followCount} accounts, has ${userPostCount} posts`);
 
-      let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
-      
-      console.log(`[TIMELINE_DEBUG] Retrieved ${posts.length} posts for timeline`);
+      console.log(
+        `[TIMELINE_DEBUG] User ${userDid} is following ${followCount} accounts, has ${userPostCount} posts`
+      );
+
+      let posts = await storage.getTimeline(
+        userDid,
+        params.limit,
+        params.cursor
+      );
+
+      console.log(
+        `[TIMELINE_DEBUG] Retrieved ${posts.length} posts for timeline`
+      );
 
       const settings = await storage.getUserSettings(userDid);
       if (settings) {
@@ -1284,24 +1553,30 @@ export class XRPCApi {
       const oldestPost =
         posts.length > 0
           ? posts.reduce((oldest, post) =>
-              post.indexedAt < oldest.indexedAt ? post : oldest,
+              post.indexedAt < oldest.indexedAt ? post : oldest
             )
           : null;
 
-      const serializedPosts = await this.serializePosts(rankedPosts, userDid, req);
+      const serializedPosts = await this.serializePosts(
+        rankedPosts,
+        userDid,
+        req
+      );
 
       // Filter out any null entries (defensive - shouldn't happen with handle.invalid fallback)
-      const validPosts = serializedPosts.filter(post => post !== null);
-      
+      const validPosts = serializedPosts.filter((post) => post !== null);
+
       // Ensure we always return a valid response structure
       const response = {
         cursor: oldestPost ? oldestPost.indexedAt.toISOString() : undefined,
         feed: validPosts.map((post) => ({ post })),
       };
-      
+
       // Log the response structure for debugging
-      console.log(`[TIMELINE_DEBUG] Sending response with ${response.feed.length} posts`);
-      
+      console.log(
+        `[TIMELINE_DEBUG] Sending response with ${response.feed.length} posts`
+      );
+
       res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getTimeline');
@@ -1326,19 +1601,23 @@ export class XRPCApi {
 
       // Check for blocking relationships
       if (viewerDid) {
-        const blocks = await storage.getBlocksBetweenUsers(viewerDid, [authorDid]);
+        const blocks = await storage.getBlocksBetweenUsers(viewerDid, [
+          authorDid,
+        ]);
         if (blocks.length > 0) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: `Requester has blocked actor: ${authorDid}`,
-            name: 'BlockedActor'
+            name: 'BlockedActor',
           });
         }
 
-        const blockedBy = await storage.getBlocksBetweenUsers(authorDid, [viewerDid]);
+        const blockedBy = await storage.getBlocksBetweenUsers(authorDid, [
+          viewerDid,
+        ]);
         if (blockedBy.length > 0) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             error: `Requester is blocked by actor: ${authorDid}`,
-            name: 'BlockedByActor'
+            name: 'BlockedByActor',
           });
         }
       }
@@ -1370,30 +1649,32 @@ export class XRPCApi {
       }
 
       // Extract post URIs for hydration
-      const postUris = items.map(item => item.post.uri);
+      const postUris = items.map((item) => item.post.uri);
 
       // Fetch posts from storage for serialization
       const posts = await storage.getPosts(postUris);
-      
+
       // Fetch reposts and reposter profiles for reason construction
       const repostUris = items
-        .filter(item => item.repost)
-        .map(item => item.repost!.uri);
-      
+        .filter((item) => item.repost)
+        .map((item) => item.repost!.uri);
+
       const reposts = await Promise.all(
-        repostUris.map(uri => storage.getRepost(uri))
+        repostUris.map((uri) => storage.getRepost(uri))
       );
       const repostsByUri = new Map(
-        reposts.filter(Boolean).map(r => [r!.uri, r!])
+        reposts.filter(Boolean).map((r) => [r!.uri, r!])
       );
 
       // Get all reposter DIDs for profile fetching
-      const reposterDids = Array.from(repostsByUri.values()).map(r => r.userDid);
+      const reposterDids = Array.from(repostsByUri.values()).map(
+        (r) => r.userDid
+      );
       const reposters = await Promise.all(
-        reposterDids.map(did => storage.getUser(did))
+        reposterDids.map((did) => storage.getUser(did))
       );
       const repostersByDid = new Map(
-        reposters.filter(Boolean).map(u => [u!.did, u!])
+        reposters.filter(Boolean).map((u) => [u!.did, u!])
       );
 
       // Apply content filtering if viewer is authenticated
@@ -1406,12 +1687,16 @@ export class XRPCApi {
       }
 
       // Serialize posts with enhanced hydration (when flag is enabled)
-      const serializedPosts = await this.serializePosts(filteredPosts, viewerDid, req);
-      const postsByUri = new Map(serializedPosts.map(p => [p.uri, p]));
+      const serializedPosts = await this.serializePosts(
+        filteredPosts,
+        viewerDid,
+        req
+      );
+      const postsByUri = new Map(serializedPosts.map((p) => [p.uri, p]));
 
       // Build feed with reposts and pinned posts
       const feed = items
-        .map(item => {
+        .map((item) => {
           const post = postsByUri.get(item.post.uri);
           if (!post) return null;
 
@@ -1427,7 +1712,7 @@ export class XRPCApi {
           else if (item.repost) {
             const repost = repostsByUri.get(item.repost.uri);
             const reposter = repost ? repostersByDid.get(repost.userDid) : null;
-            
+
             if (repost && reposter) {
               reason = {
                 $type: 'app.bsky.feed.defs#reasonRepost',
@@ -1485,10 +1770,10 @@ export class XRPCApi {
       const serializedPosts = await this.serializePosts(
         postsToSerialize,
         viewerDid || undefined,
-        req,
+        req
       );
       const serializedPostsByUri = new Map(
-        serializedPosts.map((p) => [p.uri, p]),
+        serializedPosts.map((p) => [p.uri, p])
       );
 
       const threadPost = serializedPostsByUri.get(rootPost.uri);
@@ -1555,39 +1840,39 @@ export class XRPCApi {
         if (actor.startsWith('did:')) {
           return actor;
         }
-        
+
         const handle = actor.toLowerCase();
-        
+
         // Check cache first
         const cached = this.handleResolutionCache.get(handle);
         if (cached && !this.isHandleResolutionCacheExpired(cached)) {
           return cached.did;
         }
-        
+
         const user = await storage.getUserByHandle(handle);
         if (user) {
           // Cache the result
           this.handleResolutionCache.set(handle, {
             did: user.did,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
           return user.did;
         }
-        
+
         // User not in database - try to resolve from network
-        const { didResolver } = await import("./did-resolver");
+        const { didResolver } = await import('./did-resolver');
         const did = await didResolver.resolveHandle(handle);
         if (did) {
           // Cache the result
           this.handleResolutionCache.set(handle, {
             did,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
           return did;
         }
-        
+
         return undefined;
-      }),
+      })
     );
     const uniqueDids = Array.from(new Set(dids.filter(Boolean))) as string[];
 
@@ -1623,27 +1908,27 @@ export class XRPCApi {
       viewerDid
         ? Promise.all(
             uniqueDids.map((did) =>
-              storage.getKnownFollowers(did, viewerDid, 5),
-            ),
+              storage.getKnownFollowers(did, viewerDid, 5)
+            )
           )
-        : Promise.resolve(
-            uniqueDids.map(() => ({ followers: [], count: 0 })),
-          ),
+        : Promise.resolve(uniqueDids.map(() => ({ followers: [], count: 0 }))),
     ]);
 
     // Fetch starter pack counts and labeler statuses for each user
     const starterPackCounts = new Map<string, number>();
     const labelerStatuses = new Map<string, boolean>();
-    
-    await Promise.all(uniqueDids.map(async (did) => {
-      const [starterPacks, labelerServices] = await Promise.all([
-        storage.getStarterPacksByCreator(did),
-        storage.getLabelerServicesByCreator(did)
-      ]);
-      
-      starterPackCounts.set(did, starterPacks.starterPacks.length);
-      labelerStatuses.set(did, labelerServices.length > 0);
-    }));
+
+    await Promise.all(
+      uniqueDids.map(async (did) => {
+        const [starterPacks, labelerServices] = await Promise.all([
+          storage.getStarterPacksByCreator(did),
+          storage.getLabelerServicesByCreator(did),
+        ]);
+
+        starterPackCounts.set(did, starterPacks.starterPacks.length);
+        labelerStatuses.set(did, labelerServices.length > 0);
+      })
+    );
 
     const userMap = new Map(users.map((u) => [u.did, u]));
     const labelsBySubject = new Map<string, any[]>();
@@ -1659,7 +1944,7 @@ export class XRPCApi {
       .filter(Boolean);
     const pinnedPosts = await storage.getPosts(pinnedPostUris);
     const pinnedPostCidByUri = new Map<string, string>(
-      pinnedPosts.map((p) => [p.uri, p.cid]),
+      pinnedPosts.map((p) => [p.uri, p.cid])
     );
 
     const profiles = uniqueDids
@@ -1683,7 +1968,7 @@ export class XRPCApi {
           knownFollowers: {
             count: knownFollowersResult.count,
             followers: knownFollowersResult.followers
-              .filter(f => f.handle) // Skip followers without valid handles
+              .filter((f) => f.handle) // Skip followers without valid handles
               .map((f) => {
                 const follower: any = {
                   did: f.did,
@@ -1697,7 +1982,11 @@ export class XRPCApi {
                     ? f.avatarUrl
                     : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar', req);
                   // Only set avatar if we got a valid non-empty string
-                  if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+                  if (
+                    avatarUri &&
+                    typeof avatarUri === 'string' &&
+                    avatarUri.trim() !== ''
+                  ) {
                     follower.avatar = avatarUri;
                   }
                 }
@@ -1719,7 +2008,8 @@ export class XRPCApi {
           viewer.blockedBy = viewerState.blockedBy;
           if (viewerState.blocking) viewer.blocking = viewerState.blocking;
           if (viewerState.following) viewer.following = viewerState.following;
-          if (viewerState.followedBy) viewer.followedBy = viewerState.followedBy;
+          if (viewerState.followedBy)
+            viewer.followedBy = viewerState.followedBy;
         }
 
         const profileView: any = {
@@ -1777,40 +2067,53 @@ export class XRPCApi {
 
       // Cache miss - fetch from user's PDS
       console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
-      
+
       try {
         // Get user's PDS endpoint from DID document
         const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
         if (!pdsEndpoint) {
-          console.log(`[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`);
+          console.log(
+            `[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`
+          );
           return res.json({ preferences: [] });
         }
 
         // Forward request to user's PDS
-        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`, {
-          headers: {
-            'Authorization': req.headers.authorization || '',
-            'Content-Type': 'application/json'
+        const pdsResponse = await fetch(
+          `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
+          {
+            headers: {
+              Authorization: req.headers.authorization || '',
+              'Content-Type': 'application/json',
+            },
           }
-        });
+        );
 
         if (pdsResponse.ok) {
           const pdsData = await pdsResponse.json();
-          
+
           // Cache the response
           this.preferencesCache.set(userDid, {
             preferences: pdsData.preferences || [],
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
-          
-          console.log(`[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`);
+
+          console.log(
+            `[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`
+          );
           return res.json({ preferences: pdsData.preferences || [] });
         } else {
-          console.warn(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status);
+          console.warn(
+            `[PREFERENCES] PDS request failed for ${userDid}:`,
+            pdsResponse.status
+          );
           return res.json({ preferences: [] });
         }
       } catch (pdsError) {
-        console.error(`[PREFERENCES] Error fetching from PDS for ${userDid}:`, pdsError);
+        console.error(
+          `[PREFERENCES] Error fetching from PDS for ${userDid}:`,
+          pdsError
+        );
         return res.json({ preferences: [] });
       }
     } catch (error) {
@@ -1826,45 +2129,57 @@ export class XRPCApi {
 
       // Parse the preferences from request body
       const body = putActorPreferencesSchema.parse(req.body);
-      
+
       try {
         // Get user's PDS endpoint from DID document
         const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
         if (!pdsEndpoint) {
-          return res.status(400).json({ 
-            error: 'InvalidRequest', 
-            message: 'No PDS endpoint found for user' 
+          return res.status(400).json({
+            error: 'InvalidRequest',
+            message: 'No PDS endpoint found for user',
           });
         }
 
         // Forward request to user's PDS (let PDS handle validation)
-        const pdsResponse = await fetch(`${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`, {
-          method: 'POST',
-          headers: {
-            'Authorization': req.headers.authorization || '',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        });
+        const pdsResponse = await fetch(
+          `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: req.headers.authorization || '',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          }
+        );
 
         if (pdsResponse.ok) {
           // Invalidate cache after successful update
           this.invalidatePreferencesCache(userDid);
-          
-          console.log(`[PREFERENCES] Updated preferences via PDS for ${userDid}`);
-          
+
+          console.log(
+            `[PREFERENCES] Updated preferences via PDS for ${userDid}`
+          );
+
           // Return success response (no body, like Bluesky)
           return res.status(200).end();
         } else {
           const errorText = await pdsResponse.text();
-          console.error(`[PREFERENCES] PDS request failed for ${userDid}:`, pdsResponse.status, errorText);
+          console.error(
+            `[PREFERENCES] PDS request failed for ${userDid}:`,
+            pdsResponse.status,
+            errorText
+          );
           return res.status(pdsResponse.status).send(errorText);
         }
       } catch (pdsError) {
-        console.error(`[PREFERENCES] Error updating preferences via PDS for ${userDid}:`, pdsError);
-        return res.status(500).json({ 
-          error: 'InternalServerError', 
-          message: 'Failed to update preferences' 
+        console.error(
+          `[PREFERENCES] Error updating preferences via PDS for ${userDid}:`,
+          pdsError
+        );
+        return res.status(500).json({
+          error: 'InternalServerError',
+          message: 'Failed to update preferences',
         });
       }
     } catch (error) {
@@ -1879,7 +2194,8 @@ export class XRPCApi {
       const actorDid = await this._resolveActor(res, params.actor);
       if (!actorDid) return;
 
-      const { follows: followsList, cursor: nextCursor } = await storage.getFollows(actorDid, params.limit, params.cursor);
+      const { follows: followsList, cursor: nextCursor } =
+        await storage.getFollows(actorDid, params.limit, params.cursor);
       const followDids = followsList.map((f) => f.followingDid);
       const followUsers = await storage.getUsers(followDids);
       const userMap = new Map(followUsers.map((u) => [u.did, u]));
@@ -1891,9 +2207,9 @@ export class XRPCApi {
 
       // Get the actor's handle for the subject
       const actor = await storage.getUser(actorDid);
-      
+
       const response: any = {
-        subject: { 
+        subject: {
           $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
           handle: actor?.handle || actorDid,
@@ -1921,8 +2237,10 @@ export class XRPCApi {
               blockedBy: viewerState?.blockedBy || false,
             };
             if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-            if (viewerState?.following) viewer.following = viewerState.following;
-            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -1936,11 +2254,11 @@ export class XRPCApi {
           })
           .filter(Boolean),
       };
-      
+
       if (nextCursor) {
         response.cursor = nextCursor;
       }
-      
+
       res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getFollows');
@@ -1954,7 +2272,8 @@ export class XRPCApi {
       const actorDid = await this._resolveActor(res, params.actor);
       if (!actorDid) return;
 
-      const { followers: followersList, cursor: nextCursor } = await storage.getFollowers(actorDid, params.limit, params.cursor);
+      const { followers: followersList, cursor: nextCursor } =
+        await storage.getFollowers(actorDid, params.limit, params.cursor);
       const followerDids = followersList.map((f) => f.followerDid);
       const followerUsers = await storage.getUsers(followerDids);
       const userMap = new Map(followerUsers.map((u) => [u.did, u]));
@@ -1966,9 +2285,9 @@ export class XRPCApi {
 
       // Get the actor's handle for the subject
       const actor = await storage.getUser(actorDid);
-      
+
       const response: any = {
-        subject: { 
+        subject: {
           $type: 'app.bsky.actor.defs#profileView',
           did: actorDid,
           handle: actor?.handle || actorDid,
@@ -1996,8 +2315,10 @@ export class XRPCApi {
               blockedBy: viewerState?.blockedBy || false,
             };
             if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-            if (viewerState?.following) viewer.following = viewerState.following;
-            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
 
             return {
               $type: 'app.bsky.actor.defs#profileView',
@@ -2011,11 +2332,11 @@ export class XRPCApi {
           })
           .filter(Boolean),
       };
-      
+
       if (nextCursor) {
         response.cursor = nextCursor;
       }
-      
+
       res.json(response);
     } catch (error) {
       this._handleError(res, error, 'getFollowers');
@@ -2055,7 +2376,7 @@ export class XRPCApi {
       const { blocks, cursor } = await storage.getBlocks(
         userDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const blockedDids = blocks.map((b) => b.blockedDid);
       const blockedUsers = await storage.getUsers(blockedDids);
@@ -2095,7 +2416,7 @@ export class XRPCApi {
       const { mutes, cursor } = await storage.getMutes(
         userDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const mutedDids = mutes.map((m) => m.mutedDid);
       const mutedUsers = await storage.getUsers(mutedDids);
@@ -2178,19 +2499,24 @@ export class XRPCApi {
       if (!actorDid) return;
 
       const targetDids = params.others || [];
-      const relationships = await storage.getRelationships(actorDid, targetDids);
+      const relationships = await storage.getRelationships(
+        actorDid,
+        targetDids
+      );
 
       res.json({
         actor: actorDid,
-        relationships: Array.from(relationships.entries()).map(([did, rel]) => ({
-          $type: 'app.bsky.graph.defs#relationship',
-          did,
-          following: rel.following || undefined,
-          followedBy: rel.followedBy || undefined,
-          blocking: rel.blocking || undefined,
-          blockedBy: rel.blockedBy || undefined,
-          muted: rel.muting || undefined,
-        })),
+        relationships: Array.from(relationships.entries()).map(
+          ([did, rel]) => ({
+            $type: 'app.bsky.graph.defs#relationship',
+            did,
+            following: rel.following || undefined,
+            followedBy: rel.followedBy || undefined,
+            blocking: rel.blocking || undefined,
+            blockedBy: rel.blockedBy || undefined,
+            muted: rel.muting || undefined,
+          })
+        ),
       });
     } catch (error) {
       this._handleError(res, error, 'getRelationships');
@@ -2207,7 +2533,7 @@ export class XRPCApi {
       const { mutes, cursor } = await storage.getListMutes(
         userDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       res.json({
@@ -2222,7 +2548,7 @@ export class XRPCApi {
                   purpose: list.purpose,
                 }
               : null;
-          }),
+          })
         ),
       });
     } catch (error) {
@@ -2240,7 +2566,7 @@ export class XRPCApi {
       const { blocks, cursor } = await storage.getListBlocks(
         userDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       res.json({
@@ -2255,7 +2581,7 @@ export class XRPCApi {
                   purpose: list.purpose,
                 }
               : null;
-          }),
+          })
         ),
       });
     } catch (error) {
@@ -2277,7 +2603,7 @@ export class XRPCApi {
         actorDid,
         viewerDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       // Get the actor's handle for the subject
@@ -2329,7 +2655,7 @@ export class XRPCApi {
 
       const suggestions = await storage.getSuggestedFollowsByActor(
         actorDid,
-        params.limit,
+        params.limit
       );
 
       res.json({
@@ -2434,7 +2760,7 @@ export class XRPCApi {
       }
 
       console.log(
-        `[XRPC] Getting feed from generator: ${feedGen.displayName} (${feedGen.did})`,
+        `[XRPC] Getting feed from generator: ${feedGen.displayName} (${feedGen.did})`
       );
 
       // Call external feed generator service to get skeleton
@@ -2447,12 +2773,14 @@ export class XRPCApi {
           cursor: params.cursor,
         },
         {
-          viewerAuthorization: req.headers['authorization'] as string | undefined,
-        },
+          viewerAuthorization: req.headers['authorization'] as
+            | string
+            | undefined,
+        }
       );
 
       console.log(
-        `[XRPC] Hydrated ${hydratedFeed.length} posts from feed generator`,
+        `[XRPC] Hydrated ${hydratedFeed.length} posts from feed generator`
       );
 
       // Author profiles should be available from firehose events
@@ -2461,10 +2789,12 @@ export class XRPCApi {
       const feed = await Promise.all(
         hydratedFeed.map(async ({ post, reason }) => {
           const author = await storage.getUser(post.authorDid);
-          
+
           // Skip posts from authors without valid handles
           if (!author || !author.handle) {
-            console.warn(`[XRPC] Skipping post ${post.uri} - author ${post.authorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping post ${post.uri} - author ${post.authorDid} has no handle`
+            );
             return null;
           }
 
@@ -2511,11 +2841,11 @@ export class XRPCApi {
           }
 
           return feedView;
-        }),
+        })
       );
 
       // Filter out null entries (posts from authors without handles)
-      const validFeed = feed.filter(item => item !== null);
+      const validFeed = feed.filter((item) => item !== null);
 
       res.json({ feed: validFeed, cursor });
     } catch (error) {
@@ -2544,11 +2874,11 @@ export class XRPCApi {
 
       // Creator profile should be available from firehose events
       const creator = await storage.getUser(generator.creatorDid);
-      
+
       if (!creator || !creator.handle) {
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Feed generator creator profile not available',
-          message: 'Unable to load creator information'
+          message: 'Unable to load creator information',
         });
       }
 
@@ -2592,10 +2922,12 @@ export class XRPCApi {
       const views = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
-          
+
           // Skip generators from creators without valid handles
           if (!creator || !creator.handle) {
-            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            );
             return null;
           }
 
@@ -2606,8 +2938,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -2623,18 +2964,27 @@ export class XRPCApi {
           };
           if (generator.description) view.description = generator.description;
           if (generator.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              generator.avatarUrl,
+              generator.creatorDid,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               view.avatar = avatarUri;
             }
           }
 
           return view;
-        }),
+        })
       );
 
       // Filter out null entries (generators from creators without valid handles)
-      const validViews = views.filter(view => view !== null);
+      const validViews = views.filter((view) => view !== null);
 
       res.json({ feeds: validViews });
     } catch (error) {
@@ -2652,7 +3002,7 @@ export class XRPCApi {
       const { generators, cursor } = await storage.getActorFeeds(
         actorDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       // Creator profiles should be available from firehose events
@@ -2660,10 +3010,12 @@ export class XRPCApi {
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
-          
+
           // Skip generators from creators without valid handles
           if (!creator || !creator.handle) {
-            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            );
             return null;
           }
 
@@ -2674,8 +3026,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -2691,14 +3052,23 @@ export class XRPCApi {
           };
           if (generator.description) view.description = generator.description;
           if (generator.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              generator.avatarUrl,
+              generator.creatorDid,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               view.avatar = avatarUri;
             }
           }
 
           return view;
-        }),
+        })
       );
 
       res.json({ cursor, feeds });
@@ -2713,7 +3083,7 @@ export class XRPCApi {
 
       const { generators, cursor } = await storage.getSuggestedFeeds(
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       // Creator profiles should be available from firehose events
@@ -2721,10 +3091,12 @@ export class XRPCApi {
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
-          
+
           // Skip generators from creators without valid handles
           if (!creator || !creator.handle) {
-            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            );
             return null;
           }
 
@@ -2735,8 +3107,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -2752,18 +3133,27 @@ export class XRPCApi {
           };
           if (generator.description) view.description = generator.description;
           if (generator.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              generator.avatarUrl,
+              generator.creatorDid,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               view.avatar = avatarUri;
             }
           }
 
           return view;
-        }),
+        })
       );
 
       // Filter out null entries (generators from creators without valid handles)
-      const validFeeds = feeds.filter(feed => feed !== null);
+      const validFeeds = feeds.filter((feed) => feed !== null);
 
       res.json({ cursor, feeds: validFeeds });
     } catch (error) {
@@ -2777,9 +3167,9 @@ export class XRPCApi {
 
       const appviewDid = process.env.APPVIEW_DID;
       if (!appviewDid) {
-        return res.status(500).json({ error: "APPVIEW_DID not configured" });
+        return res.status(500).json({ error: 'APPVIEW_DID not configured' });
       }
-      
+
       res.json({
         did: appviewDid,
         feeds: [
@@ -2813,7 +3203,7 @@ export class XRPCApi {
       } else {
         const suggestedResults = await storage.getSuggestedFeeds(
           params.limit,
-          params.cursor,
+          params.cursor
         );
         generators = suggestedResults.generators;
         cursor = suggestedResults.cursor;
@@ -2824,10 +3214,12 @@ export class XRPCApi {
       const feeds = await Promise.all(
         generators.map(async (generator) => {
           const creator = await storage.getUser(generator.creatorDid);
-          
+
           // Skip generators from creators without valid handles
           if (!creator || !creator.handle) {
-            console.warn(`[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            );
             return null;
           }
 
@@ -2838,8 +3230,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -2855,18 +3256,27 @@ export class XRPCApi {
           };
           if (generator.description) view.description = generator.description;
           if (generator.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              generator.avatarUrl,
+              generator.creatorDid,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               view.avatar = avatarUri;
             }
           }
 
           return view;
-        }),
+        })
       );
 
       // Filter out null entries (generators from creators without valid handles)
-      const validFeeds = feeds.filter(feed => feed !== null);
+      const validFeeds = feeds.filter((feed) => feed !== null);
 
       res.json({ cursor, feeds: validFeeds });
     } catch (error) {
@@ -2886,14 +3296,14 @@ export class XRPCApi {
 
       // Creator profile should be available from firehose events
       const creator = await storage.getUser(pack.creatorDid);
-      
+
       if (!creator || !creator.handle) {
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Starter pack creator profile not available',
-          message: 'Unable to load creator information'
+          message: 'Unable to load creator information',
         });
       }
-      
+
       let list = null;
       if (pack.listUri) {
         list = await storage.getList(pack.listUri);
@@ -2904,7 +3314,13 @@ export class XRPCApi {
         handle: creator.handle,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+      if (creator?.avatarUrl)
+        creatorView.avatar = this.transformBlobToCdnUrl(
+          creator.avatarUrl,
+          creator.did,
+          'avatar',
+          req
+        );
 
       const record: any = {
         name: pack.name,
@@ -2948,13 +3364,15 @@ export class XRPCApi {
       const views = await Promise.all(
         packs.map(async (pack) => {
           const creator = await storage.getUser(pack.creatorDid);
-          
+
           // Skip packs from creators without valid handles
           if (!creator?.handle) {
-            console.warn(`[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} has no handle`
+            );
             return null;
           }
-          
+
           let list = null;
           if (pack.listUri) {
             list = await storage.getList(pack.listUri);
@@ -2967,8 +3385,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -2999,11 +3426,11 @@ export class XRPCApi {
           }
 
           return view;
-        }),
+        })
       );
 
       // Filter out null entries (packs from creators without valid handles)
-      const validViews = views.filter(view => view !== null);
+      const validViews = views.filter((view) => view !== null);
 
       res.json({ starterPacks: validViews });
     } catch (error) {
@@ -3020,7 +3447,7 @@ export class XRPCApi {
         params.dids.map(async (did: string) => {
           const services = await storage.getLabelerServicesByCreator(did);
           return services;
-        }),
+        })
       );
 
       // Flatten array of arrays
@@ -3031,10 +3458,12 @@ export class XRPCApi {
       const views = await Promise.all(
         services.map(async (service) => {
           const creator = await storage.getUser(service.creatorDid);
-          
+
           // Skip services from creators without valid handles
           if (!creator || !creator.handle) {
-            console.warn(`[XRPC] Skipping labeler service ${service.uri} - creator ${service.creatorDid} has no handle`);
+            console.warn(
+              `[XRPC] Skipping labeler service ${service.uri} - creator ${service.creatorDid} has no handle`
+            );
             return null;
           }
 
@@ -3045,8 +3474,17 @@ export class XRPCApi {
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
           if (creator?.avatarUrl) {
-            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
-            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+            const avatarUri = this.transformBlobToCdnUrl(
+              creator.avatarUrl,
+              creator.did,
+              'avatar',
+              req
+            );
+            if (
+              avatarUri &&
+              typeof avatarUri === 'string' &&
+              avatarUri.trim() !== ''
+            ) {
               creatorView.avatar = avatarUri;
             }
           }
@@ -3080,11 +3518,11 @@ export class XRPCApi {
           }
 
           return view;
-        }),
+        })
       );
 
       // Filter out null entries (services from creators without valid handles)
-      const validViews = views.filter(view => view !== null);
+      const validViews = views.filter((view) => view !== null);
 
       res.json({ views: validViews });
     } catch (error) {
@@ -3191,10 +3629,13 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const DAILY_VIDEO_LIMIT = Number(process.env.VIDEO_DAILY_LIMIT || 10);
-      const DAILY_BYTES_LIMIT = Number(process.env.VIDEO_DAILY_BYTES || 100 * 1024 * 1024);
+      const DAILY_BYTES_LIMIT = Number(
+        process.env.VIDEO_DAILY_BYTES || 100 * 1024 * 1024
+      );
       const todayJobs = await storage.getUserVideoJobs(userDid, 1000);
-      const today = new Date(); today.setHours(0,0,0,0);
-      const usedVideos = todayJobs.filter(j => j.createdAt >= today).length;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const usedVideos = todayJobs.filter((j) => j.createdAt >= today).length;
       const canUpload = usedVideos < DAILY_VIDEO_LIMIT;
       res.json({
         canUpload,
@@ -3215,7 +3656,14 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const prefs = await storage.getUserPreferences(userDid);
-      res.json({ preferences: [{ $type: 'app.bsky.notification.defs#preferences', priority: !!prefs?.notificationPriority }] });
+      res.json({
+        preferences: [
+          {
+            $type: 'app.bsky.notification.defs#preferences',
+            priority: !!prefs?.notificationPriority,
+          },
+        ],
+      });
     } catch (error) {
       this._handleError(res, error, 'getNotificationPreferences');
     }
@@ -3227,13 +3675,15 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const subs = await storage.getUserPushSubscriptions(userDid);
-      res.json({ subscriptions: subs.map(s => ({
-        id: s.id,
-        platform: s.platform,
-        appId: s.appId,
-        createdAt: s.createdAt.toISOString(),
-        updatedAt: s.updatedAt.toISOString(),
-      })) });
+      res.json({
+        subscriptions: subs.map((s) => ({
+          id: s.id,
+          platform: s.platform,
+          appId: s.appId,
+          createdAt: s.createdAt.toISOString(),
+          updatedAt: s.updatedAt.toISOString(),
+        })),
+      });
     } catch (error) {
       this._handleError(res, error, 'listActivitySubscriptions');
     }
@@ -3275,7 +3725,14 @@ export class XRPCApi {
           notificationPriority: params.priority ?? prefs.notificationPriority,
         });
       }
-      res.json({ preferences: [{ $type: 'app.bsky.notification.defs#preferences', priority: !!prefs?.notificationPriority }] });
+      res.json({
+        preferences: [
+          {
+            $type: 'app.bsky.notification.defs#preferences',
+            priority: !!prefs?.notificationPriority,
+          },
+        ],
+      });
     } catch (error) {
       this._handleError(res, error, 'putNotificationPreferencesV2');
     }
@@ -3316,8 +3773,25 @@ export class XRPCApi {
       const params = getActorStarterPacksSchema.parse(req.query);
       const did = await this._resolveActor(res, params.actor);
       if (!did) return;
-      const { starterPacks, cursor } = await storage.getStarterPacksByCreator(did, params.limit, params.cursor);
-      res.json({ cursor, starterPacks: starterPacks.map(p => ({ uri: p.uri, cid: p.cid, record: { name: p.name, list: p.listUri, feeds: p.feeds, createdAt: p.createdAt.toISOString() } })), feeds: [] });
+      const { starterPacks, cursor } = await storage.getStarterPacksByCreator(
+        did,
+        params.limit,
+        params.cursor
+      );
+      res.json({
+        cursor,
+        starterPacks: starterPacks.map((p) => ({
+          uri: p.uri,
+          cid: p.cid,
+          record: {
+            name: p.name,
+            list: p.listUri,
+            feeds: p.feeds,
+            createdAt: p.createdAt.toISOString(),
+          },
+        })),
+        feeds: [],
+      });
     } catch (error) {
       this._handleError(res, error, 'getActorStarterPacks');
     }
@@ -3329,7 +3803,15 @@ export class XRPCApi {
       const did = await this._resolveActor(res, params.actor);
       if (!did) return;
       const lists = await storage.getUserLists(did, params.limit);
-      res.json({ cursor: undefined, lists: lists.map((l) => ({ uri: l.uri, cid: l.cid, name: l.name, purpose: l.purpose })) });
+      res.json({
+        cursor: undefined,
+        lists: lists.map((l) => ({
+          uri: l.uri,
+          cid: l.cid,
+          name: l.name,
+          purpose: l.purpose,
+        })),
+      });
     } catch (error) {
       this._handleError(res, error, 'getListsWithMembership');
     }
@@ -3338,9 +3820,20 @@ export class XRPCApi {
   async getStarterPacksWithMembership(req: Request, res: Response) {
     try {
       const params = getStarterPacksWithMembershipSchema.parse(req.query);
-      const did = params.actor ? await this._resolveActor(res, params.actor) : null;
-      const { starterPacks, cursor } = did ? await storage.getStarterPacksByCreator(did, params.limit, params.cursor) : await storage.listStarterPacks(params.limit, params.cursor);
-      res.json({ cursor, starterPacks: starterPacks.map(p => ({ uri: p.uri, cid: p.cid })) });
+      const did = params.actor
+        ? await this._resolveActor(res, params.actor)
+        : null;
+      const { starterPacks, cursor } = did
+        ? await storage.getStarterPacksByCreator(
+            did,
+            params.limit,
+            params.cursor
+          )
+        : await storage.listStarterPacks(params.limit, params.cursor);
+      res.json({
+        cursor,
+        starterPacks: starterPacks.map((p) => ({ uri: p.uri, cid: p.cid })),
+      });
     } catch (error) {
       this._handleError(res, error, 'getStarterPacksWithMembership');
     }
@@ -3349,8 +3842,15 @@ export class XRPCApi {
   async searchStarterPacks(req: Request, res: Response) {
     try {
       const params = searchStarterPacksSchema.parse(req.query);
-      const { starterPacks, cursor } = await storage.searchStarterPacksByName(params.q, params.limit, params.cursor);
-      res.json({ cursor, starterPacks: starterPacks.map(p => ({ uri: p.uri, cid: p.cid })) });
+      const { starterPacks, cursor } = await storage.searchStarterPacksByName(
+        params.q,
+        params.limit,
+        params.cursor
+      );
+      res.json({
+        cursor,
+        starterPacks: starterPacks.map((p) => ({ uri: p.uri, cid: p.cid })),
+      });
     } catch (error) {
       this._handleError(res, error, 'searchStarterPacks');
     }
@@ -3381,7 +3881,10 @@ export class XRPCApi {
       const postUri: string | undefined = body?.subject?.uri || body?.postUri;
       const postCid: string | undefined = body?.subject?.cid || body?.postCid;
       if (!postUri) {
-        return res.status(400).json({ error: 'InvalidRequest', message: 'subject.uri is required' });
+        return res.status(400).json({
+          error: 'InvalidRequest',
+          message: 'subject.uri is required',
+        });
       }
 
       const rkey = `bmk_${Date.now()}`;
@@ -3391,11 +3894,18 @@ export class XRPCApi {
       const post = await storage.getPost(postUri);
       if (!post) {
         try {
-          const { pdsDataFetcher } = await import('../services/pds-data-fetcher');
+          const { pdsDataFetcher } = await import(
+            '../services/pds-data-fetcher'
+          );
           pdsDataFetcher.markIncomplete('post', userDid, postUri);
         } catch {}
       }
-      await storage.createBookmark({ uri, userDid, postUri, createdAt: new Date() });
+      await storage.createBookmark({
+        uri,
+        userDid,
+        postUri,
+        createdAt: new Date(),
+      });
 
       res.json({ uri, cid: postCid });
     } catch (error) {
@@ -3410,7 +3920,9 @@ export class XRPCApi {
       const body = req.body as any;
       const uri: string | undefined = body?.uri;
       if (!uri) {
-        return res.status(400).json({ error: 'InvalidRequest', message: 'uri is required' });
+        return res
+          .status(400)
+          .json({ error: 'InvalidRequest', message: 'uri is required' });
       }
       await storage.deleteBookmark(uri);
       res.json({ success: true });
@@ -3424,20 +3936,27 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const limit = Math.min(100, Number(req.query.limit) || 50);
-      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
-      const { bookmarks, cursor: nextCursor } = await storage.getBookmarks(userDid, limit, cursor);
-      const postUris = bookmarks.map(b => b.postUri);
-      const viewerDid = await this.getAuthenticatedDid(req) || undefined;
+      const cursor =
+        typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+      const { bookmarks, cursor: nextCursor } = await storage.getBookmarks(
+        userDid,
+        limit,
+        cursor
+      );
+      const postUris = bookmarks.map((b) => b.postUri);
+      const viewerDid = (await this.getAuthenticatedDid(req)) || undefined;
       const posts = await storage.getPosts(postUris);
       const serialized = await this.serializePosts(posts, viewerDid, req);
-      const byUri = new Map(serialized.map(p => [p.uri, p]));
+      const byUri = new Map(serialized.map((p) => [p.uri, p]));
       res.json({
         cursor: nextCursor,
-        bookmarks: bookmarks.map(b => ({
-          uri: b.uri,
-          createdAt: b.createdAt.toISOString(),
-          post: byUri.get(b.postUri),
-        })).filter(b => !!b.post),
+        bookmarks: bookmarks
+          .map((b) => ({
+            uri: b.uri,
+            createdAt: b.createdAt.toISOString(),
+            post: byUri.get(b.postUri),
+          }))
+          .filter((b) => !!b.post),
       });
     } catch (error) {
       this._handleError(res, error, 'getBookmarks');
@@ -3450,8 +3969,21 @@ export class XRPCApi {
       const params = getPostThreadV2Schema.parse(req.query);
       const posts = await storage.getPostThread(params.anchor);
       const viewerDid = await this.getAuthenticatedDid(req);
-      const serialized = await this.serializePosts(posts, viewerDid || undefined, req);
-      res.json({ hasOtherReplies: false, thread: serialized.length ? { $type: 'app.bsky.unspecced.defs#threadItemPost', post: serialized[0] } : null, threadgate: null });
+      const serialized = await this.serializePosts(
+        posts,
+        viewerDid || undefined,
+        req
+      );
+      res.json({
+        hasOtherReplies: false,
+        thread: serialized.length
+          ? {
+              $type: 'app.bsky.unspecced.defs#threadItemPost',
+              post: serialized[0],
+            }
+          : null,
+        threadgate: null,
+      });
     } catch (error) {
       this._handleError(res, error, 'getPostThreadV2');
     }
@@ -3472,7 +4004,14 @@ export class XRPCApi {
       const userDid = await this.requireAuthDid(req, res);
       if (!userDid) return;
       const users = await storage.getSuggestedUsers(userDid, params.limit);
-      res.json({ users: users.map((u) => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did, req) })) });
+      res.json({
+        users: users.map((u) => ({
+          did: u.did,
+          handle: u.handle,
+          displayName: u.displayName,
+          ...this.maybeAvatar(u.avatarUrl, u.did, req),
+        })),
+      });
     } catch (error) {
       this._handleError(res, error, 'getSuggestedUsersUnspecced');
     }
@@ -3493,7 +4032,13 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent starter packs as onboarding suggestions
       const { starterPacks } = await storage.listStarterPacks(10);
-      res.json({ starterPacks: starterPacks.map(p => ({ uri: p.uri, cid: p.cid, createdAt: p.createdAt.toISOString() })) });
+      res.json({
+        starterPacks: starterPacks.map((p) => ({
+          uri: p.uri,
+          cid: p.cid,
+          createdAt: p.createdAt.toISOString(),
+        })),
+      });
     } catch (error) {
       this._handleError(res, error, 'getOnboardingSuggestedStarterPacks');
     }
@@ -3504,7 +4049,14 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Return recent users as generic suggestions
       const users = await storage.getSuggestedUsers(undefined, 25);
-      res.json({ suggestions: users.map(u => ({ did: u.did, handle: u.handle, displayName: u.displayName, ...this.maybeAvatar(u.avatarUrl, u.did, req) })) });
+      res.json({
+        suggestions: users.map((u) => ({
+          did: u.did,
+          handle: u.handle,
+          displayName: u.displayName,
+          ...this.maybeAvatar(u.avatarUrl, u.did, req),
+        })),
+      });
     } catch (error) {
       this._handleError(res, error, 'getTaggedSuggestions');
     }
@@ -3515,7 +4067,9 @@ export class XRPCApi {
       const _ = unspeccedNoParamsSchema.parse(req.query);
       // Placeholder: compute trending by most reposted authors' handles
       const stats = await storage.getStats();
-      res.json({ topics: stats.totalPosts > 0 ? ["#bluesky", "#atproto"] : [] });
+      res.json({
+        topics: stats.totalPosts > 0 ? ['#bluesky', '#atproto'] : [],
+      });
     } catch (error) {
       this._handleError(res, error, 'getTrendingTopics');
     }
@@ -3524,7 +4078,7 @@ export class XRPCApi {
   async getTrends(req: Request, res: Response) {
     try {
       const _ = unspeccedNoParamsSchema.parse(req.query);
-      res.json({ trends: [{ topic: "#bluesky", count: 0 }] });
+      res.json({ trends: [{ topic: '#bluesky', count: 0 }] });
     } catch (error) {
       this._handleError(res, error, 'getTrends');
     }
@@ -3534,21 +4088,29 @@ export class XRPCApi {
     try {
       // Get country code from request headers or IP
       // Default to US for self-hosted instances
-      const countryCode = req.headers['cf-ipcountry'] || 
-                          req.headers['x-country-code'] || 
-                          process.env.DEFAULT_COUNTRY_CODE || 
-                          'US';
-      
-      const regionCode = req.headers['cf-region-code'] || 
-                         req.headers['x-region-code'] || 
-                         process.env.DEFAULT_REGION_CODE || 
-                         '';
+      const countryCode =
+        req.headers['cf-ipcountry'] ||
+        req.headers['x-country-code'] ||
+        process.env.DEFAULT_COUNTRY_CODE ||
+        'US';
+
+      const regionCode =
+        req.headers['cf-region-code'] ||
+        req.headers['x-region-code'] ||
+        process.env.DEFAULT_REGION_CODE ||
+        '';
 
       // For self-hosted instances, disable age restrictions unless explicitly configured
-      const isAgeBlockedGeo = process.env.AGE_BLOCKED_GEOS?.split(',')?.includes(countryCode.toString()) || false;
-      const isAgeRestrictedGeo = process.env.AGE_RESTRICTED_GEOS?.split(',')?.includes(countryCode.toString()) || false;
+      const isAgeBlockedGeo =
+        process.env.AGE_BLOCKED_GEOS?.split(',')?.includes(
+          countryCode.toString()
+        ) || false;
+      const isAgeRestrictedGeo =
+        process.env.AGE_RESTRICTED_GEOS?.split(',')?.includes(
+          countryCode.toString()
+        ) || false;
 
-      res.json({ 
+      res.json({
         liveNowConfig: { enabled: false },
         countryCode: countryCode.toString().substring(0, 2),
         regionCode: regionCode ? regionCode.toString() : undefined,
@@ -3582,15 +4144,17 @@ export class XRPCApi {
       const params = queryLabelsSchema.parse(req.query);
       const subjects = params.uriPatterns ?? [];
       if (subjects.some((u) => u.includes('*'))) {
-        return res
-          .status(400)
-          .json({ error: 'InvalidRequest', message: 'wildcards not supported' });
+        return res.status(400).json({
+          error: 'InvalidRequest',
+          message: 'wildcards not supported',
+        });
       }
       const sources = params.sources ?? [];
       if (sources.length === 0) {
-        return res
-          .status(400)
-          .json({ error: 'InvalidRequest', message: 'source dids are required' });
+        return res.status(400).json({
+          error: 'InvalidRequest',
+          message: 'source dids are required',
+        });
       }
       const labels = await storage.getLabelsForSubjects(subjects);
       const filtered = labels.filter((l) => sources.includes(l.src));
@@ -3602,14 +4166,19 @@ export class XRPCApi {
   async createReport(req: Request, res: Response) {
     try {
       const params = createReportSchema.parse(req.body);
-      const reporterDid = (await this.getAuthenticatedDid(req)) ||
+      const reporterDid =
+        (await this.getAuthenticatedDid(req)) ||
         (req as any).user?.did ||
         'did:unknown:anonymous';
       const report = await storage.createModerationReport({
         reporterDid,
         reasonType: params.reasonType,
         reason: params.reason || null,
-        subject: params.subject.uri || params.subject.did || params.subject.cid || 'unknown',
+        subject:
+          params.subject.uri ||
+          params.subject.did ||
+          params.subject.cid ||
+          'unknown',
         createdAt: new Date(),
         status: 'open',
       } as any);
@@ -3626,9 +4195,13 @@ export class XRPCApi {
         params.q,
         params.limit,
         params.cursor,
-        viewerDid || undefined,
+        viewerDid || undefined
       );
-      const serialized = await this.serializePosts(posts as any, viewerDid || undefined, req);
+      const serialized = await this.serializePosts(
+        posts as any,
+        viewerDid || undefined,
+        req
+      );
       res.json({ posts: serialized, cursor });
     } catch (error) {
       this._handleError(res, error, 'searchPosts');
@@ -3641,7 +4214,7 @@ export class XRPCApi {
       const { actors, cursor } = await searchService.searchActors(
         term,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const dids = actors.map((a) => a.did);
       const users = await storage.getUsers(dids);
@@ -3668,7 +4241,7 @@ export class XRPCApi {
       const params = searchActorsTypeaheadSchema.parse(req.query);
       const results = await searchService.searchActorsTypeahead(
         (params.q || params.term)!,
-        params.limit,
+        params.limit
       );
       res.json({ actors: results });
     } catch (error) {
@@ -3685,132 +4258,158 @@ export class XRPCApi {
       const notificationsList = await storage.getNotifications(
         userDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
-      console.log(`[listNotifications] Found ${notificationsList.length} notifications`);
+      console.log(
+        `[listNotifications] Found ${notificationsList.length} notifications`
+      );
 
       const authorDids = Array.from(
-        new Set(notificationsList.map((n) => n.authorDid)),
+        new Set(notificationsList.map((n) => n.authorDid))
       );
-      
+
       // Author profiles should be available from firehose events
-      
+
       const authors = await storage.getUsers(authorDids);
       const authorMap = new Map(authors.map((a) => [a.did, a]));
 
-      const items = await Promise.all(notificationsList.map(async (n) => {
-        const author = authorMap.get(n.authorDid);
-        
-        // Skip notifications from authors without valid handles
-        if (!author || !author.handle) {
-          console.warn(`[XRPC] Skipping notification from ${n.authorDid} - no valid handle`);
-          return null;
-        }
-        
-        // Validate that the notification subject still exists
-        let reasonSubject = n.reasonSubject;
-        let record = { $type: 'app.bsky.notification.defs#recordDeleted' };
-        
-        if (reasonSubject) {
-          try {
-            // For post-related notifications, check if the post still exists
-            if (n.reason === 'like' || n.reason === 'repost' || n.reason === 'reply' || n.reason === 'quote') {
-              const post = await storage.getPost(reasonSubject);
-              if (!post) {
-                // Post was deleted, filter out this notification
-                return null;
-              }
-              record = {
-                $type: 'app.bsky.feed.post',
-                text: post.text,
-                createdAt: post.createdAt.toISOString(),
-              };
-              if (post.embed) record.embed = post.embed;
-              if (post.facets) record.facets = post.facets;
-            }
-          } catch (error) {
-            console.warn('[NOTIFICATIONS] Failed to fetch record for subject:', { reasonSubject }, error);
-            // If we can't fetch the record, filter out this notification
+      const items = await Promise.all(
+        notificationsList.map(async (n) => {
+          const author = authorMap.get(n.authorDid);
+
+          // Skip notifications from authors without valid handles
+          if (!author || !author.handle) {
+            console.warn(
+              `[XRPC] Skipping notification from ${n.authorDid} - no valid handle`
+            );
             return null;
           }
-        } else {
-          // For notifications without a reasonSubject (like follows), create a fallback
-          reasonSubject = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
-        }
-        
-        // Create proper AT URI based on notification reason
-        let notificationUri = reasonSubject;
-        if (!notificationUri) {
-          // For follow notifications, create a follow record URI
-          if (n.reason === 'follow') {
-            notificationUri = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
+
+          // Validate that the notification subject still exists
+          let reasonSubject = n.reasonSubject;
+          let record = { $type: 'app.bsky.notification.defs#recordDeleted' };
+
+          if (reasonSubject) {
+            try {
+              // For post-related notifications, check if the post still exists
+              if (
+                n.reason === 'like' ||
+                n.reason === 'repost' ||
+                n.reason === 'reply' ||
+                n.reason === 'quote'
+              ) {
+                const post = await storage.getPost(reasonSubject);
+                if (!post) {
+                  // Post was deleted, filter out this notification
+                  return null;
+                }
+                record = {
+                  $type: 'app.bsky.feed.post',
+                  text: post.text,
+                  createdAt: post.createdAt.toISOString(),
+                };
+                if (post.embed) record.embed = post.embed;
+                if (post.facets) record.facets = post.facets;
+              }
+            } catch (error) {
+              console.warn(
+                '[NOTIFICATIONS] Failed to fetch record for subject:',
+                { reasonSubject },
+                error
+              );
+              // If we can't fetch the record, filter out this notification
+              return null;
+            }
           } else {
-            // Fallback for other cases
-            notificationUri = `at://${n.authorDid}/app.bsky.feed.post/unknown`;
+            // For notifications without a reasonSubject (like follows), create a fallback
+            reasonSubject = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
           }
-        }
 
-        // Use the actual CID from the database if available, otherwise generate a placeholder
-        const notificationCid = n.cid || `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
+          // Create proper AT URI based on notification reason
+          let notificationUri = reasonSubject;
+          if (!notificationUri) {
+            // For follow notifications, create a follow record URI
+            if (n.reason === 'follow') {
+              notificationUri = `at://${n.authorDid}/app.bsky.graph.follow/${n.indexedAt.getTime()}`;
+            } else {
+              // Fallback for other cases
+              notificationUri = `at://${n.authorDid}/app.bsky.feed.post/unknown`;
+            }
+          }
 
-        const view: any = {
-          $type: 'app.bsky.notification.listNotifications#notification',
-          uri: notificationUri,
-          cid: notificationCid,
-          isRead: n.isRead,
-          indexedAt: n.indexedAt.toISOString(),
-          reason: n.reason,
-          reasonSubject: reasonSubject, // Always a string now
-          record: record || { $type: 'app.bsky.notification.defs#recordDeleted' },
-          author: {
-            $type: 'app.bsky.actor.defs#profileViewBasic',
-            did: author.did,
-            handle: author.handle,
-            displayName: author.displayName ?? author.handle,
-            pronouns: author.pronouns,
-            ...this.maybeAvatar(author.avatarUrl, author.did, req),
-            associated: {
-              $type: 'app.bsky.actor.defs#profileAssociated',
-              lists: 0,
-              feedgens: 0,
-              starterPacks: 0,
-              labeler: false,
-              chat: undefined,
-              activitySubscription: undefined,
+          // Use the actual CID from the database if available, otherwise generate a placeholder
+          const notificationCid =
+            n.cid ||
+            `bafkrei${Buffer.from(`${n.uri}-${n.indexedAt.getTime()}`).toString('base64url').slice(0, 44)}`;
+
+          const view: any = {
+            $type: 'app.bsky.notification.listNotifications#notification',
+            uri: notificationUri,
+            cid: notificationCid,
+            isRead: n.isRead,
+            indexedAt: n.indexedAt.toISOString(),
+            reason: n.reason,
+            reasonSubject: reasonSubject, // Always a string now
+            record: record || {
+              $type: 'app.bsky.notification.defs#recordDeleted',
             },
-            viewer: {
-              $type: 'app.bsky.actor.defs#viewerState',
-              muted: false,
-              mutedByList: undefined,
-              blockedBy: false,
-              blocking: undefined,
-              blockingByList: undefined,
-              following: undefined,
-              followedBy: undefined,
-              knownFollowers: undefined,
-              activitySubscription: undefined,
+            author: {
+              $type: 'app.bsky.actor.defs#profileViewBasic',
+              did: author.did,
+              handle: author.handle,
+              displayName: author.displayName ?? author.handle,
+              pronouns: author.pronouns,
+              ...this.maybeAvatar(author.avatarUrl, author.did, req),
+              associated: {
+                $type: 'app.bsky.actor.defs#profileAssociated',
+                lists: 0,
+                feedgens: 0,
+                starterPacks: 0,
+                labeler: false,
+                chat: undefined,
+                activitySubscription: undefined,
+              },
+              viewer: {
+                $type: 'app.bsky.actor.defs#viewerState',
+                muted: false,
+                mutedByList: undefined,
+                blockedBy: false,
+                blocking: undefined,
+                blockingByList: undefined,
+                following: undefined,
+                followedBy: undefined,
+                knownFollowers: undefined,
+                activitySubscription: undefined,
+              },
+              labels: [],
+              createdAt: author.createdAt?.toISOString(),
+              verification: undefined,
+              status: undefined,
             },
-            labels: [],
-            createdAt: author.createdAt?.toISOString(),
-            verification: undefined,
-            status: undefined,
-          },
-        };
-        return view;
-      }));
+          };
+          return view;
+        })
+      );
 
       // Filter out null items (deleted content)
-      const validItems = items.filter(item => item !== null);
-      console.log(`[listNotifications] Returning ${validItems.length} valid notifications (filtered ${items.length - validItems.length} deleted/invalid)`);
+      const validItems = items.filter((item) => item !== null);
+      console.log(
+        `[listNotifications] Returning ${validItems.length} valid notifications (filtered ${items.length - validItems.length} deleted/invalid)`
+      );
 
       const cursor = notificationsList.length
-        ? notificationsList[notificationsList.length - 1].indexedAt.toISOString()
+        ? notificationsList[
+            notificationsList.length - 1
+          ].indexedAt.toISOString()
         : undefined;
 
       res.json({ notifications: validItems, cursor });
     } catch (error) {
       console.error('[listNotifications] Error details:', error);
-      console.error('[listNotifications] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error(
+        '[listNotifications] Error stack:',
+        error instanceof Error ? error.stack : 'No stack trace'
+      );
       this._handleError(res, error, 'listNotifications');
     }
   }
@@ -3831,7 +4430,7 @@ export class XRPCApi {
       if (!userDid) return;
       await storage.markNotificationsAsRead(
         userDid,
-        params.seenAt ? new Date(params.seenAt) : undefined,
+        params.seenAt ? new Date(params.seenAt) : undefined
       );
       res.json({ success: true });
     } catch (error) {
@@ -3886,13 +4485,13 @@ export class XRPCApi {
       const posts = await storage.getListFeed(
         params.list,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const viewerDid = await this.getAuthenticatedDid(req);
       const serialized = await this.serializePosts(
         posts,
         viewerDid || undefined,
-        req,
+        req
       );
       const oldest = posts.length ? posts[posts.length - 1] : null;
       res.json({
@@ -3907,27 +4506,32 @@ export class XRPCApi {
     try {
       const params = getPostsSchema.parse(req.query);
       const viewerDid = await this.getAuthenticatedDid(req);
-      
+
       console.log(`[getPosts] Fetching ${params.uris.length} posts`);
       const posts = await storage.getPosts(params.uris);
       console.log(`[getPosts] Found ${posts.length} posts in database`);
-      
+
       if (posts.length === 0) {
         console.log(`[getPosts] No posts found for URIs:`, params.uris);
         return res.json({ posts: [] });
       }
-      
+
       console.log(`[getPosts] Serializing ${posts.length} posts`);
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
-        req,
+        req
       );
-      console.log(`[getPosts] Successfully serialized ${serializedPosts.length} posts`);
+      console.log(
+        `[getPosts] Successfully serialized ${serializedPosts.length} posts`
+      );
       res.json({ posts: serializedPosts });
     } catch (error) {
       console.error('[getPosts] Error details:', error);
-      console.error('[getPosts] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      console.error(
+        '[getPosts] Error stack:',
+        error instanceof Error ? error.stack : 'No stack trace'
+      );
       this._handleError(res, error, 'getPosts');
     }
   }
@@ -3939,7 +4543,7 @@ export class XRPCApi {
       const { likes, cursor } = await storage.getPostLikes(
         params.uri,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const userDids = likes.map((like) => like.userDid);
       const users = await storage.getUsers(userDids);
@@ -3966,8 +4570,10 @@ export class XRPCApi {
               blockedBy: viewerState?.blockedBy || false,
             };
             if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-            if (viewerState?.following) viewer.following = viewerState.following;
-            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
 
             return {
               actor: {
@@ -3995,7 +4601,7 @@ export class XRPCApi {
       const { reposts, cursor } = await storage.getPostReposts(
         params.uri,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const userDids = reposts.map((repost) => repost.userDid);
       const users = await storage.getUsers(userDids);
@@ -4022,8 +4628,10 @@ export class XRPCApi {
               blockedBy: viewerState?.blockedBy || false,
             };
             if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-            if (viewerState?.following) viewer.following = viewerState.following;
-            if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
 
             return {
               did: user.did,
@@ -4047,12 +4655,12 @@ export class XRPCApi {
       const posts = await storage.getQuotePosts(
         params.uri,
         params.limit,
-        params.cursor,
+        params.cursor
       );
       const serialized = await this.serializePosts(
         posts,
         viewerDid || undefined,
-        req,
+        req
       );
       const oldest = posts.length ? posts[posts.length - 1] : null;
       res.json({
@@ -4082,18 +4690,20 @@ export class XRPCApi {
       const { likes, cursor } = await storage.getActorLikes(
         actorDid,
         params.limit,
-        params.cursor,
+        params.cursor
       );
 
       const postUris = likes.map((like) => like.postUri);
       const posts = await storage.getPosts(postUris);
-      
+
       // Log if there's a mismatch between liked posts and fetched posts (for debugging)
       if (posts.length !== postUris.length) {
-        const foundUris = new Set(posts.map(p => p.uri));
-        const missingUris = postUris.filter(uri => !foundUris.has(uri));
-        console.log(`[XRPC] getActorLikes: ${missingUris.length} liked posts not yet imported (from other users)`);
-        
+        const foundUris = new Set(posts.map((p) => p.uri));
+        const missingUris = postUris.filter((uri) => !foundUris.has(uri));
+        console.log(
+          `[XRPC] getActorLikes: ${missingUris.length} liked posts not yet imported (from other users)`
+        );
+
         // Queue missing posts for PDS fetching
         for (const missingUri of missingUris) {
           const didMatch = missingUri.match(/^at:\/\/(did:[^\/]+)/);
@@ -4102,16 +4712,18 @@ export class XRPCApi {
           }
         }
       }
-      
+
       const serializedPosts = await this.serializePosts(
         posts,
         viewerDid || undefined,
-        req,
+        req
       );
 
       // Log if posts were filtered out during serialization (e.g., due to invalid handles)
       if (serializedPosts.length !== posts.length) {
-        console.warn(`[XRPC] getActorLikes: ${posts.length - serializedPosts.length} posts filtered out during serialization`);
+        console.warn(
+          `[XRPC] getActorLikes: ${posts.length - serializedPosts.length} posts filtered out during serialization`
+        );
       }
 
       res.json({

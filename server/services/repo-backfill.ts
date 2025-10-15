@@ -1,13 +1,13 @@
-import { AtpAgent } from "@atproto/api";
-import { IdResolver } from "@atproto/identity";
-import { readCar, MemoryBlockstore } from "@atproto/repo";
-import { ReadableRepo } from "@atproto/repo/dist/readable-repo.js";
-import { EventProcessor } from "./event-processor";
-import { storage } from "../storage";
-import { pdsDataFetcher } from "./pds-data-fetcher";
-import { logCollector } from "./log-collector";
-import { sanitizeObject } from "../utils/sanitize";
-import { createHash } from "crypto";
+import { AtpAgent } from '@atproto/api';
+import { IdResolver } from '@atproto/identity';
+import { readCar, MemoryBlockstore } from '@atproto/repo';
+import { ReadableRepo } from '@atproto/repo/dist/readable-repo.js';
+import { EventProcessor } from './event-processor';
+import { storage } from '../storage';
+import { pdsDataFetcher } from './pds-data-fetcher';
+import { logCollector } from './log-collector';
+import { sanitizeObject } from '../utils/sanitize';
+import { createHash } from 'crypto';
 
 // Use the main application storage instead of creating a separate connection
 // This ensures backfilled records are stored in the same database as the web view
@@ -26,7 +26,7 @@ function generateSyntheticCid(record: any, did: string, path: string): string {
   // Create a deterministic hash from the record content
   const recordString = JSON.stringify({ record, did, path });
   const hashBuffer = createHash('sha256').update(recordString).digest();
-  
+
   // Convert to proper base32 encoding (RFC4648) for CID
   // Base32 alphabet: ABCDEFGHIJKLMNOPQRSTUVWXYZ234567
   const base32Encode = (buffer: Buffer): string => {
@@ -34,24 +34,24 @@ function generateSyntheticCid(record: any, did: string, path: string): string {
     let result = '';
     let bits = 0;
     let value = 0;
-    
+
     for (let i = 0; i < buffer.length; i++) {
       value = (value << 8) | buffer[i];
       bits += 8;
-      
+
       while (bits >= 5) {
         result += alphabet[(value >>> (bits - 5)) & 31];
         bits -= 5;
       }
     }
-    
+
     if (bits > 0) {
       result += alphabet[(value << (5 - bits)) & 31];
     }
-    
+
     return result;
   };
-  
+
   const base32Hash = base32Encode(hashBuffer);
   return `bafyrei${base32Hash}`;
 }
@@ -78,21 +78,20 @@ export class RepoBackfillService {
     lastUpdateTime: new Date(),
     isRunning: false,
   };
-  
+
   private readonly CONCURRENT_FETCHES = 50; // Parallel repo fetches (increased for powerful production machines)
   private readonly backfillDays: number;
   private cutoffDate: Date | null = null;
   private readonly pdsHost: string;
 
-  constructor(
-    pdsHost: string = "https://bsky.network"
-  ) {
+  constructor(pdsHost: string = 'https://bsky.network') {
     this.pdsHost = pdsHost;
     this.agent = new AtpAgent({ service: pdsHost });
-    
+
     // Use same backfill days config as firehose backfill
-    const backfillDaysRaw = parseInt(process.env.BACKFILL_DAYS || "0");
-    this.backfillDays = !isNaN(backfillDaysRaw) && backfillDaysRaw >= -1 ? backfillDaysRaw : 0;
+    const backfillDaysRaw = parseInt(process.env.BACKFILL_DAYS || '0');
+    this.backfillDays =
+      !isNaN(backfillDaysRaw) && backfillDaysRaw >= -1 ? backfillDaysRaw : 0;
   }
 
   async backfillSingleRepo(did: string, days?: number): Promise<void> {
@@ -105,14 +104,18 @@ export class RepoBackfillService {
     if (backfillDuration > 0) {
       this.cutoffDate = new Date();
       this.cutoffDate.setDate(this.cutoffDate.getDate() - backfillDuration);
-      console.log(`[REPO_BACKFILL] Cutoff date for ${did}: ${this.cutoffDate.toISOString()} (${backfillDuration} days)`);
+      console.log(
+        `[REPO_BACKFILL] Cutoff date for ${did}: ${this.cutoffDate.toISOString()} (${backfillDuration} days)`
+      );
     } else {
       this.cutoffDate = null;
-      console.log(`[REPO_BACKFILL] No cutoff date for ${did} (importing all records)`);
+      console.log(
+        `[REPO_BACKFILL] No cutoff date for ${did} (importing all records)`
+      );
     }
 
     console.log(`[REPO_BACKFILL] Fetching complete repository for ${did}...`);
-    
+
     try {
       await this.fetchAndProcessRepo(did);
       console.log(`[REPO_BACKFILL] ✓ Successfully processed ${did}`);
@@ -124,18 +127,18 @@ export class RepoBackfillService {
 
   async start(): Promise<void> {
     if (this.isRunning) {
-      throw new Error("Repo backfill is already running");
+      throw new Error('Repo backfill is already running');
     }
 
     if (this.backfillDays === 0) {
-      console.log("[REPO_BACKFILL] Backfill is disabled (BACKFILL_DAYS=0)");
+      console.log('[REPO_BACKFILL] Backfill is disabled (BACKFILL_DAYS=0)');
       return;
     }
 
     // Configure backfill mode
     let backfillMode: string;
     if (this.backfillDays === -1) {
-      backfillMode = "TOTAL (entire network history)";
+      backfillMode = 'TOTAL (entire network history)';
       this.cutoffDate = null;
     } else {
       backfillMode = `${this.backfillDays} days`;
@@ -143,9 +146,13 @@ export class RepoBackfillService {
       this.cutoffDate.setDate(this.cutoffDate.getDate() - this.backfillDays);
     }
 
-    console.log(`[REPO_BACKFILL] Starting ${backfillMode} repository-based historical backfill...`);
+    console.log(
+      `[REPO_BACKFILL] Starting ${backfillMode} repository-based historical backfill...`
+    );
     if (this.cutoffDate) {
-      console.log(`[REPO_BACKFILL] Cutoff date: ${this.cutoffDate.toISOString()}`);
+      console.log(
+        `[REPO_BACKFILL] Cutoff date: ${this.cutoffDate.toISOString()}`
+      );
     }
 
     this.isRunning = true;
@@ -161,10 +168,10 @@ export class RepoBackfillService {
 
     try {
       await this.runRepoBackfill();
-      console.log("[REPO_BACKFILL] Backfill completed successfully");
+      console.log('[REPO_BACKFILL] Backfill completed successfully');
     } catch (error) {
-      console.error("[REPO_BACKFILL] Error during backfill:", error);
-      logCollector.error("Repo backfill error", { error });
+      console.error('[REPO_BACKFILL] Error during backfill:', error);
+      logCollector.error('Repo backfill error', { error });
       this.isRunning = false;
       this.progress.isRunning = false;
       throw error;
@@ -180,19 +187,25 @@ export class RepoBackfillService {
       });
 
       const repos = response.data.repos;
-      console.log(`[REPO_BACKFILL] Fetched ${repos.length} repos, processing all at once...`);
+      console.log(
+        `[REPO_BACKFILL] Fetched ${repos.length} repos, processing all at once...`
+      );
 
       // Process all repos in parallel batches
       const batches: string[][] = [];
       for (let i = 0; i < repos.length; i += this.CONCURRENT_FETCHES) {
-        batches.push(repos.slice(i, i + this.CONCURRENT_FETCHES).map(r => r.did));
+        batches.push(
+          repos.slice(i, i + this.CONCURRENT_FETCHES).map((r) => r.did)
+        );
       }
 
-      console.log(`[REPO_BACKFILL] Processing ${batches.length} batches with ${this.CONCURRENT_FETCHES} concurrent fetches per batch...`);
+      console.log(
+        `[REPO_BACKFILL] Processing ${batches.length} batches with ${this.CONCURRENT_FETCHES} concurrent fetches per batch...`
+      );
 
       for (const batch of batches) {
         await Promise.allSettled(
-          batch.map(did => this.fetchAndProcessRepo(did))
+          batch.map((did) => this.fetchAndProcessRepo(did))
         );
 
         // Log progress after each batch
@@ -200,14 +213,13 @@ export class RepoBackfillService {
         const rate = this.progress.totalRecordsProcessed / (elapsed / 1000);
         console.log(
           `[REPO_BACKFILL] Progress: ${this.progress.totalReposProcessed} repos, ` +
-          `${this.progress.totalRecordsProcessed} records processed, ` +
-          `${this.progress.totalRecordsSkipped} skipped (${rate.toFixed(0)} rec/s)`
+            `${this.progress.totalRecordsProcessed} records processed, ` +
+            `${this.progress.totalRecordsSkipped} skipped (${rate.toFixed(0)} rec/s)`
         );
       }
-
     } catch (error: any) {
-      console.error("[REPO_BACKFILL] Error listing repos:", error);
-      logCollector.error("Repo backfill list error", { error });
+      console.error('[REPO_BACKFILL] Error listing repos:', error);
+      logCollector.error('Repo backfill list error', { error });
     }
 
     this.isRunning = false;
@@ -219,38 +231,44 @@ export class RepoBackfillService {
       // Resolve DID to find the PDS endpoint
       console.log(`[REPO_BACKFILL] Resolving DID ${did}...`);
       const didDoc = await didResolver.did.resolve(did);
-      
+
       if (!didDoc || !didDoc.service) {
-        console.warn(`[REPO_BACKFILL] Could not resolve DID document for ${did}`);
+        console.warn(
+          `[REPO_BACKFILL] Could not resolve DID document for ${did}`
+        );
         return;
       }
-      
+
       // Find the PDS service endpoint
-      const pdsService = didDoc.service.find((s: any) => 
-        s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+      const pdsService = didDoc.service.find(
+        (s: any) =>
+          s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
       );
-      
+
       if (!pdsService || !pdsService.serviceEndpoint) {
         console.warn(`[REPO_BACKFILL] No PDS endpoint found for ${did}`);
         return;
       }
-      
+
       const pdsUrl = pdsService.serviceEndpoint;
       if (typeof pdsUrl !== 'string') {
-        console.warn(`[REPO_BACKFILL] Invalid PDS endpoint found for ${did}:`, pdsUrl);
+        console.warn(
+          `[REPO_BACKFILL] Invalid PDS endpoint found for ${did}:`,
+          pdsUrl
+        );
         return;
       }
       console.log(`[REPO_BACKFILL] Resolved ${did} to PDS: ${pdsUrl}`);
-      
+
       // Create agent for the user's PDS
       const pdsAgent = new AtpAgent({ service: pdsUrl });
-      
+
       // Fetch complete repository as CAR file from the PDS
       const response = await pdsAgent.com.atproto.sync.getRepo({ did });
-      
+
       const isUint8Array = (data: unknown): data is Uint8Array => {
         return data instanceof Uint8Array;
-      }
+      };
 
       let dataLength = 'unknown';
       if (isUint8Array(response.data)) {
@@ -262,11 +280,13 @@ export class RepoBackfillService {
         hasData: !!response.data,
         dataType: response.data ? typeof response.data : 'none',
         dataConstructor: response.data?.constructor?.name,
-        dataLength: dataLength
+        dataLength: dataLength,
       });
-      
+
       if (!response.success || !isUint8Array(response.data)) {
-        console.warn(`[REPO_BACKFILL] Failed to fetch repo or received invalid data for ${did}`);
+        console.warn(
+          `[REPO_BACKFILL] Failed to fetch repo or received invalid data for ${did}`
+        );
         return;
       }
 
@@ -274,7 +294,9 @@ export class RepoBackfillService {
       const carBytes = response.data;
       const { roots, blocks } = await readCar(carBytes);
 
-      console.log(`[REPO_BACKFILL] Parsing repo ${did} (${blocks.size} blocks, ${roots.length} roots)...`);
+      console.log(
+        `[REPO_BACKFILL] Parsing repo ${did} (${blocks.size} blocks, ${roots.length} roots)...`
+      );
 
       if (roots.length === 0) {
         console.warn(`[REPO_BACKFILL] No root CID found in repo for ${did}`);
@@ -284,12 +306,14 @@ export class RepoBackfillService {
       // Create a blockstore and load the repo
       const blockstore = new MemoryBlockstore(blocks);
       const repo = await ReadableRepo.load(blockstore, roots[0]);
-      
+
       // PHASE 1: Extract all unique DIDs that will be referenced
-      console.log(`[REPO_BACKFILL] Phase 1: Extracting all referenced users...`);
+      console.log(
+        `[REPO_BACKFILL] Phase 1: Extracting all referenced users...`
+      );
       const referencedDids = new Set<string>();
       referencedDids.add(did); // Add the repo owner
-      
+
       // First pass: collect all DIDs without processing records
       for await (const { collection, record } of repo.walkRecords()) {
         try {
@@ -302,8 +326,12 @@ export class RepoBackfillService {
           }
 
           // Extract DIDs based on record type
-          if (collection === 'app.bsky.feed.like' || collection === 'app.bsky.feed.repost' || 
-              collection === 'app.bsky.feed.post' || collection === 'app.bsky.bookmark') {
+          if (
+            collection === 'app.bsky.feed.like' ||
+            collection === 'app.bsky.feed.repost' ||
+            collection === 'app.bsky.feed.post' ||
+            collection === 'app.bsky.bookmark'
+          ) {
             // Extract subject URI DIDs
             if (record.subject?.uri) {
               const subjectDid = this.extractDidFromUri(record.subject.uri);
@@ -318,7 +346,10 @@ export class RepoBackfillService {
               const rootDid = this.extractDidFromUri(record.reply.root.uri);
               if (rootDid) referencedDids.add(rootDid);
             }
-          } else if (collection === 'app.bsky.graph.follow' || collection === 'app.bsky.graph.block') {
+          } else if (
+            collection === 'app.bsky.graph.follow' ||
+            collection === 'app.bsky.graph.block'
+          ) {
             // Extract subject DID
             if (record.subject) {
               referencedDids.add(record.subject);
@@ -334,7 +365,9 @@ export class RepoBackfillService {
         }
       }
 
-      console.log(`[REPO_BACKFILL] Found ${referencedDids.size} unique users to pre-create`);
+      console.log(
+        `[REPO_BACKFILL] Found ${referencedDids.size} unique users to pre-create`
+      );
 
       // PHASE 2: Batch create all users upfront
       console.log(`[REPO_BACKFILL] Phase 2: Pre-creating users in batches...`);
@@ -342,10 +375,10 @@ export class RepoBackfillService {
 
       // PHASE 3: Process all records (users already exist)
       console.log(`[REPO_BACKFILL] Phase 3: Processing records...`);
-      
+
       // Disable PDS fetching during bulk import to prevent connection overload
       repoEventProcessor.setSkipPdsFetching(true);
-      
+
       let recordsProcessed = 0;
       let recordsSkipped = 0;
       const collectionsFound = new Set<string>();
@@ -353,10 +386,18 @@ export class RepoBackfillService {
 
       try {
         // Second pass: process records
-        for await (const { collection, rkey, cid, record } of repo.walkRecords()) {
+        for await (const {
+          collection,
+          rkey,
+          cid,
+          record,
+        } of repo.walkRecords()) {
           try {
             collectionsFound.add(collection);
-            collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
+            collectionCounts.set(
+              collection,
+              (collectionCounts.get(collection) || 0) + 1
+            );
 
             // Check cutoff date if configured
             if (this.cutoffDate && (record as any).createdAt) {
@@ -374,9 +415,10 @@ export class RepoBackfillService {
 
             // Log progress every 100 records
             if (recordsProcessed % 100 === 0) {
-              console.log(`[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`);
+              console.log(
+                `[REPO_BACKFILL] Progress: ${recordsProcessed} records processed...`
+              );
             }
-
           } catch (error: any) {
             // Skip unparseable records but provide better visibility
             if (error?.code === '23505') {
@@ -384,14 +426,21 @@ export class RepoBackfillService {
               recordsSkipped++;
             } else {
               // Log other errors for debugging
-              console.error(`[REPO_BACKFILL] Error processing ${collection}/${rkey}:`, error.message);
+              console.error(
+                `[REPO_BACKFILL] Error processing ${collection}/${rkey}:`,
+                error.message
+              );
               recordsSkipped++;
             }
           }
         }
 
-        console.log(`[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`);
-        for (const [collection, count] of Array.from(collectionCounts.entries())) {
+        console.log(
+          `[REPO_BACKFILL] Extracted ${collectionsFound.size} collections from repo`
+        );
+        for (const [collection, count] of Array.from(
+          collectionCounts.entries()
+        )) {
           console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
         }
       } finally {
@@ -406,21 +455,22 @@ export class RepoBackfillService {
       this.progress.lastProcessedDid = did;
       this.progress.lastUpdateTime = new Date();
 
-      console.log(`[REPO_BACKFILL] ✓ Processed ${did}: ${recordsProcessed} records, ${recordsSkipped} skipped`);
-      
+      console.log(
+        `[REPO_BACKFILL] ✓ Processed ${did}: ${recordsProcessed} records, ${recordsSkipped} skipped`
+      );
+
       // After processing, queue all referenced users with handle.invalid for PDS fetching
       // This ensures handles are resolved after bulk import completes
       await this.queueUsersForHandleResolution(Array.from(referencedDids));
-
     } catch (error: any) {
       console.error(`[REPO_BACKFILL] Error fetching ${did}:`, {
         message: error.message,
         status: error.status,
         statusText: error.statusText,
         errorType: error.constructor.name,
-        stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        stack: error.stack?.split('\n').slice(0, 3).join('\n'),
       });
-      
+
       if (error?.status === 404 || error?.status === 400) {
         console.debug(`[REPO_BACKFILL] Repo not found or invalid: ${did}`);
       }
@@ -446,7 +496,7 @@ export class RepoBackfillService {
 
     for (let i = 0; i < dids.length; i += BATCH_SIZE) {
       const batch = dids.slice(i, i + BATCH_SIZE);
-      
+
       // Process batch in parallel
       const results = await Promise.allSettled(
         batch.map(async (userDid) => {
@@ -468,7 +518,10 @@ export class RepoBackfillService {
           } catch (error: any) {
             // Ignore duplicate key errors (user was created by another process)
             if (error?.code !== '23505') {
-              console.error(`[REPO_BACKFILL] Error creating user ${userDid}:`, error.message);
+              console.error(
+                `[REPO_BACKFILL] Error creating user ${userDid}:`,
+                error.message
+              );
             }
           }
         })
@@ -476,14 +529,23 @@ export class RepoBackfillService {
 
       // Log progress every few batches
       if ((i / BATCH_SIZE) % 10 === 0) {
-        console.log(`[REPO_BACKFILL] Pre-created users: ${created} created, ${existing} existing (${i + batch.length}/${dids.length})`);
+        console.log(
+          `[REPO_BACKFILL] Pre-created users: ${created} created, ${existing} existing (${i + batch.length}/${dids.length})`
+        );
       }
     }
 
-    console.log(`[REPO_BACKFILL] User pre-creation complete: ${created} created, ${existing} already existed`);
+    console.log(
+      `[REPO_BACKFILL] User pre-creation complete: ${created} created, ${existing} already existed`
+    );
   }
 
-  private async processRecord(did: string, path: string, record: any, cid: any): Promise<void> {
+  private async processRecord(
+    did: string,
+    path: string,
+    record: any,
+    cid: any
+  ): Promise<void> {
     if (!path) return;
 
     // Sanitize record before processing
@@ -497,17 +559,20 @@ export class RepoBackfillService {
     if (!collection || !rkey) return;
 
     // Use real CID from MST, or generate synthetic CID as fallback
-    const finalCid = cid?.toString() || generateSyntheticCid(sanitized, did, path);
+    const finalCid =
+      cid?.toString() || generateSyntheticCid(sanitized, did, path);
 
     // Create commit event structure with CID
     const commitEvent = {
       repo: did,
-      ops: [{
-        action: 'create' as const,
-        path: `${collection}/${rkey}`,
-        cid: finalCid,
-        record: sanitized,
-      }],
+      ops: [
+        {
+          action: 'create' as const,
+          path: `${collection}/${rkey}`,
+          cid: finalCid,
+          record: sanitized,
+        },
+      ],
     };
 
     // Process through event processor
@@ -515,10 +580,10 @@ export class RepoBackfillService {
   }
 
   async stop(): Promise<void> {
-    console.log("[REPO_BACKFILL] Stopping repo backfill...");
+    console.log('[REPO_BACKFILL] Stopping repo backfill...');
     this.isRunning = false;
     this.progress.isRunning = false;
-    console.log("[REPO_BACKFILL] Repo backfill stopped");
+    console.log('[REPO_BACKFILL] Repo backfill stopped');
   }
 
   getProgress(): RepoBackfillProgress {
@@ -529,14 +594,16 @@ export class RepoBackfillService {
    * Queue users with handle.invalid for PDS fetching to resolve their handles
    */
   private async queueUsersForHandleResolution(dids: string[]): Promise<void> {
-    console.log(`[REPO_BACKFILL] Checking ${dids.length} users for handle resolution...`);
-    
+    console.log(
+      `[REPO_BACKFILL] Checking ${dids.length} users for handle resolution...`
+    );
+
     const BATCH_SIZE = 100;
     let queued = 0;
-    
+
     for (let i = 0; i < dids.length; i += BATCH_SIZE) {
       const batch = dids.slice(i, i + BATCH_SIZE);
-      
+
       // Check each user in parallel
       const results = await Promise.allSettled(
         batch.map(async (did) => {
@@ -548,14 +615,19 @@ export class RepoBackfillService {
               queued++;
             }
           } catch (error: any) {
-            console.error(`[REPO_BACKFILL] Error checking user ${did}:`, error.message);
+            console.error(
+              `[REPO_BACKFILL] Error checking user ${did}:`,
+              error.message
+            );
           }
         })
       );
     }
-    
+
     if (queued > 0) {
-      console.log(`[REPO_BACKFILL] Queued ${queued} users with handle.invalid for PDS fetching`);
+      console.log(
+        `[REPO_BACKFILL] Queued ${queued} users with handle.invalid for PDS fetching`
+      );
     }
   }
 }

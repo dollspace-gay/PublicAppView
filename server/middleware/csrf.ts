@@ -1,11 +1,11 @@
-import { randomBytes, createHmac } from "crypto";
-import type { Request, Response, NextFunction } from "express";
+import { randomBytes, createHmac } from 'crypto';
+import type { Request, Response, NextFunction } from 'express';
 
 // Require SESSION_SECRET to be set for CSRF protection
 if (!process.env.SESSION_SECRET) {
   throw new Error(
-    "SESSION_SECRET environment variable is required for CSRF protection. " +
-    "Generate a secure secret with: openssl rand -hex 32"
+    'SESSION_SECRET environment variable is required for CSRF protection. ' +
+      'Generate a secure secret with: openssl rand -hex 32'
   );
 }
 
@@ -14,7 +14,7 @@ const CSRF_TOKEN_LENGTH = 32;
 
 /**
  * Modern CSRF Protection using Double-Submit Cookie Pattern
- * 
+ *
  * This implementation:
  * - Generates cryptographically secure tokens
  * - Uses HMAC for token validation
@@ -34,9 +34,7 @@ export class CSRFProtection {
    * Create HMAC signature for token validation
    */
   signToken(token: string): string {
-    return createHmac('sha256', CSRF_SECRET)
-      .update(token)
-      .digest('hex');
+    return createHmac('sha256', CSRF_SECRET).update(token).digest('hex');
   }
 
   /**
@@ -44,17 +42,17 @@ export class CSRFProtection {
    */
   verifyToken(token: string, signature: string): boolean {
     const expectedSignature = this.signToken(token);
-    
+
     // Constant-time comparison to prevent timing attacks
     if (signature.length !== expectedSignature.length) {
       return false;
     }
-    
+
     let result = 0;
     for (let i = 0; i < signature.length; i++) {
       result |= signature.charCodeAt(i) ^ expectedSignature.charCodeAt(i);
     }
-    
+
     return result === 0;
   }
 
@@ -66,25 +64,25 @@ export class CSRFProtection {
     if (!req.cookies?.csrf_token) {
       const token = this.generateToken();
       const signature = this.signToken(token);
-      
+
       // Set double-submit cookies (token + signature)
       res.cookie('csrf_token', token, {
         httpOnly: false, // Must be accessible to JavaScript
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax', // Match session cookie policy
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        path: '/' // Ensure cookie is available for all paths
+        path: '/', // Ensure cookie is available for all paths
       });
-      
+
       res.cookie('csrf_signature', signature, {
         httpOnly: true, // Signature is HTTP-only for security
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax', // Match session cookie policy
         maxAge: 24 * 60 * 60 * 1000,
-        path: '/' // Ensure cookie is available for all paths
+        path: '/', // Ensure cookie is available for all paths
       });
     }
-    
+
     next();
   };
 
@@ -116,7 +114,7 @@ export class CSRFProtection {
       hasCookieSignature: !!cookieSignature,
       userAgent: req.headers['user-agent']?.substring(0, 50),
       origin: req.headers['origin'],
-      referer: req.headers['referer']
+      referer: req.headers['referer'],
     });
 
     // Validation checks
@@ -124,13 +122,15 @@ export class CSRFProtection {
       console.warn('[CSRF] Missing token from request', {
         method: req.method,
         path: req.path,
-        headers: Object.keys(req.headers).filter(h => h.toLowerCase().includes('csrf')),
+        headers: Object.keys(req.headers).filter((h) =>
+          h.toLowerCase().includes('csrf')
+        ),
         bodyKeys: Object.keys(req.body || {}),
-        cookies: Object.keys(req.cookies || {})
+        cookies: Object.keys(req.cookies || {}),
       });
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'CSRF token missing',
-        message: 'CSRF token required in X-CSRF-Token header or request body'
+        message: 'CSRF token required in X-CSRF-Token header or request body',
       });
     }
 
@@ -140,11 +140,11 @@ export class CSRFProtection {
         path: req.path,
         availableCookies: Object.keys(req.cookies || {}),
         cookieToken: !!cookieToken,
-        cookieSignature: !!cookieSignature
+        cookieSignature: !!cookieSignature,
       });
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'CSRF validation failed',
-        message: 'CSRF cookies missing'
+        message: 'CSRF cookies missing',
       });
     }
 
@@ -155,11 +155,11 @@ export class CSRFProtection {
         path: req.path,
         submittedLength: submittedToken?.length,
         cookieLength: cookieToken?.length,
-        tokensMatch: submittedToken === cookieToken
+        tokensMatch: submittedToken === cookieToken,
       });
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'CSRF validation failed',
-        message: 'CSRF token mismatch'
+        message: 'CSRF token mismatch',
       });
     }
 
@@ -171,15 +171,18 @@ export class CSRFProtection {
         tokenLength: cookieToken?.length,
         signatureLength: cookieSignature?.length,
         expectedSignature: this.signToken(cookieToken).substring(0, 8) + '...',
-        actualSignature: cookieSignature?.substring(0, 8) + '...'
+        actualSignature: cookieSignature?.substring(0, 8) + '...',
       });
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'CSRF validation failed',
-        message: 'CSRF token signature invalid'
+        message: 'CSRF token signature invalid',
       });
     }
 
-    console.log('[CSRF] Valid token for request', { method: req.method, path: req.path });
+    console.log('[CSRF] Valid token for request', {
+      method: req.method,
+      path: req.path,
+    });
     next();
   };
 

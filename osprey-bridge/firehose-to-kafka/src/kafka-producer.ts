@@ -78,7 +78,7 @@ export class KafkaProducerClient {
       await this.producer.send({
         topic: this.topic,
         compression: CompressionTypes.GZIP,
-        messages: events.map(event => ({
+        messages: events.map((event) => ({
           key: event.repo || event.did || undefined,
           value: JSON.stringify(event),
           timestamp: Date.now().toString(),

@@ -1,22 +1,23 @@
 /**
  * AppView JWT Service
- * 
+ *
  * Handles JWT operations for the AppView service according to AT Protocol specification.
  * The AppView signs JWTs for feed generator requests and verifies user-signed JWTs from PDS.
  */
 
-import jwt from "jsonwebtoken";
-import fs from "fs";
+import jwt from 'jsonwebtoken';
+import fs from 'fs';
 import { fromString, toString } from 'uint8arrays';
 import KeyEncoder from 'key-encoder';
 import elliptic from 'elliptic';
 
 if (!process.env.SESSION_SECRET) {
-  throw new Error("SESSION_SECRET environment variable is required");
+  throw new Error('SESSION_SECRET environment variable is required');
 }
 
 const JWT_SECRET = process.env.SESSION_SECRET;
-const PRIVATE_KEY_PATH = process.env.APPVIEW_PRIVATE_KEY_PATH || "/app/appview-private.pem";
+const PRIVATE_KEY_PATH =
+  process.env.APPVIEW_PRIVATE_KEY_PATH || '/app/appview-private.pem';
 
 /**
  * Sign data using ES256K (secp256k1) algorithm
@@ -29,28 +30,28 @@ const signES256K = (privateKeyPem: string, data: string): string => {
     // by checking for a `default` property and using it if it exists.
     const KeyEncoderClass = (KeyEncoder as any).default || KeyEncoder;
     const keyEncoder = new KeyEncoderClass('secp256k1');
-    
+
     // Convert PEM to raw key format
     const rawKey = keyEncoder.encodePrivate(privateKeyPem, 'pem', 'raw');
-    
+
     // Create secp256k1 curve instance
     const ec = new elliptic.ec('secp256k1');
-    
+
     // Create key pair from private key
     const keyPair = ec.keyFromPrivate(rawKey);
-    
+
     // Sign the data
     const signature = keyPair.sign(data, {
       canonical: true,
-      pers: undefined
+      pers: undefined,
     });
-    
+
     // Convert to IEEE P1363 format (r || s) and then to base64url
     const r = signature.r.toString('hex').padStart(64, '0');
     const s = signature.s.toString('hex').padStart(64, '0');
     const signatureHex = r + s;
     const signatureBytes = fromString(signatureHex, 'hex');
-    
+
     // Convert to base64url encoding for JWT
     return toString(signatureBytes, 'base64url');
   } catch (error) {
@@ -63,25 +64,32 @@ const signES256K = (privateKeyPem: string, data: string): string => {
  * Create a JWT token with custom ES256K signing
  * This bypasses the jsonwebtoken library's algorithm validation
  */
-const createJWTWithES256K = (payload: any, privateKeyPem: string, keyid: string): string => {
+const createJWTWithES256K = (
+  payload: any,
+  privateKeyPem: string,
+  keyid: string
+): string => {
   try {
     // Create JWT header
     const header = {
       alg: 'ES256K',
       typ: 'JWT',
-      kid: keyid
+      kid: keyid,
     };
-    
+
     // Encode header and payload
     const headerB64 = toString(fromString(JSON.stringify(header)), 'base64url');
-    const payloadB64 = toString(fromString(JSON.stringify(payload)), 'base64url');
-    
+    const payloadB64 = toString(
+      fromString(JSON.stringify(payload)),
+      'base64url'
+    );
+
     // Create signing input
     const signingInput = `${headerB64}.${payloadB64}`;
-    
+
     // Sign with ES256K
     const signature = signES256K(privateKeyPem, signingInput);
-    
+
     // Return complete JWT
     return `${signingInput}.${signature}`;
   } catch (error) {
@@ -110,36 +118,48 @@ export interface UserSignedJWTPayload {
 export class AppViewJWTService {
   private appViewDid: string;
   private privateKeyPem: string | null;
-  private signingAlg: "ES256K" | "HS256";
+  private signingAlg: 'ES256K' | 'HS256';
 
   constructor() {
-    this.appViewDid = process.env.APPVIEW_DID || "";
+    this.appViewDid = process.env.APPVIEW_DID || '';
     this.privateKeyPem = null;
-    this.signingAlg = "ES256K";
-    
+    this.signingAlg = 'ES256K';
+
     if (!this.appViewDid) {
       throw new Error(
-        "[AppViewJWT] APPVIEW_DID environment variable is required. " +
-        "Set APPVIEW_DID to your AppView's DID (e.g., did:web:appview.yourdomain.com)."
+        '[AppViewJWT] APPVIEW_DID environment variable is required. ' +
+          "Set APPVIEW_DID to your AppView's DID (e.g., did:web:appview.yourdomain.com)."
       );
     }
 
     // Prefer ES256K with a mounted private key PEM when available.
     try {
       if (fs.existsSync(PRIVATE_KEY_PATH)) {
-        const pem = fs.readFileSync(PRIVATE_KEY_PATH, "utf-8").trim();
-        if (pem.includes("BEGIN EC PRIVATE KEY") || pem.includes("BEGIN PRIVATE KEY")) {
+        const pem = fs.readFileSync(PRIVATE_KEY_PATH, 'utf-8').trim();
+        if (
+          pem.includes('BEGIN EC PRIVATE KEY') ||
+          pem.includes('BEGIN PRIVATE KEY')
+        ) {
           this.privateKeyPem = pem;
-          this.signingAlg = "ES256K";
-          console.log(`[AppViewJWT] Loaded ES256K private key from ${PRIVATE_KEY_PATH}`);
+          this.signingAlg = 'ES256K';
+          console.log(
+            `[AppViewJWT] Loaded ES256K private key from ${PRIVATE_KEY_PATH}`
+          );
         } else {
-          console.warn(`[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`);
+          console.warn(
+            `[AppViewJWT] File at ${PRIVATE_KEY_PATH} does not look like a PEM private key; falling back to HS256.`
+          );
         }
       } else {
-        console.warn(`[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`);
+        console.warn(
+          `[AppViewJWT] Private key PEM not found at ${PRIVATE_KEY_PATH}; using HS256 with SESSION_SECRET.`
+        );
       }
     } catch (err) {
-      console.warn(`[AppViewJWT] Failed to initialize ES256K key from ${PRIVATE_KEY_PATH}; falling back to HS256:`, err);
+      console.warn(
+        `[AppViewJWT] Failed to initialize ES256K key from ${PRIVATE_KEY_PATH}; falling back to HS256:`,
+        err
+      );
     }
   }
 
@@ -151,7 +171,7 @@ export class AppViewJWTService {
    */
   signFeedGeneratorToken(feedGeneratorDid: string): string {
     const now = Math.floor(Date.now() / 1000);
-    
+
     const payload: AppViewJWTPayload = {
       iss: this.appViewDid,
       aud: feedGeneratorDid,
@@ -161,14 +181,16 @@ export class AppViewJWTService {
 
     // Use ES256K with proper key ID for AT Protocol compatibility
     if (this.privateKeyPem) {
-      return createJWTWithES256K(payload, this.privateKeyPem, "atproto");
+      return createJWTWithES256K(payload, this.privateKeyPem, 'atproto');
     }
 
     // Fallback to HS256 only if no private key available
-    console.warn("[AppViewJWT] No private key available, using HS256 fallback for feed generator token.");
+    console.warn(
+      '[AppViewJWT] No private key available, using HS256 fallback for feed generator token.'
+    );
     return jwt.sign(payload, JWT_SECRET, {
-      algorithm: "HS256",
-      keyid: "atproto",
+      algorithm: 'HS256',
+      keyid: 'atproto',
     });
   }
 
@@ -179,62 +201,78 @@ export class AppViewJWTService {
    * @param expectedMethod - The expected lexicon method (e.g., app.bsky.actor.getPreferences)
    * @returns Decoded payload if valid, null if invalid
    */
-  async verifyUserSignedToken(token: string, expectedMethod?: string): Promise<UserSignedJWTPayload | null> {
+  async verifyUserSignedToken(
+    token: string,
+    expectedMethod?: string
+  ): Promise<UserSignedJWTPayload | null> {
     try {
       // Decode without verification to check token structure
       const decoded = jwt.decode(token, { complete: true }) as any;
-      
+
       if (!decoded || !decoded.payload) {
-        console.log("[AppViewJWT] Failed to decode user-signed token");
+        console.log('[AppViewJWT] Failed to decode user-signed token');
         return null;
       }
 
       const header = decoded.header;
       const payload = decoded.payload as UserSignedJWTPayload;
-      
+
       // Validate required fields
       if (!payload.iss || !payload.aud || !payload.sub) {
-        console.log("[AppViewJWT] User-signed token missing required fields");
+        console.log('[AppViewJWT] User-signed token missing required fields');
         return null;
       }
 
       // Check audience matches this AppView
       if (payload.aud !== this.appViewDid) {
-        console.log(`[AppViewJWT] Token audience mismatch: expected ${this.appViewDid}, got ${payload.aud}`);
+        console.log(
+          `[AppViewJWT] Token audience mismatch: expected ${this.appViewDid}, got ${payload.aud}`
+        );
         return null;
       }
 
       // Check subject matches issuer (user signing for themselves)
       if (payload.sub !== payload.iss) {
-        console.log(`[AppViewJWT] Token subject mismatch: expected ${payload.iss}, got ${payload.sub}`);
+        console.log(
+          `[AppViewJWT] Token subject mismatch: expected ${payload.iss}, got ${payload.sub}`
+        );
         return null;
       }
 
       // Check expiration
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp && payload.exp < now) {
-        console.log("[AppViewJWT] User-signed token has expired");
+        console.log('[AppViewJWT] User-signed token has expired');
         return null;
       }
 
       // Check method if specified
       if (expectedMethod && payload.lxm && payload.lxm !== expectedMethod) {
-        console.log(`[AppViewJWT] Token method mismatch: expected ${expectedMethod}, got ${payload.lxm}`);
+        console.log(
+          `[AppViewJWT] Token method mismatch: expected ${expectedMethod}, got ${payload.lxm}`
+        );
         return null;
       }
 
       // Verify signature using user's public key
       const verified = await this.verifyJWTSignature(token, payload.iss);
-      
+
       if (!verified) {
-        console.error(`[AppViewJWT] Signature verification failed for user DID: ${payload.iss}`);
+        console.error(
+          `[AppViewJWT] Signature verification failed for user DID: ${payload.iss}`
+        );
         return null;
       }
 
-      console.log(`[AppViewJWT] ✓ User-signed token verified for DID: ${payload.iss}`);
+      console.log(
+        `[AppViewJWT] ✓ User-signed token verified for DID: ${payload.iss}`
+      );
       return payload;
     } catch (error) {
-      console.error("[AppViewJWT] User-signed token verification failed:", error instanceof Error ? error.message : error);
+      console.error(
+        '[AppViewJWT] User-signed token verification failed:',
+        error instanceof Error ? error.message : error
+      );
       return null;
     }
   }
@@ -242,22 +280,27 @@ export class AppViewJWTService {
   /**
    * Verify JWT signature using the signer's public key from their DID document
    */
-  private async verifyJWTSignature(token: string, signerDid: string): Promise<boolean> {
+  private async verifyJWTSignature(
+    token: string,
+    signerDid: string
+  ): Promise<boolean> {
     try {
       const [headerB64, payloadB64, signatureB64] = token.split('.');
       if (!headerB64 || !payloadB64 || !signatureB64) {
         throw new Error('Invalid JWT structure');
       }
-      
+
       const header = JSON.parse(
-        toString(fromString(headerB64, 'base64url')),
+        toString(fromString(headerB64, 'base64url'))
       ) as any;
 
       const { didResolver } = await import('./did-resolver');
       const didDocument = await didResolver.resolveDID(signerDid);
 
       if (!didDocument || !didDocument.verificationMethod) {
-        console.error(`[AppViewJWT] No verification methods found for DID: ${signerDid}`);
+        console.error(
+          `[AppViewJWT] No verification methods found for DID: ${signerDid}`
+        );
         return false;
       }
 
@@ -268,20 +311,20 @@ export class AppViewJWTService {
 
       if (kid) {
         method = verificationMethods.find(
-          (m) => m.id.endsWith(`#${kid}`) || m.id === kid,
+          (m) => m.id.endsWith(`#${kid}`) || m.id === kid
         );
       } else {
         const atprotoKeys = verificationMethods.filter((m) =>
-          m.id.endsWith('#atproto'),
+          m.id.endsWith('#atproto')
         );
         if (atprotoKeys.length === 1) {
           console.log(
-            `[AppViewJWT] JWT missing 'kid', using unique #atproto key for DID ${signerDid}`,
+            `[AppViewJWT] JWT missing 'kid', using unique #atproto key for DID ${signerDid}`
           );
           method = atprotoKeys[0];
         } else {
           throw new Error(
-            "JWT missing 'kid' and could not find a unique '#atproto' verification key.",
+            "JWT missing 'kid' and could not find a unique '#atproto' verification key."
           );
         }
       }
@@ -292,7 +335,12 @@ export class AppViewJWTService {
 
       // Handle different key formats and algorithms
       if (header.alg === 'ES256K') {
-        return this.verifyES256KSignature(method, headerB64, payloadB64, signatureB64);
+        return this.verifyES256KSignature(
+          method,
+          headerB64,
+          payloadB64,
+          signatureB64
+        );
       } else if (header.alg === 'ES256') {
         return this.verifyES256Signature(method, token);
       } else {
@@ -301,23 +349,35 @@ export class AppViewJWTService {
     } catch (error) {
       console.error(
         `[AppViewJWT] Signature verification failed for DID ${signerDid}:`,
-        error,
+        error
       );
       return false;
     }
   }
 
-  private verifyES256KSignature(method: any, headerB64: string, payloadB64: string, signatureB64: string): boolean {
+  private verifyES256KSignature(
+    method: any,
+    headerB64: string,
+    payloadB64: string,
+    signatureB64: string
+  ): boolean {
     // Implementation for ES256K signature verification
     // This would need to be implemented based on the specific key format
-    console.warn("[AppViewJWT] ES256K signature verification not fully implemented");
+    console.warn(
+      '[AppViewJWT] ES256K signature verification not fully implemented'
+    );
     return false;
   }
 
-  private async verifyES256Signature(method: any, token: string): Promise<boolean> {
+  private async verifyES256Signature(
+    method: any,
+    token: string
+  ): Promise<boolean> {
     // Implementation for ES256 signature verification
     // This would need to be implemented based on the specific key format
-    console.warn("[AppViewJWT] ES256 signature verification not fully implemented");
+    console.warn(
+      '[AppViewJWT] ES256 signature verification not fully implemented'
+    );
     return false;
   }
 
@@ -336,7 +396,7 @@ export class AppViewJWTService {
       const payload = jwt.verify(token, JWT_SECRET) as AppViewJWTPayload;
       return payload;
     } catch (error) {
-      console.error("[AppViewJWT] Token verification failed:", error);
+      console.error('[AppViewJWT] Token verification failed:', error);
       return null;
     }
   }

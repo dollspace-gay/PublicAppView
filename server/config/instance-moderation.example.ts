@@ -1,6 +1,6 @@
 /**
  * EXAMPLE INSTANCE MODERATION CONFIGURATIONS
- * 
+ *
  * Copy patterns from here to instance-moderation.ts based on your needs
  */
 
@@ -30,7 +30,7 @@ export const US_INSTANCE = {
     jurisdiction: 'US',
     legalContact: 'dmca@example.com',
     autoHideThreshold: 10,
-  }
+  },
 };
 
 // ============================================================================
@@ -67,7 +67,7 @@ export const EU_INSTANCE = {
     jurisdiction: 'EU',
     legalContact: 'legal@example.eu',
     autoHideThreshold: 5, // Lower threshold for EU
-  }
+  },
 };
 
 // ============================================================================
@@ -96,7 +96,7 @@ export const GERMANY_INSTANCE = {
     jurisdiction: 'DE',
     legalContact: 'netzdg@example.de',
     autoHideThreshold: 3, // Very low threshold for NetzDG
-  }
+  },
 };
 
 // ============================================================================
@@ -120,7 +120,7 @@ export const MINIMAL_INSTANCE = {
     legalContact: 'admin@personal.instance',
     autoHideThreshold: 999, // Effectively disabled
     enabled: true,
-  }
+  },
 };
 
 // ============================================================================
@@ -163,7 +163,7 @@ export const STRICT_INSTANCE = {
     legalContact: 'legal@strict.social',
     autoHideThreshold: 3, // Low threshold
     enabled: true,
-  }
+  },
 };
 
 // ============================================================================
@@ -174,19 +174,19 @@ export const STRICT_INSTANCE = {
  * Template for jurisdiction-specific laws
  */
 export const JURISDICTION_TEMPLATE = {
-  value: 'jurisdiction-law',      // e.g., 'uk-online-safety-act'
+  value: 'jurisdiction-law', // e.g., 'uk-online-safety-act'
   severity: 'alert' as const,
   action: 'delete-reference' as const,
   reason: 'legal' as const,
   description: 'Content removed under [JURISDICTION] law',
-  enabled: false,                 // Set to true when configured
+  enabled: false, // Set to true when configured
 };
 
 /**
  * Template for custom safety rules
  */
 export const SAFETY_TEMPLATE = {
-  value: 'custom-safety',          // e.g., 'community-guidelines-violation'
+  value: 'custom-safety', // e.g., 'community-guidelines-violation'
   severity: 'warn' as const,
   action: 'blur' as const,
   reason: 'safety' as const,
@@ -198,7 +198,7 @@ export const SAFETY_TEMPLATE = {
  * Template for quality/spam rules
  */
 export const QUALITY_TEMPLATE = {
-  value: 'custom-quality',         // e.g., 'ai-generated-spam'
+  value: 'custom-quality', // e.g., 'ai-generated-spam'
   severity: 'warn' as const,
   action: 'flag' as const,
   reason: 'quality' as const,

@@ -1,5 +1,5 @@
-import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { db } from '../db';
+import { sql } from 'drizzle-orm';
 
 /**
  * Initialize required PostgreSQL extensions and indexes for search functionality
@@ -7,36 +7,36 @@ import { sql } from "drizzle-orm";
  */
 export async function initSearchExtensions() {
   try {
-    console.log("[SEARCH_INIT] Initializing search extensions...");
-    
+    console.log('[SEARCH_INIT] Initializing search extensions...');
+
     // Enable pg_trgm extension for trigram matching
     try {
       await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
-      console.log("[SEARCH_INIT] ✓ pg_trgm extension enabled");
+      console.log('[SEARCH_INIT] ✓ pg_trgm extension enabled');
     } catch (error: any) {
       // Ignore if extension already exists (race condition during concurrent creation)
       if (error.code !== '42710') {
         throw error;
       }
-      console.log("[SEARCH_INIT] ✓ pg_trgm extension already exists");
+      console.log('[SEARCH_INIT] ✓ pg_trgm extension already exists');
     }
-    
+
     // Create trigram index on handle for substring matching
     try {
       await db.execute(sql`
         CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_handle_trgm 
         ON users USING gin (handle gin_trgm_ops);
       `);
-      console.log("[SEARCH_INIT] ✓ Trigram index on users.handle created");
+      console.log('[SEARCH_INIT] ✓ Trigram index on users.handle created');
     } catch (error: any) {
       // Ignore if index already exists (42P07) or duplicate key (23505 during race condition)
       if (error.code === '42P07' || error.code === '23505') {
-        console.log("[SEARCH_INIT] ✓ Trigram index already exists");
+        console.log('[SEARCH_INIT] ✓ Trigram index already exists');
       } else {
         throw error;
       }
     }
-    
+
     // Create search vector trigger and function
     try {
       await db.execute(sql`
@@ -50,11 +50,11 @@ export async function initSearchExtensions() {
         END
         $$ LANGUAGE plpgsql;
       `);
-      console.log("[SEARCH_INIT] ✓ Search vector function created");
+      console.log('[SEARCH_INIT] ✓ Search vector function created');
     } catch (error: any) {
-      console.log("[SEARCH_INIT] ✓ Search vector function already exists");
+      console.log('[SEARCH_INIT] ✓ Search vector function already exists');
     }
-    
+
     // Create trigger if it doesn't exist
     try {
       await db.execute(sql`
@@ -72,15 +72,20 @@ export async function initSearchExtensions() {
           END IF;
         END $$;
       `);
-      console.log("[SEARCH_INIT] ✓ Search vector trigger created");
+      console.log('[SEARCH_INIT] ✓ Search vector trigger created');
     } catch (error: any) {
-      console.log("[SEARCH_INIT] ✓ Search vector trigger already exists");
+      console.log('[SEARCH_INIT] ✓ Search vector trigger already exists');
     }
-    
-    console.log("[SEARCH_INIT] Search extensions initialized successfully");
+
+    console.log('[SEARCH_INIT] Search extensions initialized successfully');
   } catch (error) {
     // Log error but don't throw - allow server to start even if search init fails
-    console.error("[SEARCH_INIT] Failed to initialize search extensions:", error);
-    console.error("[SEARCH_INIT] Server will continue but search functionality may be degraded");
+    console.error(
+      '[SEARCH_INIT] Failed to initialize search extensions:',
+      error
+    );
+    console.error(
+      '[SEARCH_INIT] Server will continue but search functionality may be degraded'
+    );
   }
 }

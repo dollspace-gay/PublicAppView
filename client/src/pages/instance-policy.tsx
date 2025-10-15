@@ -1,7 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
-import { Shield, AlertTriangle, Info, AlertCircle, CheckCircle } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useQuery } from '@tanstack/react-query';
+import {
+  Shield,
+  AlertTriangle,
+  Info,
+  AlertCircle,
+  CheckCircle,
+} from 'lucide-react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 interface InstancePolicy {
   enabled: boolean;
@@ -48,10 +60,10 @@ export default function InstancePolicyPage() {
 
   const isDefaultConfig = policy.legalContact === 'legal@example.com';
   const labelsByReason = {
-    legal: policy.labels.filter(l => l.reason === 'legal'),
-    safety: policy.labels.filter(l => l.reason === 'safety'),
-    quality: policy.labels.filter(l => l.reason === 'quality'),
-    tos: policy.labels.filter(l => l.reason === 'tos'),
+    legal: policy.labels.filter((l) => l.reason === 'legal'),
+    safety: policy.labels.filter((l) => l.reason === 'safety'),
+    quality: policy.labels.filter((l) => l.reason === 'quality'),
+    tos: policy.labels.filter((l) => l.reason === 'tos'),
   };
 
   const getSeverityIcon = (severity: string) => {
@@ -87,17 +99,26 @@ export default function InstancePolicyPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <Shield className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold" data-testid="heading-instance-policy">Instance Moderation Policy</h1>
+            <h1
+              className="text-3xl font-bold"
+              data-testid="heading-instance-policy"
+            >
+              Instance Moderation Policy
+            </h1>
           </div>
           {isDefaultConfig && (
-            <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+            <Badge
+              variant="outline"
+              className="text-yellow-600 border-yellow-600"
+            >
               <AlertTriangle className="h-3 w-3 mr-1" />
               Using Default Configuration
             </Badge>
           )}
         </div>
         <p className="text-muted-foreground mt-2">
-          Transparency information about content moderation and legal compliance for this App View instance
+          Transparency information about content moderation and legal compliance
+          for this App View instance
         </p>
       </div>
 
@@ -132,7 +153,9 @@ export default function InstancePolicyPage() {
             <CardTitle className="text-sm font-medium">Legal Contact</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-sm font-mono truncate">{policy.legalContact}</div>
+            <div className="text-sm font-mono truncate">
+              {policy.legalContact}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               DMCA & takedown requests
             </p>
@@ -151,17 +174,23 @@ export default function InstancePolicyPage() {
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between py-2 border-b">
             <span className="text-sm font-medium">Labeler DID</span>
-            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">{policy.labelerDid}</code>
+            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+              {policy.labelerDid}
+            </code>
           </div>
           <div className="flex items-center justify-between py-2 border-b">
             <span className="text-sm font-medium">Status</span>
-            <Badge variant={policy.enabled ? "default" : "secondary"}>
-              {policy.enabled ? "Enabled" : "Disabled"}
+            <Badge variant={policy.enabled ? 'default' : 'secondary'}>
+              {policy.enabled ? 'Enabled' : 'Disabled'}
             </Badge>
           </div>
           <div className="flex items-center justify-between py-2">
-            <span className="text-sm font-medium">Auto-moderation Threshold</span>
-            <span className="text-sm font-mono">{policy.autoModeration.reportThreshold} reports</span>
+            <span className="text-sm font-medium">
+              Auto-moderation Threshold
+            </span>
+            <span className="text-sm font-mono">
+              {policy.autoModeration.reportThreshold} reports
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -181,16 +210,24 @@ export default function InstancePolicyPage() {
           <CardContent>
             <div className="space-y-3">
               {labelsByReason.legal.map((label) => (
-                <div key={label.value} className="flex items-start justify-between p-3 border rounded-lg" data-testid={`label-${label.value}`}>
+                <div
+                  key={label.value}
+                  className="flex items-start justify-between p-3 border rounded-lg"
+                  data-testid={`label-${label.value}`}
+                >
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-1">
-                      <code className="text-sm font-mono font-semibold">{label.value}</code>
+                      <code className="text-sm font-mono font-semibold">
+                        {label.value}
+                      </code>
                       <Badge variant={getSeverityColor(label.severity)}>
                         {getSeverityIcon(label.severity)}
                         <span className="ml-1">{label.severity}</span>
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{label.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {label.description}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -214,16 +251,24 @@ export default function InstancePolicyPage() {
           <CardContent>
             <div className="space-y-3">
               {labelsByReason.safety.map((label) => (
-                <div key={label.value} className="flex items-start justify-between p-3 border rounded-lg" data-testid={`label-${label.value}`}>
+                <div
+                  key={label.value}
+                  className="flex items-start justify-between p-3 border rounded-lg"
+                  data-testid={`label-${label.value}`}
+                >
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-1">
-                      <code className="text-sm font-mono font-semibold">{label.value}</code>
+                      <code className="text-sm font-mono font-semibold">
+                        {label.value}
+                      </code>
                       <Badge variant={getSeverityColor(label.severity)}>
                         {getSeverityIcon(label.severity)}
                         <span className="ml-1">{label.severity}</span>
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{label.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {label.description}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -247,16 +292,24 @@ export default function InstancePolicyPage() {
           <CardContent>
             <div className="space-y-3">
               {labelsByReason.quality.map((label) => (
-                <div key={label.value} className="flex items-start justify-between p-3 border rounded-lg" data-testid={`label-${label.value}`}>
+                <div
+                  key={label.value}
+                  className="flex items-start justify-between p-3 border rounded-lg"
+                  data-testid={`label-${label.value}`}
+                >
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-1">
-                      <code className="text-sm font-mono font-semibold">{label.value}</code>
+                      <code className="text-sm font-mono font-semibold">
+                        {label.value}
+                      </code>
                       <Badge variant={getSeverityColor(label.severity)}>
                         {getSeverityIcon(label.severity)}
                         <span className="ml-1">{label.severity}</span>
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{label.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {label.description}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -277,16 +330,24 @@ export default function InstancePolicyPage() {
           <CardContent>
             <div className="space-y-3">
               {labelsByReason.tos.map((label) => (
-                <div key={label.value} className="flex items-start justify-between p-3 border rounded-lg" data-testid={`label-${label.value}`}>
+                <div
+                  key={label.value}
+                  className="flex items-start justify-between p-3 border rounded-lg"
+                  data-testid={`label-${label.value}`}
+                >
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-1">
-                      <code className="text-sm font-mono font-semibold">{label.value}</code>
+                      <code className="text-sm font-mono font-semibold">
+                        {label.value}
+                      </code>
                       <Badge variant={getSeverityColor(label.severity)}>
                         {getSeverityIcon(label.severity)}
                         <span className="ml-1">{label.severity}</span>
                       </Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{label.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {label.description}
+                    </p>
                   </div>
                 </div>
               ))}

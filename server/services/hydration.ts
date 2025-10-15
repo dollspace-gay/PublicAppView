@@ -1,5 +1,13 @@
 import { db } from '../db';
-import { posts, reposts, likes, bookmarks, users, blocks, mutes } from '../../shared/schema';
+import {
+  posts,
+  reposts,
+  likes,
+  bookmarks,
+  users,
+  blocks,
+  mutes,
+} from '../../shared/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { HydrationState, ProfileViewerState, FeedItem } from '../types/feed';
 
@@ -8,24 +16,28 @@ export class Hydrator {
     items: FeedItem[],
     viewerDid?: string
   ): Promise<HydrationState> {
-    const postUris = items.map(item => item.post.uri);
+    const postUris = items.map((item) => item.post.uri);
     const repostUris = items
-      .map(item => item.repost?.uri)
+      .map((item) => item.repost?.uri)
       .filter(Boolean) as string[];
 
     // Hydrate posts (now includes reply parent/root posts)
     const postsData = await this.hydratePosts(postUris);
-    
+
     // Hydrate reposts
     const repostsData = await this.hydrateReposts(repostUris);
-    
+
     // Hydrate profile viewers if viewer is authenticated
     // Extract author DIDs from ALL hydrated posts (including reply posts)
-    const authorDids = Array.from(new Set(
-      Array.from(postsData.values()).map((post: any) => post.author?.did).filter(Boolean)
-    ));
-    
-    const profileViewers = viewerDid 
+    const authorDids = Array.from(
+      new Set(
+        Array.from(postsData.values())
+          .map((post: any) => post.author?.did)
+          .filter(Boolean)
+      )
+    );
+
+    const profileViewers = viewerDid
       ? await this.hydrateProfileViewers(authorDids, viewerDid)
       : new Map();
 
@@ -68,26 +80,23 @@ export class Hydrator {
       .select()
       .from(mutes)
       .where(
-        and(
-          eq(mutes.muterDid, viewerDid),
-          inArray(mutes.mutedDid, actorDids)
-        )
+        and(eq(mutes.muterDid, viewerDid), inArray(mutes.mutedDid, actorDids))
       );
 
     // Build relationship map
     for (const did of actorDids) {
       const state: ProfileViewerState = {};
-      
-      const blockRecord = blocking.find(b => b.blockedDid === did);
+
+      const blockRecord = blocking.find((b) => b.blockedDid === did);
       if (blockRecord) {
         state.blocking = blockRecord.uri;
       }
-      
-      if (blockedBy.some(b => b.blockerDid === did)) {
+
+      if (blockedBy.some((b) => b.blockerDid === did)) {
         state.blockedBy = true;
       }
-      
-      if (muting.some(m => m.mutedDid === did)) {
+
+      if (muting.some((m) => m.mutedDid === did)) {
         state.muting = true;
       }
 
@@ -108,7 +117,7 @@ export class Hydrator {
     // Collect reply parent and root URIs for additional fetching
     const replyParentUris = new Set<string>();
     const replyRootUris = new Set<string>();
-    
+
     for (const post of postsData) {
       if (post.parentUri) {
         replyParentUris.add(post.parentUri);
@@ -119,7 +128,9 @@ export class Hydrator {
     // Fetch reply parent and root posts
     let replyPostsData: any[] = [];
     if (replyParentUris.size > 0 || replyRootUris.size > 0) {
-      const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
+      const replyUris = Array.from(
+        new Set([...replyParentUris, ...replyRootUris])
+      );
       replyPostsData = await db
         .select()
         .from(posts)
@@ -127,25 +138,27 @@ export class Hydrator {
     }
 
     const result = new Map();
-    
+
     // Process all posts (original + reply posts)
     const allPosts = [...postsData, ...replyPostsData];
     const processedUris = new Set<string>();
-    
+
     for (const post of allPosts) {
       // Avoid duplicates
       if (processedUris.has(post.uri)) continue;
       processedUris.add(post.uri);
-      
+
       result.set(post.uri, {
         uri: post.uri,
         cid: post.cid,
         record: {
           text: post.text,
-          reply: post.parentUri ? {
-            parent: { uri: post.parentUri },
-            root: post.rootUri ? { uri: post.rootUri } : undefined,
-          } : undefined,
+          reply: post.parentUri
+            ? {
+                parent: { uri: post.parentUri },
+                root: post.rootUri ? { uri: post.rootUri } : undefined,
+              }
+            : undefined,
           embed: post.embed,
         },
         author: {
@@ -159,7 +172,9 @@ export class Hydrator {
     return result;
   }
 
-  private async hydrateReposts(repostUris: string[]): Promise<Map<string, any>> {
+  private async hydrateReposts(
+    repostUris: string[]
+  ): Promise<Map<string, any>> {
     if (repostUris.length === 0) return new Map();
 
     const repostsData = await db

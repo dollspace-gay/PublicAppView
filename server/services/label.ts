@@ -1,6 +1,11 @@
-import { storage } from "../storage";
-import type { InsertLabel, Label, InsertLabelDefinition, LabelDefinition } from "@shared/schema";
-import { EventEmitter } from "events";
+import { storage } from '../storage';
+import type {
+  InsertLabel,
+  Label,
+  InsertLabelDefinition,
+  LabelDefinition,
+} from '@shared/schema';
+import { EventEmitter } from 'events';
 
 export class LabelService extends EventEmitter {
   constructor() {
@@ -14,7 +19,7 @@ export class LabelService extends EventEmitter {
     createdAt?: Date;
   }): Promise<Label> {
     const uri = `at://${params.src}/app.bsky.labeler.label/${Date.now()}`;
-    
+
     const label: InsertLabel = {
       uri,
       src: params.src,
@@ -25,14 +30,14 @@ export class LabelService extends EventEmitter {
     };
 
     const createdLabel = await storage.createLabel(label);
-    
+
     const event = await storage.createLabelEvent({
       labelUri: uri,
-      action: "created",
+      action: 'created',
     });
 
     // Emit label created event for real-time broadcasting
-    this.emit("labelCreated", { label: createdLabel, event });
+    this.emit('labelCreated', { label: createdLabel, event });
 
     return createdLabel;
   }
@@ -50,17 +55,17 @@ export class LabelService extends EventEmitter {
 
   async removeLabel(uri: string): Promise<void> {
     const label = await storage.getLabel(uri);
-    
+
     const event = await storage.createLabelEvent({
       labelUri: uri,
-      action: "deleted",
+      action: 'deleted',
     });
 
     await storage.deleteLabel(uri);
 
     // Emit label removed event for real-time broadcasting
     if (label) {
-      this.emit("labelRemoved", { label, event });
+      this.emit('labelRemoved', { label, event });
     }
   }
 
@@ -68,7 +73,9 @@ export class LabelService extends EventEmitter {
     return await storage.getLabelsForSubject(subject);
   }
 
-  async getLabelsForSubjects(subjects: string[]): Promise<Map<string, Label[]>> {
+  async getLabelsForSubjects(
+    subjects: string[]
+  ): Promise<Map<string, Label[]>> {
     const allLabels = await storage.getLabelsForSubjects(subjects);
     const labelMap = new Map<string, Label[]>();
 
@@ -95,7 +102,9 @@ export class LabelService extends EventEmitter {
     return this.filterNegatedLabels(labels);
   }
 
-  async getActiveLabelsForSubjects(subjects: string[]): Promise<Map<string, Label[]>> {
+  async getActiveLabelsForSubjects(
+    subjects: string[]
+  ): Promise<Map<string, Label[]>> {
     const allLabels = await storage.getLabelsForSubjects(subjects);
     const labelMap = new Map<string, Label[]>();
 
@@ -116,20 +125,22 @@ export class LabelService extends EventEmitter {
   async createLabelDefinition(params: {
     value: string;
     description?: string;
-    severity?: "info" | "warn" | "alert" | "none";
+    severity?: 'info' | 'warn' | 'alert' | 'none';
     localizedStrings?: Record<string, any>;
   }): Promise<LabelDefinition> {
     const definition: InsertLabelDefinition = {
       value: params.value,
       description: params.description,
-      severity: params.severity || "warn",
+      severity: params.severity || 'warn',
       localizedStrings: params.localizedStrings || {},
     };
 
     return await storage.createLabelDefinition(definition);
   }
 
-  async getLabelDefinition(value: string): Promise<LabelDefinition | undefined> {
+  async getLabelDefinition(
+    value: string
+  ): Promise<LabelDefinition | undefined> {
     return await storage.getLabelDefinition(value);
   }
 
@@ -151,7 +162,9 @@ export class LabelService extends EventEmitter {
   private filterNegatedLabels(labels: Label[]): Label[] {
     const labelMap = new Map<string, Label>();
 
-    for (const label of labels.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+    for (const label of labels.sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+    )) {
       const key = `${label.subject}:${label.val}`;
 
       if (label.neg) {

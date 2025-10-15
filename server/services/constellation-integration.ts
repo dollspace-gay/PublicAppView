@@ -1,6 +1,6 @@
 /**
  * Constellation Integration Service
- * 
+ *
  * Integrates Constellation's global backlink index with the AppView.
  * Provides enhanced interaction statistics when enabled.
  */
@@ -46,11 +46,20 @@ class ConstellationIntegration {
     this.baseUrl = config.url.replace(/\/$/, '');
     this.cacheTTL = config.cacheTTL;
     this.timeout = config.timeout;
-    
+
     // Rate limiting configuration from environment variables
-    this.requestDelay = parseInt(process.env.CONSTELLATION_REQUEST_DELAY || '100', 10);
-    this.maxRetries = parseInt(process.env.CONSTELLATION_MAX_RETRIES || '3', 10);
-    this.retryDelay = parseInt(process.env.CONSTELLATION_RETRY_DELAY || '1000', 10);
+    this.requestDelay = parseInt(
+      process.env.CONSTELLATION_REQUEST_DELAY || '100',
+      10
+    );
+    this.maxRetries = parseInt(
+      process.env.CONSTELLATION_MAX_RETRIES || '3',
+      10
+    );
+    this.retryDelay = parseInt(
+      process.env.CONSTELLATION_RETRY_DELAY || '1000',
+      10
+    );
 
     if (this.enabled) {
       const redisUrl = process.env.REDIS_URL;
@@ -67,7 +76,9 @@ class ConstellationIntegration {
         this.redis.on('error', (error: any) => {
           // Handle READONLY errors specifically
           if (error.message && error.message.includes('READONLY')) {
-            console.error('[CONSTELLATION] READONLY error - connected to replica instead of master.');
+            console.error(
+              '[CONSTELLATION] READONLY error - connected to replica instead of master.'
+            );
           }
           console.error('[CONSTELLATION] Redis error:', error);
         });
@@ -121,7 +132,7 @@ class ConstellationIntegration {
    * Sleep for specified milliseconds
    */
   private async sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -139,7 +150,10 @@ class ConstellationIntegration {
   /**
    * Make HTTP request with timeout and retry logic
    */
-  private async fetchWithTimeout(url: string, retryCount = 0): Promise<Response> {
+  private async fetchWithTimeout(
+    url: string,
+    retryCount = 0
+  ): Promise<Response> {
     // Apply rate limiting
     await this.rateLimit();
 
@@ -159,11 +173,13 @@ class ConstellationIntegration {
       // Handle rate limiting (429 errors)
       if (response.status === 429 && retryCount < this.maxRetries) {
         const retryAfter = response.headers.get('retry-after');
-        const delay = retryAfter 
-          ? parseInt(retryAfter, 10) * 1000 
+        const delay = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
           : this.retryDelay * Math.pow(2, retryCount); // Exponential backoff
-        
-        console.log(`[CONSTELLATION] Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${this.maxRetries})`);
+
+        console.log(
+          `[CONSTELLATION] Rate limited, retrying after ${delay}ms (attempt ${retryCount + 1}/${this.maxRetries})`
+        );
         await this.sleep(delay);
         return this.fetchWithTimeout(url, retryCount + 1);
       }
@@ -171,7 +187,7 @@ class ConstellationIntegration {
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
-      
+
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Constellation API timeout after ${this.timeout}ms`);
       }
@@ -187,7 +203,8 @@ class ConstellationIntegration {
     collection: string,
     path: string
   ): Promise<number> {
-    const url = `${this.baseUrl}/links/count?` +
+    const url =
+      `${this.baseUrl}/links/count?` +
       `target=${encodeURIComponent(target)}` +
       `&collection=${encodeURIComponent(collection)}` +
       `&path=${encodeURIComponent(path)}`;
@@ -196,14 +213,16 @@ class ConstellationIntegration {
       const response = await this.fetchWithTimeout(url);
       if (!response.ok) {
         if (response.status === 429) {
-          throw new Error(`Constellation API rate limit exceeded: ${response.status}`);
+          throw new Error(
+            `Constellation API rate limit exceeded: ${response.status}`
+          );
         }
         throw new Error(`Constellation API error: ${response.status}`);
       }
 
       const text = await response.text();
       let count: number;
-      
+
       // Try to parse as JSON first (new API format)
       try {
         const json = JSON.parse(text);
@@ -216,7 +235,7 @@ class ConstellationIntegration {
         // Fall back to plain text number (old API format)
         count = parseInt(text.trim(), 10);
       }
-      
+
       if (isNaN(count)) {
         throw new Error(`Invalid response: ${text}`);
       }
@@ -231,7 +250,9 @@ class ConstellationIntegration {
         } else if (error.message.includes('rate limit')) {
           // Log rate limit errors but don't spam the logs
           if (this.apiErrors % 10 === 1) {
-            console.warn('[CONSTELLATION] Rate limit exceeded. Will use cached/local data.');
+            console.warn(
+              '[CONSTELLATION] Rate limit exceeded. Will use cached/local data.'
+            );
           }
         } else {
           console.error('[CONSTELLATION] Error fetching count:', error);
@@ -259,10 +280,26 @@ class ConstellationIntegration {
     // Fetch from Constellation API with sequential requests to avoid rate limiting
     try {
       // Sequential requests instead of parallel to reduce load on API
-      const likes = await this.getLinksCount(postUri, 'app.bsky.feed.like', '.subject.uri');
-      const reposts = await this.getLinksCount(postUri, 'app.bsky.feed.repost', '.subject.uri');
-      const replies = await this.getLinksCount(postUri, 'app.bsky.feed.post', '.reply.parent.uri');
-      const quotes = await this.getLinksCount(postUri, 'app.bsky.feed.post', '.embed.record.uri');
+      const likes = await this.getLinksCount(
+        postUri,
+        'app.bsky.feed.like',
+        '.subject.uri'
+      );
+      const reposts = await this.getLinksCount(
+        postUri,
+        'app.bsky.feed.repost',
+        '.subject.uri'
+      );
+      const replies = await this.getLinksCount(
+        postUri,
+        'app.bsky.feed.post',
+        '.reply.parent.uri'
+      );
+      const quotes = await this.getLinksCount(
+        postUri,
+        'app.bsky.feed.post',
+        '.embed.record.uri'
+      );
 
       const stats: PostStats = { likes, reposts, replies, quotes };
 
@@ -290,12 +327,12 @@ class ConstellationIntegration {
     const batchSize = 2; // Reduced batch size to avoid rate limiting
     for (let i = 0; i < postUris.length; i += batchSize) {
       const batch = postUris.slice(i, i + batchSize);
-      
+
       // Process batch items sequentially to respect rate limits
       for (const uri of batch) {
         try {
           const constellationStats = await this.getPostStats(uri);
-          
+
           if (constellationStats) {
             // Get existing aggregation or create empty one
             const existing = aggregationsMap.get(uri) || {
@@ -303,7 +340,7 @@ class ConstellationIntegration {
               repostCount: 0,
               replyCount: 0,
               quoteCount: 0,
-              bookmarkCount: 0
+              bookmarkCount: 0,
             };
 
             // Override with Constellation stats (keep bookmarkCount from local)
@@ -317,7 +354,10 @@ class ConstellationIntegration {
           }
         } catch (error) {
           // Log error but continue processing other posts
-          console.error(`[CONSTELLATION] Error fetching stats for ${uri}:`, error);
+          console.error(
+            `[CONSTELLATION] Error fetching stats for ${uri}:`,
+            error
+          );
         }
       }
     }
@@ -341,7 +381,11 @@ class ConstellationIntegration {
     try {
       const [followers, mentions] = await Promise.all([
         this.getLinksCount(did, 'app.bsky.graph.follow', '.subject'),
-        this.getLinksCount(did, 'app.bsky.feed.post', '.facets[].features[].did'),
+        this.getLinksCount(
+          did,
+          'app.bsky.feed.post',
+          '.facets[].features[].did'
+        ),
       ]);
 
       const stats: ProfileStats = { followers, mentions };
@@ -359,9 +403,10 @@ class ConstellationIntegration {
    * Get statistics for monitoring
    */
   getStats() {
-    const hitRate = this.statsRequested > 0
-      ? ((this.cacheHits / this.statsRequested) * 100).toFixed(2)
-      : '0.00';
+    const hitRate =
+      this.statsRequested > 0
+        ? ((this.cacheHits / this.statsRequested) * 100).toFixed(2)
+        : '0.00';
 
     return {
       enabled: this.enabled,

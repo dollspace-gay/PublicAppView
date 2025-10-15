@@ -1,5 +1,10 @@
-import Redis from "ioredis";
-import { PostAggregation, PostViewerState, ThreadContext, Label } from "@shared/schema";
+import Redis from 'ioredis';
+import {
+  PostAggregation,
+  PostViewerState,
+  ThreadContext,
+  Label,
+} from '@shared/schema';
 
 export interface CacheConfig {
   ttl: number; // Time to live in seconds
@@ -11,7 +16,7 @@ export class CacheService {
   private isInitialized = false;
   private readonly config: CacheConfig;
 
-  constructor(config: CacheConfig = { ttl: 300, keyPrefix: "atproto:cache:" }) {
+  constructor(config: CacheConfig = { ttl: 300, keyPrefix: 'atproto:cache:' }) {
     this.config = config;
   }
 
@@ -20,7 +25,7 @@ export class CacheService {
       return;
     }
 
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     console.log(`[CACHE] Connecting to Redis at ${redisUrl}...`);
 
     this.redis = new Redis(redisUrl, {
@@ -36,16 +41,18 @@ export class CacheService {
       },
     });
 
-    this.redis.on("connect", () => {
-      console.log("[CACHE] Connected to Redis");
+    this.redis.on('connect', () => {
+      console.log('[CACHE] Connected to Redis');
     });
 
-    this.redis.on("error", (error: any) => {
+    this.redis.on('error', (error: any) => {
       // Handle READONLY errors specifically
       if (error.message && error.message.includes('READONLY')) {
-        console.error("[CACHE] READONLY error - connected to replica instead of master.");
+        console.error(
+          '[CACHE] READONLY error - connected to replica instead of master.'
+        );
       }
-      console.error("[CACHE] Redis error:", error);
+      console.error('[CACHE] Redis error:', error);
     });
 
     this.isInitialized = true;
@@ -56,13 +63,15 @@ export class CacheService {
   }
 
   // Post Aggregations Caching
-  async getPostAggregations(postUris: string[]): Promise<Map<string, PostAggregation> | null> {
+  async getPostAggregations(
+    postUris: string[]
+  ): Promise<Map<string, PostAggregation> | null> {
     if (!this.redis || !this.isInitialized) return null;
 
     try {
-      const keys = postUris.map(uri => this.getKey("post_aggregations", uri));
+      const keys = postUris.map((uri) => this.getKey('post_aggregations', uri));
       const results = await this.redis.mget(...keys);
-      
+
       const aggregations = new Map<string, PostAggregation>();
       let hasData = false;
 
@@ -76,25 +85,27 @@ export class CacheService {
 
       return hasData ? aggregations : null;
     } catch (error) {
-      console.error("[CACHE] Error getting post aggregations:", error);
+      console.error('[CACHE] Error getting post aggregations:', error);
       return null;
     }
   }
 
-  async setPostAggregations(aggregations: Map<string, PostAggregation>): Promise<void> {
+  async setPostAggregations(
+    aggregations: Map<string, PostAggregation>
+  ): Promise<void> {
     if (!this.redis || !this.isInitialized) return;
 
     try {
       const pipeline = this.redis.pipeline();
-      
+
       for (const [uri, aggregation] of aggregations) {
-        const key = this.getKey("post_aggregations", uri);
+        const key = this.getKey('post_aggregations', uri);
         pipeline.setex(key, this.config.ttl, JSON.stringify(aggregation));
       }
-      
+
       await pipeline.exec();
     } catch (error) {
-      console.error("[CACHE] Error setting post aggregations:", error);
+      console.error('[CACHE] Error setting post aggregations:', error);
     }
   }
 
@@ -102,21 +113,26 @@ export class CacheService {
     if (!this.redis || !this.isInitialized) return;
 
     try {
-      const key = this.getKey("post_aggregations", postUri);
+      const key = this.getKey('post_aggregations', postUri);
       await this.redis.del(key);
     } catch (error) {
-      console.error("[CACHE] Error invalidating post aggregation:", error);
+      console.error('[CACHE] Error invalidating post aggregation:', error);
     }
   }
 
   // Post Viewer States Caching
-  async getPostViewerStates(postUris: string[], viewerDid: string): Promise<Map<string, PostViewerState> | null> {
+  async getPostViewerStates(
+    postUris: string[],
+    viewerDid: string
+  ): Promise<Map<string, PostViewerState> | null> {
     if (!this.redis || !this.isInitialized) return null;
 
     try {
-      const keys = postUris.map(uri => this.getKey("post_viewer_states", `${viewerDid}:${uri}`));
+      const keys = postUris.map((uri) =>
+        this.getKey('post_viewer_states', `${viewerDid}:${uri}`)
+      );
       const results = await this.redis.mget(...keys);
-      
+
       const viewerStates = new Map<string, PostViewerState>();
       let hasData = false;
 
@@ -130,47 +146,55 @@ export class CacheService {
 
       return hasData ? viewerStates : null;
     } catch (error) {
-      console.error("[CACHE] Error getting post viewer states:", error);
+      console.error('[CACHE] Error getting post viewer states:', error);
       return null;
     }
   }
 
-  async setPostViewerStates(viewerStates: Map<string, PostViewerState>, viewerDid: string): Promise<void> {
+  async setPostViewerStates(
+    viewerStates: Map<string, PostViewerState>,
+    viewerDid: string
+  ): Promise<void> {
     if (!this.redis || !this.isInitialized) return;
 
     try {
       const pipeline = this.redis.pipeline();
-      
+
       for (const [uri, viewerState] of viewerStates) {
-        const key = this.getKey("post_viewer_states", `${viewerDid}:${uri}`);
+        const key = this.getKey('post_viewer_states', `${viewerDid}:${uri}`);
         pipeline.setex(key, this.config.ttl, JSON.stringify(viewerState));
       }
-      
+
       await pipeline.exec();
     } catch (error) {
-      console.error("[CACHE] Error setting post viewer states:", error);
+      console.error('[CACHE] Error setting post viewer states:', error);
     }
   }
 
-  async invalidatePostViewerState(postUri: string, viewerDid: string): Promise<void> {
+  async invalidatePostViewerState(
+    postUri: string,
+    viewerDid: string
+  ): Promise<void> {
     if (!this.redis || !this.isInitialized) return;
 
     try {
-      const key = this.getKey("post_viewer_states", `${viewerDid}:${postUri}`);
+      const key = this.getKey('post_viewer_states', `${viewerDid}:${postUri}`);
       await this.redis.del(key);
     } catch (error) {
-      console.error("[CACHE] Error invalidating post viewer state:", error);
+      console.error('[CACHE] Error invalidating post viewer state:', error);
     }
   }
 
   // Thread Contexts Caching
-  async getThreadContexts(postUris: string[]): Promise<Map<string, ThreadContext> | null> {
+  async getThreadContexts(
+    postUris: string[]
+  ): Promise<Map<string, ThreadContext> | null> {
     if (!this.redis || !this.isInitialized) return null;
 
     try {
-      const keys = postUris.map(uri => this.getKey("thread_contexts", uri));
+      const keys = postUris.map((uri) => this.getKey('thread_contexts', uri));
       const results = await this.redis.mget(...keys);
-      
+
       const threadContexts = new Map<string, ThreadContext>();
       let hasData = false;
 
@@ -184,25 +208,27 @@ export class CacheService {
 
       return hasData ? threadContexts : null;
     } catch (error) {
-      console.error("[CACHE] Error getting thread contexts:", error);
+      console.error('[CACHE] Error getting thread contexts:', error);
       return null;
     }
   }
 
-  async setThreadContexts(threadContexts: Map<string, ThreadContext>): Promise<void> {
+  async setThreadContexts(
+    threadContexts: Map<string, ThreadContext>
+  ): Promise<void> {
     if (!this.redis || !this.isInitialized) return;
 
     try {
       const pipeline = this.redis.pipeline();
-      
+
       for (const [uri, threadContext] of threadContexts) {
-        const key = this.getKey("thread_contexts", uri);
+        const key = this.getKey('thread_contexts', uri);
         pipeline.setex(key, this.config.ttl, JSON.stringify(threadContext));
       }
-      
+
       await pipeline.exec();
     } catch (error) {
-      console.error("[CACHE] Error setting thread contexts:", error);
+      console.error('[CACHE] Error setting thread contexts:', error);
     }
   }
 
@@ -211,9 +237,9 @@ export class CacheService {
     if (!this.redis || !this.isInitialized) return null;
 
     try {
-      const keys = subjects.map(subject => this.getKey("labels", subject));
+      const keys = subjects.map((subject) => this.getKey('labels', subject));
       const results = await this.redis.mget(...keys);
-      
+
       const labels = new Map<string, Label[]>();
       let hasData = false;
 
@@ -227,7 +253,7 @@ export class CacheService {
 
       return hasData ? labels : null;
     } catch (error) {
-      console.error("[CACHE] Error getting labels:", error);
+      console.error('[CACHE] Error getting labels:', error);
       return null;
     }
   }
@@ -237,15 +263,15 @@ export class CacheService {
 
     try {
       const pipeline = this.redis.pipeline();
-      
+
       for (const [subject, subjectLabels] of labels) {
-        const key = this.getKey("labels", subject);
+        const key = this.getKey('labels', subject);
         pipeline.setex(key, this.config.ttl, JSON.stringify(subjectLabels));
       }
-      
+
       await pipeline.exec();
     } catch (error) {
-      console.error("[CACHE] Error setting labels:", error);
+      console.error('[CACHE] Error setting labels:', error);
     }
   }
 
@@ -257,7 +283,7 @@ export class CacheService {
       const data = await this.redis.get(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
-      console.error("[CACHE] Error getting key:", error);
+      console.error('[CACHE] Error getting key:', error);
       return null;
     }
   }
@@ -270,7 +296,7 @@ export class CacheService {
       const expireTime = ttl || this.config.ttl;
       await this.redis.setex(key, expireTime, serialized);
     } catch (error) {
-      console.error("[CACHE] Error setting key:", error);
+      console.error('[CACHE] Error setting key:', error);
     }
   }
 
@@ -280,7 +306,7 @@ export class CacheService {
     try {
       await this.redis.del(key);
     } catch (error) {
-      console.error("[CACHE] Error deleting key:", error);
+      console.error('[CACHE] Error deleting key:', error);
     }
   }
 
@@ -291,17 +317,23 @@ export class CacheService {
       // Use SCAN instead of KEYS to avoid blocking Redis
       let cursor = '0';
       const keysToDelete: string[] = [];
-      
+
       do {
-        const result = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        const result = await this.redis.scan(
+          cursor,
+          'MATCH',
+          pattern,
+          'COUNT',
+          100
+        );
         cursor = result[0];
         const keys = result[1];
-        
+
         if (keys.length > 0) {
           keysToDelete.push(...keys);
         }
       } while (cursor !== '0');
-      
+
       // Delete in batches to avoid command buffer issues
       const BATCH_SIZE = 100;
       for (let i = 0; i < keysToDelete.length; i += BATCH_SIZE) {
@@ -311,7 +343,7 @@ export class CacheService {
         }
       }
     } catch (error) {
-      console.error("[CACHE] Error invalidating pattern:", error);
+      console.error('[CACHE] Error invalidating pattern:', error);
     }
   }
 
@@ -329,7 +361,7 @@ export class CacheService {
 
     try {
       const result = await this.redis.ping();
-      return result === "PONG";
+      return result === 'PONG';
     } catch (error) {
       return false;
     }

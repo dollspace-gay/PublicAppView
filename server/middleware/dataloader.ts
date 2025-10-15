@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { createDataLoader, HydrationDataLoader } from '../services/hydration/dataloader';
+import {
+  createDataLoader,
+  HydrationDataLoader,
+} from '../services/hydration/dataloader';
 
 // Extend Express Request type to include dataLoader
 declare global {
@@ -14,10 +17,14 @@ declare global {
  * Middleware that creates a request-scoped DataLoader instance
  * This ensures each request gets its own DataLoader with fresh caches
  */
-export function dataLoaderMiddleware(req: Request, res: Response, next: NextFunction) {
+export function dataLoaderMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   // Create a new DataLoader instance for this request
   req.dataLoader = createDataLoader();
-  
+
   // Clean up after request completes
   res.on('finish', () => {
     if (req.dataLoader) {
@@ -25,7 +32,7 @@ export function dataLoaderMiddleware(req: Request, res: Response, next: NextFunc
       req.dataLoader = undefined;
     }
   });
-  
+
   next();
 }
 

@@ -5,9 +5,11 @@ import { HealthServer, type HealthStatus } from './health';
 
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
 const KAFKA_LABEL_TOPIC = process.env.KAFKA_LABEL_TOPIC || 'osprey.labels';
-const KAFKA_CONSUMER_GROUP = process.env.KAFKA_CONSUMER_GROUP || 'label-effector';
+const KAFKA_CONSUMER_GROUP =
+  process.env.KAFKA_CONSUMER_GROUP || 'label-effector';
 const DATABASE_URL = process.env.DATABASE_URL || '';
-const OSPREY_LABELER_DID = process.env.OSPREY_LABELER_DID || 'did:plc:osprey-moderation';
+const OSPREY_LABELER_DID =
+  process.env.OSPREY_LABELER_DID || 'did:plc:osprey-moderation';
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '3002', 10);
 
 const startTime = Date.now();
@@ -70,11 +72,11 @@ async function main() {
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\n[SHUTDOWN] Received ${signal}, shutting down gracefully...`);
-    
+
     healthServer.stop();
     await consumer.disconnect();
     await labelApplier.disconnect();
-    
+
     console.log('[SHUTDOWN] Cleanup complete, exiting');
     process.exit(0);
   };

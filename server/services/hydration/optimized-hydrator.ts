@@ -11,7 +11,7 @@ import {
   postGates,
   listMembers,
   listMutes,
-  feedGenerators
+  feedGenerators,
 } from '../../../shared/schema';
 import { eq, inArray, sql, and } from 'drizzle-orm';
 import { ViewerContextBuilder, ViewerContext } from './viewer-context';
@@ -78,7 +78,7 @@ export class OptimizedHydrator {
       cacheHits: 0,
       cacheMisses: 0,
       queryTime: 0,
-      totalTime: 0
+      totalTime: 0,
     };
 
     if (postUris.length === 0) {
@@ -97,17 +97,25 @@ export class OptimizedHydrator {
     }
 
     // Build viewer context once (cached internally)
-    const viewerContext = viewerDid 
+    const viewerContext = viewerDid
       ? await this.viewerBuilder.build(viewerDid)
       : undefined;
 
     // Execute batched queries in parallel
     const queryStart = performance.now();
-    const batchedData = await this.executeBatchedQueries(uncached, viewerDid, viewerContext);
+    const batchedData = await this.executeBatchedQueries(
+      uncached,
+      viewerDid,
+      viewerContext
+    );
     stats.queryTime = performance.now() - queryStart;
 
     // Process and cache results
-    const state = await this.processBatchedResults(batchedData, viewerContext, viewerDid);
+    const state = await this.processBatchedResults(
+      batchedData,
+      viewerContext,
+      viewerDid
+    );
 
     // Cache the results
     if (this.redis) {
@@ -115,8 +123,11 @@ export class OptimizedHydrator {
     }
 
     // Merge cached and fresh data
-    const mergedState = this.mergeStates([...Array.from(cached.values()), state], stats);
-    
+    const mergedState = this.mergeStates(
+      [...Array.from(cached.values()), state],
+      stats
+    );
+
     stats.totalTime = performance.now() - startTime;
     mergedState.stats = stats;
 
@@ -134,7 +145,7 @@ export class OptimizedHydrator {
     // Collect all URIs we need to fetch
     const allPostUris = new Set(postUris);
     const actorDids = new Set<string>();
-    
+
     // First pass: get initial posts to find dependencies
     const initialPosts = await db
       .select()
@@ -151,42 +162,53 @@ export class OptimizedHydrator {
     // Execute all queries in parallel
     const baseQueries = [
       // All posts (including reply parents/roots)
-      db.select()
+      db
+        .select()
         .from(posts)
         .where(inArray(posts.uri, Array.from(allPostUris))),
-      
+
       // All actors
-      db.select()
+      db
+        .select()
         .from(users)
         .where(inArray(users.did, Array.from(actorDids))),
-      
+
       // Aggregations with Constellation enrichment
       this.fetchEnrichedAggregations(Array.from(allPostUris)),
-      
+
       // Post viewer states (if viewer)
-      viewerDid ? db.select()
-        .from(postViewerStates)
-        .where(and(
-          inArray(postViewerStates.postUri, Array.from(allPostUris)),
-          eq(postViewerStates.viewerDid, viewerDid)
-        )) : Promise.resolve([]),
-      
+      viewerDid
+        ? db
+            .select()
+            .from(postViewerStates)
+            .where(
+              and(
+                inArray(postViewerStates.postUri, Array.from(allPostUris)),
+                eq(postViewerStates.viewerDid, viewerDid)
+              )
+            )
+        : Promise.resolve([]),
+
       // Thread gates
-      db.select()
+      db
+        .select()
         .from(threadGates)
         .where(inArray(threadGates.postUri, Array.from(allPostUris))),
-      
+
       // Post gates
-      db.select()
+      db
+        .select()
         .from(postGates)
-        .where(inArray(postGates.postUri, Array.from(allPostUris)))
+        .where(inArray(postGates.postUri, Array.from(allPostUris))),
     ];
 
     // Add viewer-specific queries if authenticated
-    const viewerQueries = viewerDid ? [
-      this.fetchViewerPostStates(Array.from(allPostUris), viewerDid),
-      this.fetchViewerActorStates(Array.from(actorDids), viewerDid)
-    ] : [];
+    const viewerQueries = viewerDid
+      ? [
+          this.fetchViewerPostStates(Array.from(allPostUris), viewerDid),
+          this.fetchViewerActorStates(Array.from(actorDids), viewerDid),
+        ]
+      : [];
 
     const allResults = await Promise.all([...baseQueries, ...viewerQueries]);
 
@@ -197,7 +219,7 @@ export class OptimizedHydrator {
       aggregationsData,
       viewerStatesData,
       threadGatesData,
-      postGatesData
+      postGatesData,
     ] = allResults;
 
     // Extract viewer-specific results if present
@@ -211,7 +233,7 @@ export class OptimizedHydrator {
       aggregations: new Map(),
       viewerStates: new Map(),
       threadGates: new Map(),
-      postGates: new Map()
+      postGates: new Map(),
     };
 
     // Process posts
@@ -225,13 +247,15 @@ export class OptimizedHydrator {
         indexedAt: post.indexedAt.toISOString(),
         embed: post.embed,
         facets: post.facets,
-        reply: post.parentUri ? {
-          parent: { uri: post.parentUri },
-          root: { uri: post.rootUri || post.parentUri }
-        } : undefined,
+        reply: post.parentUri
+          ? {
+              parent: { uri: post.parentUri },
+              root: { uri: post.rootUri || post.parentUri },
+            }
+          : undefined,
         tags: post.tags,
         violatesThreadGate: post.violatesThreadGate,
-        violatesEmbeddingRules: post.violatesEmbeddingRules
+        violatesEmbeddingRules: post.violatesEmbeddingRules,
       });
     }
 
@@ -245,7 +269,7 @@ export class OptimizedHydrator {
         avatarUrl: actor.avatarUrl,
         bannerUrl: actor.bannerUrl,
         pinnedPost: actor.pinnedPost,
-        indexedAt: actor.indexedAt?.toISOString()
+        indexedAt: actor.indexedAt?.toISOString(),
       });
     }
 
@@ -261,7 +285,7 @@ export class OptimizedHydrator {
         threadMuted: state.threadMuted,
         replyDisabled: state.replyDisabled,
         embeddingDisabled: state.embeddingDisabled,
-        pinned: state.pinned
+        pinned: state.pinned,
       });
     }
 
@@ -281,7 +305,7 @@ export class OptimizedHydrator {
         allowMentions: gate.allowMentions,
         allowFollowing: gate.allowFollowing,
         allowListMembers: gate.allowListMembers,
-        allowListUris: gate.allowListUris
+        allowListUris: gate.allowListUris,
       });
     }
 
@@ -290,7 +314,7 @@ export class OptimizedHydrator {
       result.postGates.set(gate.postUri, {
         postUri: gate.postUri,
         createdAt: gate.createdAt.toISOString(),
-        embeddingRules: gate.embeddingRules
+        embeddingRules: gate.embeddingRules,
       });
     }
 
@@ -305,7 +329,9 @@ export class OptimizedHydrator {
   /**
    * Fetch enriched aggregations with Constellation data
    */
-  private async fetchEnrichedAggregations(postUris: string[]): Promise<Map<string, any>> {
+  private async fetchEnrichedAggregations(
+    postUris: string[]
+  ): Promise<Map<string, any>> {
     const aggregationsData = await db
       .select()
       .from(postAggregations)
@@ -318,16 +344,22 @@ export class OptimizedHydrator {
         repostCount: agg.repostCount,
         replyCount: agg.replyCount,
         quoteCount: agg.quoteCount,
-        bookmarkCount: agg.bookmarkCount
+        bookmarkCount: agg.bookmarkCount,
       });
     }
 
     // Enrich with Constellation stats if enabled
     if (constellationIntegration.isEnabled()) {
       try {
-        await constellationIntegration.enrichAggregations(aggregationsMap, postUris);
+        await constellationIntegration.enrichAggregations(
+          aggregationsMap,
+          postUris
+        );
       } catch (error) {
-        console.error('[OPTIMIZED_HYDRATION] Error enriching with Constellation stats:', error);
+        console.error(
+          '[OPTIMIZED_HYDRATION] Error enriching with Constellation stats:',
+          error
+        );
       }
     }
 
@@ -337,32 +369,41 @@ export class OptimizedHydrator {
   /**
    * Fetch viewer-specific post states (likes, reposts, bookmarks)
    */
-  private async fetchViewerPostStates(postUris: string[], viewerDid: string): Promise<Map<string, any>> {
+  private async fetchViewerPostStates(
+    postUris: string[],
+    viewerDid: string
+  ): Promise<Map<string, any>> {
     const [likesData, repostsData, bookmarksData] = await Promise.all([
-      db.select({ postUri: likes.postUri, uri: likes.uri })
+      db
+        .select({ postUri: likes.postUri, uri: likes.uri })
         .from(likes)
-        .where(and(
-          eq(likes.userDid, viewerDid),
-          inArray(likes.postUri, postUris)
-        )),
-      
-      db.select({ postUri: reposts.postUri, uri: reposts.uri })
+        .where(
+          and(eq(likes.userDid, viewerDid), inArray(likes.postUri, postUris))
+        ),
+
+      db
+        .select({ postUri: reposts.postUri, uri: reposts.uri })
         .from(reposts)
-        .where(and(
-          eq(reposts.userDid, viewerDid),
-          inArray(reposts.postUri, postUris)
-        )),
-      
-      db.select({ postUri: bookmarks.postUri })
+        .where(
+          and(
+            eq(reposts.userDid, viewerDid),
+            inArray(reposts.postUri, postUris)
+          )
+        ),
+
+      db
+        .select({ postUri: bookmarks.postUri })
         .from(bookmarks)
-        .where(and(
-          eq(bookmarks.userDid, viewerDid),
-          inArray(bookmarks.postUri, postUris)
-        ))
+        .where(
+          and(
+            eq(bookmarks.userDid, viewerDid),
+            inArray(bookmarks.postUri, postUris)
+          )
+        ),
     ]);
 
     const result = new Map();
-    
+
     // Initialize all posts with empty state
     for (const uri of postUris) {
       result.set(uri, {});
@@ -395,7 +436,10 @@ export class OptimizedHydrator {
   /**
    * Fetch viewer-specific actor states
    */
-  private async fetchViewerActorStates(actorDids: string[], viewerDid: string): Promise<Map<string, any>> {
+  private async fetchViewerActorStates(
+    actorDids: string[],
+    viewerDid: string
+  ): Promise<Map<string, any>> {
     // This is already implemented in ViewerContextBuilder
     return await this.viewerBuilder.buildActorStates(viewerDid, actorDids);
   }
@@ -415,7 +459,10 @@ export class OptimizedHydrator {
     const embedsMap = await this.embedResolver.resolveEmbeds(postUris);
 
     // Fetch labels
-    const labelsMap = await this.labelPropagator.propagateActorLabels(actorDids, postUris);
+    const labelsMap = await this.labelPropagator.propagateActorLabels(
+      actorDids,
+      postUris
+    );
 
     // Fetch feed generators if any posts are from feed generators
     const feedGeneratorDids = new Set<string>();
@@ -436,7 +483,7 @@ export class OptimizedHydrator {
         .select()
         .from(feedGenerators)
         .where(inArray(feedGenerators.did, Array.from(feedGeneratorDids)));
-      
+
       for (const gen of feedGens) {
         feedGeneratorsMap.set(gen.did, {
           did: gen.did,
@@ -444,7 +491,7 @@ export class OptimizedHydrator {
           displayName: gen.displayName,
           description: gen.description,
           avatarUrl: gen.avatarUrl,
-          createdAt: gen.createdAt.toISOString()
+          createdAt: gen.createdAt.toISOString(),
         });
       }
     }
@@ -465,8 +512,8 @@ export class OptimizedHydrator {
         cacheHits: 0,
         cacheMisses: 0,
         queryTime: 0,
-        totalTime: 0
-      }
+        totalTime: 0,
+      },
     };
   }
 
@@ -476,7 +523,10 @@ export class OptimizedHydrator {
   private async checkCache(
     postUris: string[],
     viewerDid?: string
-  ): Promise<{ cached: Map<string, OptimizedHydrationState>, uncached: string[] }> {
+  ): Promise<{
+    cached: Map<string, OptimizedHydrationState>;
+    uncached: string[];
+  }> {
     if (!this.redis) {
       return { cached: new Map(), uncached: postUris };
     }
@@ -485,12 +535,12 @@ export class OptimizedHydrator {
     const uncached: string[] = [];
 
     // Build cache keys
-    const cacheKeys = postUris.map(uri => this.buildCacheKey(uri, viewerDid));
-    
+    const cacheKeys = postUris.map((uri) => this.buildCacheKey(uri, viewerDid));
+
     // Batch get from Redis
     try {
       const results = await this.redis.mget(...cacheKeys);
-      
+
       for (let i = 0; i < postUris.length; i++) {
         if (results[i]) {
           const state = JSON.parse(results[i] as string);
@@ -511,12 +561,15 @@ export class OptimizedHydrator {
   /**
    * Cache hydration results
    */
-  private async cacheResults(state: OptimizedHydrationState, viewerDid?: string): Promise<void> {
+  private async cacheResults(
+    state: OptimizedHydrationState,
+    viewerDid?: string
+  ): Promise<void> {
     if (!this.redis) return;
 
     try {
       const pipeline = this.redis.pipeline();
-      
+
       // Cache each post individually for granular retrieval
       for (const [uri, post] of state.posts) {
         const key = this.buildCacheKey(uri, viewerDid);
@@ -532,12 +585,15 @@ export class OptimizedHydrator {
           postGates: new Map(),
           feedGenerators: new Map(),
           viewerContext: state.viewerContext,
-          stats: state.stats
+          stats: state.stats,
         };
 
         // Add related data
         if (post.authorDid && state.actors.has(post.authorDid)) {
-          postState.actors.set(post.authorDid, state.actors.get(post.authorDid));
+          postState.actors.set(
+            post.authorDid,
+            state.actors.get(post.authorDid)
+          );
         }
         if (state.aggregations.has(uri)) {
           postState.aggregations.set(uri, state.aggregations.get(uri));
@@ -573,7 +629,7 @@ export class OptimizedHydrator {
    * Build cache key
    */
   private buildCacheKey(postUri: string, viewerDid?: string): string {
-    return viewerDid 
+    return viewerDid
       ? `hydration:post:${postUri}:viewer:${viewerDid}`
       : `hydration:post:${postUri}:public`;
   }
@@ -593,7 +649,7 @@ export class OptimizedHydrator {
       labels: Object.fromEntries(state.labels),
       threadGates: Object.fromEntries(state.threadGates),
       postGates: Object.fromEntries(state.postGates),
-      feedGenerators: Object.fromEntries(state.feedGenerators)
+      feedGenerators: Object.fromEntries(state.feedGenerators),
     };
   }
 
@@ -612,14 +668,17 @@ export class OptimizedHydrator {
       labels: new Map(Object.entries(data.labels || {})),
       threadGates: new Map(Object.entries(data.threadGates || {})),
       postGates: new Map(Object.entries(data.postGates || {})),
-      feedGenerators: new Map(Object.entries(data.feedGenerators || {}))
+      feedGenerators: new Map(Object.entries(data.feedGenerators || {})),
     };
   }
 
   /**
    * Merge multiple hydration states
    */
-  private mergeStates(states: OptimizedHydrationState[], stats: any): OptimizedHydrationState {
+  private mergeStates(
+    states: OptimizedHydrationState[],
+    stats: any
+  ): OptimizedHydrationState {
     const merged: OptimizedHydrationState = {
       posts: new Map(),
       actors: new Map(),
@@ -632,7 +691,7 @@ export class OptimizedHydrator {
       postGates: new Map(),
       feedGenerators: new Map(),
       viewerContext: states[0]?.viewerContext,
-      stats
+      stats,
     };
 
     for (const state of states) {
@@ -641,12 +700,14 @@ export class OptimizedHydrator {
       for (const [k, v] of state.actors) merged.actors.set(k, v);
       for (const [k, v] of state.aggregations) merged.aggregations.set(k, v);
       for (const [k, v] of state.viewerStates) merged.viewerStates.set(k, v);
-      for (const [k, v] of state.actorViewerStates) merged.actorViewerStates.set(k, v);
+      for (const [k, v] of state.actorViewerStates)
+        merged.actorViewerStates.set(k, v);
       for (const [k, v] of state.embeds) merged.embeds.set(k, v);
       for (const [k, v] of state.labels) merged.labels.set(k, v);
       for (const [k, v] of state.threadGates) merged.threadGates.set(k, v);
       for (const [k, v] of state.postGates) merged.postGates.set(k, v);
-      for (const [k, v] of state.feedGenerators) merged.feedGenerators.set(k, v);
+      for (const [k, v] of state.feedGenerators)
+        merged.feedGenerators.set(k, v);
     }
 
     return merged;
@@ -658,7 +719,7 @@ export class OptimizedHydrator {
   async clearCache() {
     this.embedResolver.clearCache();
     this.requestCache.clear();
-    
+
     if (this.redis) {
       try {
         const keys = await this.redis.keys('hydration:*');
@@ -687,8 +748,8 @@ export class OptimizedHydrator {
         cacheHits: 0,
         cacheMisses: 0,
         queryTime: 0,
-        totalTime: 0
-      }
+        totalTime: 0,
+      },
     };
   }
 }

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.min.js
+
+# Config files
+*.config.js
+
+# Documentation
+*.md
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Python
+*.py
+__pycache__/
+
+# Shell scripts
+*.sh
+
+# Git
+.git/
+.github/
+
+# Environment
+.env*

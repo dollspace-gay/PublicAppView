@@ -42,7 +42,7 @@ export class LabelPropagator {
         val: label.val,
         neg: label.neg || undefined,
         cts: label.createdAt.toISOString(),
-        exp: undefined // Expiration not in current schema
+        exp: undefined, // Expiration not in current schema
       });
       result.set(label.subject, existing);
     }
@@ -59,16 +59,17 @@ export class LabelPropagator {
     }
 
     // Check for takedown labels
-    const takedownLabel = labels.find(l => 
-      l.val === '!takedown' || 
-      l.val === '!suspend' ||
-      l.val === 'dmca-violation'
+    const takedownLabel = labels.find(
+      (l) =>
+        l.val === '!takedown' ||
+        l.val === '!suspend' ||
+        l.val === 'dmca-violation'
     );
 
     if (takedownLabel) {
       return {
         isTakendown: true,
-        reason: takedownLabel.val
+        reason: takedownLabel.val,
       };
     }
 
@@ -93,11 +94,12 @@ export class LabelPropagator {
     }
 
     // Check for NSFW/adult content labels
-    const nsfwLabels = labels.filter(l => 
-      l.val === 'porn' || 
-      l.val === 'sexual' || 
-      l.val === 'nudity' ||
-      l.val === 'graphic-media'
+    const nsfwLabels = labels.filter(
+      (l) =>
+        l.val === 'porn' ||
+        l.val === 'sexual' ||
+        l.val === 'nudity' ||
+        l.val === 'graphic-media'
     );
 
     if (nsfwLabels.length > 0) {
@@ -109,7 +111,7 @@ export class LabelPropagator {
     }
 
     // Check for spam
-    const spamLabels = labels.filter(l => l.val === 'spam');
+    const spamLabels = labels.filter((l) => l.val === 'spam');
     if (spamLabels.length > 0) {
       return { shouldHide: true, reason: 'spam' };
     }
@@ -131,13 +133,13 @@ export class LabelPropagator {
 
     // Get actor labels
     const actorLabels = await this.getLabels(actorDids);
-    
+
     // Get content labels
     const contentLabels = await this.getLabels(contentUris);
 
     // Build content URI to actor DID mapping
     const contentToActor = new Map<string, string>();
-    
+
     // Extract actor DID from content URI (at://did/collection/rkey)
     for (const uri of contentUris) {
       const match = uri.match(/^at:\/\/([^/]+)\//);
@@ -148,20 +150,20 @@ export class LabelPropagator {
 
     // Propagate actor labels to content
     const result = new Map<string, Label[]>();
-    
+
     for (const uri of contentUris) {
       const actorDid = contentToActor.get(uri);
       const contentLabelsList = contentLabels.get(uri) || [];
-      const actorLabelsList = actorDid ? (actorLabels.get(actorDid) || []) : [];
-      
+      const actorLabelsList = actorDid ? actorLabels.get(actorDid) || [] : [];
+
       // Combine content and actor labels (content labels take precedence)
       const combined = [...contentLabelsList, ...actorLabelsList];
-      
+
       // Remove duplicates
       const unique = Array.from(
-        new Map(combined.map(l => [`${l.src}:${l.val}`, l])).values()
+        new Map(combined.map((l) => [`${l.src}:${l.val}`, l])).values()
       );
-      
+
       result.set(uri, unique);
     }
 
@@ -177,7 +179,7 @@ export class LabelPropagator {
     viewerPreferences?: any
   ): Promise<Set<string>> {
     const actorDids = contentUris
-      .map(uri => {
+      .map((uri) => {
         const match = uri.match(/^at:\/\/([^/]+)\//);
         return match ? match[1] : null;
       })
@@ -189,7 +191,7 @@ export class LabelPropagator {
     for (const uri of contentUris) {
       const labels = allLabels.get(uri) || [];
       const filter = this.shouldFilter(labels, viewerPreferences);
-      
+
       if (!filter.shouldHide) {
         allowed.add(uri);
       }

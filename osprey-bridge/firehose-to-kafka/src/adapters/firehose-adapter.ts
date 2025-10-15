@@ -31,21 +31,25 @@ export class FirehoseAdapter implements InputAdapter {
   }
 
   async start(eventHandler: EventHandler): Promise<void> {
-    console.log(`[${this.getName()}] Starting firehose connection to ${this.config.url}...`);
+    console.log(
+      `[${this.getName()}] Starting firehose connection to ${this.config.url}...`
+    );
 
     // Load saved cursor
     const savedCursor = this.loadCursor();
-    
+
     // Create firehose client
     const firehoseOptions: any = {
       relay: this.config.url,
     };
-    
+
     if (savedCursor) {
       firehoseOptions.cursor = savedCursor;
-      console.log(`[${this.getName()}] Resuming from cursor: ${savedCursor.slice(0, 20)}...`);
+      console.log(
+        `[${this.getName()}] Resuming from cursor: ${savedCursor.slice(0, 20)}...`
+      );
     }
-    
+
     this.firehose = new Firehose(firehoseOptions);
 
     // Handle commit events
@@ -64,14 +68,14 @@ export class FirehoseAdapter implements InputAdapter {
               action: op.action,
               path: op.path,
             };
-            
+
             if (op.action !== 'delete' && 'cid' in op) {
-              baseOp.cid = op.cid?.toString() || "";
+              baseOp.cid = op.cid?.toString() || '';
             }
             if (op.action !== 'delete' && 'record' in op) {
               baseOp.record = op.record;
             }
-            
+
             return baseOp;
           }),
         },

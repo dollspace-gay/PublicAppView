@@ -53,7 +53,10 @@ export class HealthCheckServer {
         const uptime = Math.floor((Date.now() - this.startTime) / 1000);
 
         const health: HealthStatus = {
-          status: bridgeStatus.running && bridgeStatus.kafka.connected ? 'healthy' : 'unhealthy',
+          status:
+            bridgeStatus.running && bridgeStatus.kafka.connected
+              ? 'healthy'
+              : 'unhealthy',
           adapter: {
             type: bridgeStatus.adapterType,
             running: bridgeStatus.running,
@@ -88,15 +91,23 @@ export class HealthCheckServer {
         if (bridgeStatus.running && bridgeStatus.kafka.connected) {
           res.status(200).json({ ready: true });
         } else {
-          res.status(503).json({ ready: false, timestamp: new Date().toISOString() });
+          res
+            .status(503)
+            .json({ ready: false, timestamp: new Date().toISOString() });
         }
       } catch (error) {
-        res.status(503).json({ ready: false, error: 'Failed to get readiness status', timestamp: new Date().toISOString() });
+        res.status(503).json({
+          ready: false,
+          error: 'Failed to get readiness status',
+          timestamp: new Date().toISOString(),
+        });
       }
     });
 
     this.server = this.app.listen(this.port, () => {
-      console.log(`[HEALTH] Health check server listening on port ${this.port}`);
+      console.log(
+        `[HEALTH] Health check server listening on port ${this.port}`
+      );
     });
   }
 
