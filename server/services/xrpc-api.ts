@@ -990,9 +990,14 @@ export class XRPCApi {
         };
       }
 
+      // Set the embed view - prioritize hydratedEmbed, but include record.embed as fallback
       if (hydratedEmbed) {
         // Transform relative URLs in embeds to full URIs
         postView.embed = this.transformEmbedUrls(hydratedEmbed, req);
+      } else if (record.embed) {
+        // If no hydratedEmbed but we have a record embed, use that
+        // This ensures embeds are always available even if embed resolver didn't process them
+        postView.embed = this.transformEmbedUrls(record.embed, req);
       }
 
       return postView;
