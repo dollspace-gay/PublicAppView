@@ -223,16 +223,15 @@ export class PDSDataFetcher {
               const cleanDid = this.sanitizeDID(entry.did);
               const handle = await didResolver.resolveDIDToHandle(cleanDid);
 
-              await storage.updateUser(cleanDid, {
-                handle: handle || cleanDid,
-                displayName: null,
-                description: null,
-                avatarUrl: null,
-                bannerUrl: null,
-              });
+              // Only update handle if we have one - preserve any existing profile data
+              if (handle) {
+                await storage.updateUser(cleanDid, {
+                  handle: handle,
+                });
+              }
 
               console.log(
-                `[PDS_FETCHER] Created minimal user record for ${cleanDid} after max retries`
+                `[PDS_FETCHER] Updated handle for ${cleanDid} after max retries (preserved existing profile data)`
               );
 
               // Flush any pending operations for this user
@@ -392,16 +391,15 @@ export class PDSDataFetcher {
         if (profileResponse.status === 400 && isRecordNotFound) {
           const handle = await didResolver.resolveDIDToHandle(did);
 
-          await storage.updateUser(did, {
-            handle: handle || did,
-            displayName: null,
-            description: null,
-            avatarUrl: null,
-            bannerUrl: null,
-          });
+          // Only update handle if we resolved one - don't overwrite existing profile data
+          if (handle) {
+            await storage.updateUser(did, {
+              handle: handle,
+            });
+          }
 
           console.warn(
-            `[PDS_FETCHER] No profile record at PDS for ${did} - created minimal user record`
+            `[PDS_FETCHER] No profile record at PDS for ${did} - preserved existing data`
           );
 
           await eventProcessor.flushPendingUserOps(did);
@@ -508,14 +506,49 @@ export class PDSDataFetcher {
         const avatarCid = extractBlobCid(profile.avatar);
         const bannerCid = extractBlobCid(profile.banner);
 
-        // Update user with full profile data
-        await storage.updateUser(did, {
-          handle: handle || did,
-          displayName: profile.displayName || null,
-          description: profile.description || null,
-          avatarUrl: avatarCid,
-          bannerUrl: bannerCid,
-        });
+        // Get existing user data to merge with PDS data
+        const existingUser = await storage.getUser(did);
+
+        // Build update object that only includes fields with values
+        // This preserves data from CAR imports and only fills in missing fields
+        const updateData: Partial<any> = {};
+        
+        // Always update handle if we have one
+        if (handle) {
+          updateData.handle = handle;
+        }
+        
+        // Only update profile fields if they have values OR if existing field is empty
+        // This way we enrich missing data without overwriting imported data
+        if (profile.displayName) {
+          updateData.displayName = profile.displayName;
+        } else if (!existingUser?.displayName) {
+          // Only set to null if we don't already have a value
+          updateData.displayName = null;
+        }
+        
+        if (profile.description) {
+          updateData.description = profile.description;
+        } else if (!existingUser?.description) {
+          updateData.description = null;
+        }
+        
+        if (avatarCid) {
+          updateData.avatarUrl = avatarCid;
+        } else if (!existingUser?.avatarUrl) {
+          updateData.avatarUrl = null;
+        }
+        
+        if (bannerCid) {
+          updateData.bannerUrl = bannerCid;
+        } else if (!existingUser?.bannerUrl) {
+          updateData.bannerUrl = null;
+        }
+
+        // Update user with enriched profile data (only non-null or empty fields)
+        if (Object.keys(updateData).length > 0) {
+          await storage.updateUser(did, updateData);
+        }
 
         // Batch logging: only log every 5000 updates
         this.updateCount++;
