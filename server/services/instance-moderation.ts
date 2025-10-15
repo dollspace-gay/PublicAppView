@@ -167,11 +167,11 @@ class InstanceModerationService {
 
     // Sanitize user-provided strings to prevent XSS when reason is displayed
     const sanitizedRequestor = params.requestor
-      .replace(/[<>\"']/g, '') // Remove HTML special characters
+      .replace(/[<>"']/g, '') // Remove HTML special characters
       .substring(0, 200); // Limit length
 
     const sanitizedDetails = params.details
-      .replace(/[<>\"']/g, '') // Remove HTML special characters
+      .replace(/[<>"']/g, '') // Remove HTML special characters
       .substring(0, 500); // Limit length
 
     await this.applyInstanceLabel({
