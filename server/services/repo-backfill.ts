@@ -378,6 +378,12 @@ export class RepoBackfillService {
 
       // Disable PDS fetching during bulk import to prevent connection overload
       repoEventProcessor.setSkipPdsFetching(true);
+      
+      // CRITICAL: Disable data collection forbidden checks during user's own CAR import
+      // This allows users to import their own data even if they have dataCollectionForbidden set
+      // The setting is meant to prevent collecting data ABOUT the user from external sources,
+      // not to prevent the user from importing their own data
+      repoEventProcessor.setSkipDataCollectionCheck(true);
 
       let recordsProcessed = 0;
       let recordsSkipped = 0;
@@ -444,8 +450,9 @@ export class RepoBackfillService {
           console.log(`[REPO_BACKFILL]   - ${collection}: ${count} records`);
         }
       } finally {
-        // Always re-enable PDS fetching, even if there was an error
+        // Always re-enable PDS fetching and data collection checks, even if there was an error
         repoEventProcessor.setSkipPdsFetching(false);
+        repoEventProcessor.setSkipDataCollectionCheck(false);
       }
 
       // Update progress

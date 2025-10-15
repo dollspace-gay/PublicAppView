@@ -233,6 +233,7 @@ export class EventProcessor {
   private userCreationCount = 0; // Counter for batch logging
   private readonly USER_BATCH_LOG_SIZE = 5000; // Log every 5000 user creations
   private skipPdsFetching = false; // Flag to disable PDS fetching during bulk operations
+  private skipDataCollectionCheck = false; // Flag to skip data collection checks during user-initiated imports
   private metrics = {
     pendingQueued: 0,
     pendingFlushed: 0,
@@ -274,6 +275,15 @@ export class EventProcessor {
    */
   setSkipPdsFetching(skip: boolean) {
     this.skipPdsFetching = skip;
+  }
+
+  /**
+   * Enable/disable data collection forbidden checks
+   * Should be disabled when users are importing their own CAR files
+   * (the check is meant to prevent collecting data about other users, not to block self-imports)
+   */
+  setSkipDataCollectionCheck(skip: boolean) {
+    this.skipDataCollectionCheck = skip;
   }
 
   /**
@@ -1157,7 +1167,8 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(authorDid)) {
+    // Skip this check during user-initiated CAR imports (user importing their own data)
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(authorDid)) {
       return;
     }
 
@@ -1357,7 +1368,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(userDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
       return;
     }
 
@@ -1433,7 +1444,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(userDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
       return;
     }
 
@@ -1521,7 +1532,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(userDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
       return;
     }
 
@@ -1617,7 +1628,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(followerDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(followerDid)) {
       return;
     }
 
@@ -1692,7 +1703,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(blockerDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(blockerDid)) {
       return;
     }
 
@@ -1746,7 +1757,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -1784,7 +1795,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -1860,7 +1871,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -1923,7 +1934,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -1956,7 +1967,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
@@ -1992,7 +2003,7 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (await this.isDataCollectionForbidden(creatorDid)) {
+    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
       return;
     }
 
