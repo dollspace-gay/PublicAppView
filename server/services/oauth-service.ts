@@ -205,7 +205,7 @@ export class OAuthService {
         return new Uint8Array(hash);
       };
 
-      const createKey = async (algs: string[]): Promise<any> => {
+      const createKey = async (_algs: string[]): Promise<any> => {
         // Generate ES256 key pair using crypto
         const { privateKey } = generateKeyPairSync('ec', {
           namedCurve: 'P-256',

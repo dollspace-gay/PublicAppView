@@ -1,6 +1,5 @@
 import { Firehose } from '@skyware/firehose';
 import WebSocket from 'ws';
-import { eventProcessor } from './event-processor';
 import { metricsService } from './metrics';
 import { logCollector } from './log-collector';
 import { redisQueue } from './redis-queue';

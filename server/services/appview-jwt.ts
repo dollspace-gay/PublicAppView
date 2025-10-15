@@ -7,7 +7,7 @@
 
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
-import { fromString, toString } from 'uint8arrays';
+import { fromString, toString, concat } from 'uint8arrays';
 import KeyEncoder from 'key-encoder';
 import elliptic from 'elliptic';
 
@@ -214,7 +214,6 @@ export class AppViewJWTService {
         return null;
       }
 
-      const header = decoded.header;
       const payload = decoded.payload as UserSignedJWTPayload;
 
       // Validate required fields
@@ -361,24 +360,124 @@ export class AppViewJWTService {
     payloadB64: string,
     signatureB64: string
   ): boolean {
-    // Implementation for ES256K signature verification
-    // This would need to be implemented based on the specific key format
-    console.warn(
-      '[AppViewJWT] ES256K signature verification not fully implemented'
-    );
-    return false;
+    try {
+      // Manually verify ES256K signatures using native crypto
+      const signingInput = fromString(`${headerB64}.${payloadB64}`);
+      const signature = fromString(signatureB64, 'base64url');
+
+      let publicKeyBytes: Uint8Array;
+
+      if (method.publicKeyJwk) {
+        const jwk = method.publicKeyJwk;
+        if (jwk.crv !== 'secp256k1' || !jwk.x || !jwk.y) {
+          throw new Error('Invalid JWK for ES256K');
+        }
+        const x = fromString(jwk.x, 'base64url');
+        const y = fromString(jwk.y, 'base64url');
+        publicKeyBytes = concat([new Uint8Array([0x04]), x, y]);
+      } else if (method.publicKeyMultibase) {
+        const { base58btc } = require('multiformats/bases/base58');
+        const { varint } = require('multiformats');
+        const multicodecBytes = base58btc.decode(method.publicKeyMultibase);
+        const [codec, bytesRead] = varint.decode(multicodecBytes);
+        if (codec !== 0xe7) throw new Error('Key is not ES256K');
+
+        const keyBytes = multicodecBytes.subarray(bytesRead);
+        if (keyBytes.length === 33) {
+          const ec = new elliptic.ec('secp256k1');
+          const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
+          publicKeyBytes = fromString(keyPoint.encode('hex', false), 'hex');
+        } else if (keyBytes.length === 65 && keyBytes[0] === 0x04) {
+          publicKeyBytes = keyBytes;
+        } else {
+          throw new Error('Invalid ES256K public key format');
+        }
+      } else {
+        throw new Error('No supported key format found for ES256K');
+      }
+
+      // Verify the signature using secp256k1
+      const KeyEncoderClass = (KeyEncoder as any).default || KeyEncoder;
+      const keyEncoder = new KeyEncoderClass('secp256k1');
+      const pemKey = keyEncoder.encodePublic(
+        toString(publicKeyBytes, 'hex'),
+        'raw',
+        'pem'
+      );
+      
+      const { createPublicKey, verify } = require('crypto');
+      const key = createPublicKey({ format: 'pem', key: pemKey });
+
+      const verified = verify(
+        'sha256',
+        signingInput,
+        {
+          key,
+          dsaEncoding: 'ieee-p1363',
+        },
+        signature
+      );
+
+      if (!verified) {
+        throw new Error('ES256K signature verification failed');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[AppViewJWT] ES256K signature verification failed:', error);
+      return false;
+    }
   }
 
   private async verifyES256Signature(
     method: any,
     token: string
   ): Promise<boolean> {
-    // Implementation for ES256 signature verification
-    // This would need to be implemented based on the specific key format
-    console.warn(
-      '[AppViewJWT] ES256 signature verification not fully implemented'
-    );
-    return false;
+    try {
+      const { base58btc } = require('multiformats/bases/base58');
+      const { varint } = require('multiformats');
+      const jose = require('jose');
+
+      // Use jose for ES256, which is well-supported
+      const getKey = async () => {
+        if (method.publicKeyJwk) {
+          return jose.importJWK(method.publicKeyJwk, 'ES256');
+        }
+        if (method.publicKeyMultibase) {
+          const multicodecBytes = base58btc.decode(method.publicKeyMultibase);
+          const [codec, bytesRead] = varint.decode(multicodecBytes);
+          if (codec !== 0x1200) throw new Error('Key is not ES256');
+
+          const keyBytes = multicodecBytes.subarray(bytesRead);
+          let x: Uint8Array, y: Uint8Array;
+          if (keyBytes.length === 65 && keyBytes[0] === 0x04) {
+            x = keyBytes.subarray(1, 33);
+            y = keyBytes.subarray(33, 65);
+          } else if (keyBytes.length === 33) {
+            const ec = new elliptic.ec('p256');
+            const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
+            x = keyPoint.getX().toBuffer('be', 32);
+            y = keyPoint.getY().toBuffer('be', 32);
+          } else {
+            throw new Error('Invalid ES256 public key format');
+          }
+          const jwk = {
+            kty: 'EC',
+            crv: 'P-256',
+            x: toString(x, 'base64url'),
+            y: toString(y, 'base64url'),
+          };
+          return jose.importJWK(jwk, 'ES256');
+        }
+        throw new Error('No supported key format found for ES256');
+      };
+      
+      await jose.jwtVerify(token, getKey);
+      return true;
+    } catch (error) {
+      console.error('[AppViewJWT] ES256 signature verification failed:', error);
+      return false;
+    }
   }
 
   /**

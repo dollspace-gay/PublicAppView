@@ -7,8 +7,6 @@
  * - API requests with authentication
  */
 
-import { didResolver } from './did-resolver';
-
 interface XRPCResponse<T = any> {
   success: boolean;
   data?: T;

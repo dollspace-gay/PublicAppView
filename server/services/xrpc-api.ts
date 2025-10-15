@@ -4,17 +4,12 @@ import { authService, validateAndRefreshSession } from './auth';
 import { contentFilter } from './content-filter';
 import { feedAlgorithm } from './feed-algorithm';
 import { feedGeneratorClient } from './feed-generator-client';
-import { pdsClient } from './pds-client';
 import { pdsDataFetcher } from './pds-data-fetcher';
 import { labelService } from './label';
-import { moderationService } from './moderation';
 import { searchService } from './search';
 import { isUrlSafeToFetch } from '../utils/security';
 import { z } from 'zod';
-import type { UserSettings } from '@shared/schema';
-import { Hydrator } from './hydration';
-import { Views } from './views';
-import { enhancedHydrator, optimizedHydrator } from './hydration/index';
+import { optimizedHydrator } from './hydration/index';
 import { dataLoaderHydrator } from './hydration/dataloader-hydrator';
 import { getRequestDataLoader } from '../middleware/dataloader';
 
@@ -322,10 +317,6 @@ const putNotificationPreferencesSchema = z.object({
 
 const getJobStatusSchema = z.object({
   jobId: z.string(),
-});
-
-const getUploadLimitsSchema = z.object({
-  // No required params - authenticated endpoint
 });
 
 // Additional schemas for parity with upstream

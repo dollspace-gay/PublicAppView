@@ -3,9 +3,8 @@ import {
   posts,
   users,
   postAggregations,
-  postViewerStates,
 } from '../../../shared/schema';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { ViewerContextBuilder, ViewerContext } from './viewer-context';
 import { EmbedResolver } from './embed-resolver';
 import { LabelPropagator, Label } from './label-propagator';

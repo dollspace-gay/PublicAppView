@@ -1,6 +1,6 @@
 import { db } from '../../db';
-import { labels, users } from '../../../shared/schema';
-import { inArray, eq, or, and } from 'drizzle-orm';
+import { labels } from '../../../shared/schema';
+import { inArray } from 'drizzle-orm';
 
 export interface Label {
   $type: 'com.atproto.label.defs#label';

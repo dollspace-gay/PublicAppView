@@ -36,7 +36,7 @@ class IdentityResolver {
 
         this.resolving.delete(did);
         return null;
-      } catch (error) {
+      } catch {
         this.resolving.delete(did);
         return null;
       }

@@ -15,7 +15,7 @@ import {
   postGates,
   labels as labelsTable,
 } from '../../../shared/schema';
-import { eq, inArray, and, or, sql } from 'drizzle-orm';
+import { eq, inArray, and, or } from 'drizzle-orm';
 
 export interface ViewerStateKey {
   uri: string;

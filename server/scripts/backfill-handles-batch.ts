@@ -58,7 +58,7 @@ async function backfillHandles() {
         try {
           await db.update(users).set({ handle }).where(eq(users.did, did));
           totalResolved++;
-        } catch (error) {
+        } catch {
           totalFailed++;
         }
       }

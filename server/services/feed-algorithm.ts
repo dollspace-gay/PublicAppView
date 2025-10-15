@@ -1,5 +1,4 @@
 import type { Post } from '@shared/schema';
-import { storage } from '../storage';
 import { db } from '../db';
 import { postAggregations } from '@shared/schema';
 import { inArray } from 'drizzle-orm';

@@ -1,13 +1,10 @@
 import { storage, type IStorage } from '../storage';
-import { lexiconValidator } from './lexicon-validator';
 import { labelService } from './label';
 import { didResolver } from './did-resolver';
 import { pdsDataFetcher } from './pds-data-fetcher';
 import { smartConsole } from './console-wrapper';
-import { logAggregator } from './log-aggregator';
 import { sanitizeObject } from '../utils/sanitize';
 import type {
-  InsertUser,
   InsertPost,
   InsertLike,
   InsertRepost,
@@ -19,7 +16,6 @@ import type {
   InsertStarterPack,
   InsertLabelerService,
   InsertFeedItem,
-  InsertQuote,
   InsertVerification,
 } from '@shared/schema';
 import { CID } from 'multiformats/cid';
@@ -576,7 +572,7 @@ export class EventProcessor {
         this.metrics.pendingUserOpsFlushed++;
         this.pendingUserOpIndex.delete(op.payload.uri);
         this.totalPendingUserOps--;
-      } catch (error) {
+      } catch {
         // Skip on error
       }
     }
@@ -1514,7 +1510,7 @@ export class EventProcessor {
     uri: string,
     userDid: string,
     record: any,
-    cid?: string
+    _cid?: string
   ) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
@@ -2107,7 +2103,7 @@ export class EventProcessor {
           if (follow) {
             await this.storage.deleteFollow(uri, follow.followerDid);
           }
-        } catch (error: any) {
+        } catch {
           // Fallback: extract followerDid from URI (at://did/collection/rkey)
           const uriParts = uri.replace('at://', '').split('/');
           if (uriParts.length >= 1) {
@@ -2172,9 +2168,9 @@ export class EventProcessor {
    */
   private async processPostGate(
     uri: string,
-    cid: string,
-    repo: string,
-    record: any
+    _cid: string,
+    _repo: string,
+    _record: any
   ) {
     // Post gates are typically stored as metadata on posts
     // For now, we'll just log them as they're not critical for basic functionality
@@ -2186,9 +2182,9 @@ export class EventProcessor {
    */
   private async processThreadGate(
     uri: string,
-    cid: string,
-    repo: string,
-    record: any
+    _cid: string,
+    _repo: string,
+    _record: any
   ) {
     // Thread gates are typically stored as metadata on posts
     // For now, we'll just log them as they're not critical for basic functionality
@@ -2200,9 +2196,9 @@ export class EventProcessor {
    */
   private async processListBlock(
     uri: string,
-    cid: string,
-    repo: string,
-    record: any
+    _cid: string,
+    _repo: string,
+    _record: any
   ) {
     // List blocks are already handled by the existing listBlocks table
     // This is just a placeholder for the specific record type
@@ -2214,9 +2210,9 @@ export class EventProcessor {
    */
   private async processNotificationDeclaration(
     uri: string,
-    cid: string,
-    repo: string,
-    record: any
+    _cid: string,
+    _repo: string,
+    _record: any
   ) {
     // Notification declarations are typically stored as user preferences
     // For now, we'll just log them as they're not critical for basic functionality

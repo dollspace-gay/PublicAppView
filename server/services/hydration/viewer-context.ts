@@ -1,6 +1,5 @@
 import { db } from '../../db';
 import {
-  users,
   blocks,
   mutes,
   follows,

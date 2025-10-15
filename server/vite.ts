@@ -80,7 +80,7 @@ export async function setupVite(app: Express, server: Server) {
         safePath = sanitizeUrlPath(parsedUrl.pathname);
         // Ensure path is normalized and doesn't contain dangerous patterns
         safePath = path.posix.normalize(safePath);
-      } catch (error) {
+      } catch {
         // If URL parsing fails, use root path
         console.warn('[VITE] Invalid URL, using root path:', req.originalUrl);
         safePath = '/';

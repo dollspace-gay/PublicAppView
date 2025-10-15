@@ -231,7 +231,7 @@ class ConstellationIntegration {
         } else {
           throw new Error('JSON response missing total field');
         }
-      } catch (jsonError) {
+      } catch {
         // Fall back to plain text number (old API format)
         count = parseInt(text.trim(), 10);
       }
@@ -307,7 +307,7 @@ class ConstellationIntegration {
       await this.setInCache(cacheKey, stats);
 
       return stats;
-    } catch (error) {
+    } catch {
       // Return null on error - caller will fall back to local counts
       return null;
     }
@@ -394,7 +394,7 @@ class ConstellationIntegration {
       await this.setInCache(cacheKey, stats);
 
       return stats;
-    } catch (error) {
+    } catch {
       return null;
     }
   }
