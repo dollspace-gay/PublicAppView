@@ -19,6 +19,7 @@ import * as utilityService from './services/utility-service';
 import * as preferencesService from './services/preferences-service';
 import * as notificationService from './services/notification-service';
 import * as starterPackService from './services/starter-pack-service';
+import * as pushNotificationService from './services/push-notification-service';
 
 /**
  * XRPC Orchestrator Class
@@ -156,6 +157,15 @@ export class XRPCOrchestrator {
     res: Response
   ): Promise<void> {
     return starterPackService.getOnboardingSuggestedStarterPacks(req, res);
+  }
+
+  // Push Notification Service (2 endpoints)
+  async registerPush(req: Request, res: Response): Promise<void> {
+    return pushNotificationService.registerPush(req, res);
+  }
+
+  async unregisterPush(req: Request, res: Response): Promise<void> {
+    return pushNotificationService.unregisterPush(req, res);
   }
 
   // ============================================================================
@@ -306,15 +316,6 @@ export class XRPCOrchestrator {
 
   async getSuggestedFeedsUnspecced(req: Request, res: Response): Promise<void> {
     return this.legacy.getSuggestedFeedsUnspecced(req, res);
-  }
-
-  // Push notification endpoints (still in legacy)
-  async registerPush(req: Request, res: Response): Promise<void> {
-    return this.legacy.registerPush(req, res);
-  }
-
-  async unregisterPush(req: Request, res: Response): Promise<void> {
-    return this.legacy.unregisterPush(req, res);
   }
 
   // Unspecced/misc endpoints

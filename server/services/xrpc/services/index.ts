@@ -49,3 +49,6 @@ export {
   getStarterPacksWithMembership,
   getOnboardingSuggestedStarterPacks,
 } from './starter-pack-service';
+
+// Push Notification Service
+export { registerPush, unregisterPush } from './push-notification-service';
