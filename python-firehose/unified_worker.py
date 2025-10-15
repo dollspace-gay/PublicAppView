@@ -346,9 +346,27 @@ class EventProcessor:
         for op in ops:
             try:
                 if op['type'] == 'like':
-                    await self._create_like_internal(conn, op['uri'], op['user_did'], op['post_uri'], op['created_at'])
+                    await self._create_like_internal(
+                        conn, 
+                        op['uri'], 
+                        op['user_did'], 
+                        op['post_uri'], 
+                        op['created_at'],
+                        op.get('cid'),
+                        op.get('subject_cid'),
+                        op.get('via')
+                    )
                 elif op['type'] == 'repost':
-                    await self._create_repost_internal(conn, op['uri'], op['user_did'], op['post_uri'], op.get('cid', op['uri']), op['created_at'])
+                    await self._create_repost_internal(
+                        conn, 
+                        op['uri'], 
+                        op['user_did'], 
+                        op['post_uri'], 
+                        op.get('cid', op['uri']), 
+                        op['created_at'],
+                        op.get('subject_cid'),
+                        op.get('via')
+                    )
                 
                 self.pending_op_index.pop(op['uri'], None)
                 self.total_pending_count -= 1
@@ -485,10 +503,26 @@ class EventProcessor:
                     record_type = getattr(record, 'py_type', None)
                     
                     if record_type == "app.bsky.feed.like":
-                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        subject = getattr(record, 'subject', None)
+                        post_uri = getattr(subject, 'uri', None) if subject else None
+                        subject_cid = getattr(subject, 'cid', None) if subject else None
+                        
+                        # Extract via field if present
+                        via = getattr(record, 'via', None)
+                        via_json = None
+                        if via:
+                            try:
+                                via_data = {
+                                    'cid': getattr(via, 'cid', None),
+                                    'uri': getattr(via, 'uri', None)
+                                }
+                                via_json = json.dumps(via_data, cls=SafeJSONEncoder)
+                            except Exception as e:
+                                logger.debug(f"Could not serialize via field: {e}")
+                        
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_like(conn, uri, repo, post_uri, created_at, cid)
+                            await self.process_like(conn, uri, repo, post_uri, created_at, cid, subject_cid, via_json)
                     
                     elif record_type == "app.bsky.graph.follow":
                         following_did = getattr(record, 'subject', None)
@@ -775,11 +809,13 @@ class EventProcessor:
         reply = getattr(record, 'reply', None)
         embed = getattr(record, 'embed', None)
         facets = getattr(record, 'facets', None)
+        langs = getattr(record, 'langs', None)
         created_at = self.safe_date(getattr(record, 'createdAt', None))
         
-        # Serialize embed and facets as JSON
+        # Serialize embed, facets, and langs as JSON
         embed_json = None
         facets_json = None
+        langs_json = None
         
         if embed:
             try:
@@ -800,20 +836,38 @@ class EventProcessor:
             except Exception as e:
                 logger.debug(f"Could not serialize facets: {e}")
         
+        if langs:
+            try:
+                # langs can be a single string or an array
+                if isinstance(langs, list):
+                    langs_json = json.dumps(langs, cls=SafeJSONEncoder)
+                else:
+                    langs_json = json.dumps([langs], cls=SafeJSONEncoder)
+            except Exception as e:
+                logger.debug(f"Could not serialize langs: {e}")
+        
         parent_uri = None
+        parent_cid = None
         root_uri = None
+        root_cid = None
         if reply:
-            parent_uri = getattr(getattr(reply, 'parent', None), 'uri', None)
-            root_uri = getattr(getattr(reply, 'root', None), 'uri', None)
+            parent = getattr(reply, 'parent', None)
+            root = getattr(reply, 'root', None)
+            if parent:
+                parent_uri = getattr(parent, 'uri', None)
+                parent_cid = getattr(parent, 'cid', None)
+            if root:
+                root_uri = getattr(root, 'uri', None)
+                root_cid = getattr(root, 'cid', None)
         
         try:
             await conn.execute(
                 """
-                INSERT INTO posts (uri, cid, author_did, text, parent_uri, root_uri, embed, facets, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+                INSERT INTO posts (uri, cid, author_did, text, langs, parent_uri, parent_cid, root_uri, root_cid, embed, facets, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
                 ON CONFLICT (uri) DO NOTHING
                 """,
-                uri, cid, author_did, text, parent_uri, root_uri, embed_json, facets_json, created_at
+                uri, cid, author_did, text, langs_json, parent_uri, parent_cid, root_uri, root_cid, embed_json, facets_json, created_at
             )
             
             # Create post aggregation
@@ -941,16 +995,18 @@ class EventProcessor:
         user_did: str,
         post_uri: str,
         created_at: datetime,
-        cid: Optional[str] = None
+        cid: Optional[str] = None,
+        subject_cid: Optional[str] = None,
+        via: Optional[str] = None
     ):
         """Internal method to create like (used by both direct and pending processing)"""
         await conn.execute(
             """
-            INSERT INTO likes (uri, user_did, post_uri, created_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO likes (uri, user_did, post_uri, created_at, subject_cid, via)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, user_did, post_uri, created_at
+            uri, user_did, post_uri, created_at, subject_cid, via
         )
         
         # Increment like count
@@ -976,6 +1032,8 @@ class EventProcessor:
         post_uri: str,
         created_at: datetime,
         cid: Optional[str] = None,
+        subject_cid: Optional[str] = None,
+        via: Optional[str] = None,
         repo: Optional[str] = None,
         op: Optional[Any] = None
     ):
@@ -993,7 +1051,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_like_internal(conn, uri, user_did, post_uri, created_at, cid)
+            await self._create_like_internal(conn, uri, user_did, post_uri, created_at, cid, subject_cid, via)
             logger.debug(f"Created like: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1006,6 +1064,8 @@ class EventProcessor:
                 'post_uri': post_uri,
                 'created_at': created_at,
                 'cid': cid,
+                'subject_cid': subject_cid,
+                'via': via,
                 'enqueued_at': time.time() * 1000
             })
         except Exception as e:
@@ -1018,16 +1078,18 @@ class EventProcessor:
         user_did: str,
         post_uri: str,
         cid: str,
-        created_at: datetime
+        created_at: datetime,
+        subject_cid: Optional[str] = None,
+        via: Optional[str] = None
     ):
         """Internal method to create repost"""
         await conn.execute(
             """
-            INSERT INTO reposts (uri, user_did, post_uri, created_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO reposts (uri, user_did, post_uri, created_at, subject_cid, via)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, user_did, post_uri, created_at
+            uri, user_did, post_uri, created_at, subject_cid, via
         )
         
         # Increment repost count
@@ -1062,7 +1124,9 @@ class EventProcessor:
         user_did: str,
         post_uri: str,
         cid: str,
-        created_at: datetime
+        created_at: datetime,
+        subject_cid: Optional[str] = None,
+        via: Optional[str] = None
     ):
         """Process repost creation"""
         await self.ensure_user(conn, user_did)
@@ -1072,7 +1136,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_repost_internal(conn, uri, user_did, post_uri, cid, created_at)
+            await self._create_repost_internal(conn, uri, user_did, post_uri, cid, created_at, subject_cid, via)
             logger.debug(f"Created repost: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1084,6 +1148,8 @@ class EventProcessor:
                 'user_did': user_did,
                 'post_uri': post_uri,
                 'cid': cid,
+                'subject_cid': subject_cid,
+                'via': via,
                 'created_at': created_at,
                 'enqueued_at': time.time() * 1000
             })
@@ -1623,16 +1689,48 @@ class EventProcessor:
                     elif record_type == "app.bsky.feed.like":
                         # Extract path from uri for compatibility
                         path = uri.split('at://')[1].split(author_did + '/')[1] if 'at://' in uri else ''
-                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        subject = getattr(record, 'subject', None)
+                        post_uri = getattr(subject, 'uri', None) if subject else None
+                        subject_cid = getattr(subject, 'cid', None) if subject else None
+                        
+                        # Extract via field if present
+                        via = getattr(record, 'via', None)
+                        via_json = None
+                        if via:
+                            try:
+                                via_data = {
+                                    'cid': getattr(via, 'cid', None),
+                                    'uri': getattr(via, 'uri', None)
+                                }
+                                via_json = json.dumps(via_data, cls=SafeJSONEncoder)
+                            except Exception as e:
+                                logger.debug(f"Could not serialize via field: {e}")
+                        
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_like(conn, uri, author_did, post_uri, created_at, cid)
+                            await self.process_like(conn, uri, author_did, post_uri, created_at, cid, subject_cid, via_json)
                     
                     elif record_type == "app.bsky.feed.repost":
-                        post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
+                        subject = getattr(record, 'subject', None)
+                        post_uri = getattr(subject, 'uri', None) if subject else None
+                        subject_cid = getattr(subject, 'cid', None) if subject else None
+                        
+                        # Extract via field if present
+                        via = getattr(record, 'via', None)
+                        via_json = None
+                        if via:
+                            try:
+                                via_data = {
+                                    'cid': getattr(via, 'cid', None),
+                                    'uri': getattr(via, 'uri', None)
+                                }
+                                via_json = json.dumps(via_data, cls=SafeJSONEncoder)
+                            except Exception as e:
+                                logger.debug(f"Could not serialize via field: {e}")
+                        
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_repost(conn, uri, author_did, post_uri, cid, created_at)
+                            await self.process_repost(conn, uri, author_did, post_uri, cid, created_at, subject_cid, via_json)
                     
                     elif record_type == "app.bsky.graph.follow":
                         following_did = getattr(record, 'subject', None)

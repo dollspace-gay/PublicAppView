@@ -57,8 +57,11 @@ export const posts = pgTable(
     cid: varchar('cid', { length: 255 }).notNull(),
     authorDid: varchar('author_did', { length: 255 }).notNull(), // No FK - can reference external users
     text: text('text').notNull(),
+    langs: jsonb('langs'), // Language tags (can be array or single string)
     parentUri: varchar('parent_uri', { length: 512 }),
+    parentCid: varchar('parent_cid', { length: 255 }), // CID of parent post in reply
     rootUri: varchar('root_uri', { length: 512 }),
+    rootCid: varchar('root_cid', { length: 255 }), // CID of root post in reply thread
     embed: jsonb('embed'),
     facets: jsonb('facets'), // Rich text facets (links, mentions, hashtags)
     violatesThreadGate: boolean('violates_thread_gate')
@@ -192,6 +195,8 @@ export const likes = pgTable(
     uri: varchar('uri', { length: 512 }).primaryKey(),
     userDid: varchar('user_did', { length: 255 }).notNull(), // No FK - can reference external users
     postUri: varchar('post_uri', { length: 512 }).notNull(), // No FK - can reference external posts
+    subjectCid: varchar('subject_cid', { length: 255 }), // CID of the liked post
+    via: jsonb('via'), // Optional: {cid, uri} of item that led to this like (e.g., from a repost)
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
   },
@@ -212,6 +217,8 @@ export const reposts = pgTable(
     uri: varchar('uri', { length: 512 }).primaryKey(),
     userDid: varchar('user_did', { length: 255 }).notNull(), // No FK - can reference external users
     postUri: varchar('post_uri', { length: 512 }).notNull(), // No FK - can reference external posts
+    subjectCid: varchar('subject_cid', { length: 255 }), // CID of the reposted post
+    via: jsonb('via'), // Optional: {cid, uri} of item that led to this repost
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
   },
