@@ -765,33 +765,49 @@ class EventProcessor:
     ):
         """Create or update post viewer state"""
         try:
-            # Build update fields
+            # Build update fields and parameters
             updates = []
-            params = [post_uri, viewer_did]
+            insert_params = [post_uri, viewer_did]
             param_idx = 3
-            
+
+            # Build VALUES clause with proper parameter handling
+            like_param = f'${param_idx}' if like_uri else 'NULL'
             if like_uri:
-                updates.append(f'like_uri = ${param_idx}')
-                params.append(like_uri)
+                insert_params.append(like_uri)
                 param_idx += 1
-            
+
+            repost_param = f'${param_idx}' if repost_uri else 'NULL'
             if repost_uri:
-                updates.append(f'repost_uri = ${param_idx}')
-                params.append(repost_uri)
+                insert_params.append(repost_uri)
                 param_idx += 1
-            
+
+            bookmarked_value = 'true' if bookmarked else 'false'
+
+            # Build update clauses
+            update_idx = 3
+            update_params = [post_uri, viewer_did]
+            if like_uri:
+                updates.append(f'like_uri = ${update_idx}')
+                update_params.append(like_uri)
+                update_idx += 1
+
+            if repost_uri:
+                updates.append(f'repost_uri = ${update_idx}')
+                update_params.append(repost_uri)
+                update_idx += 1
+
             if bookmarked:
                 updates.append('bookmarked = true')
-            
+
             # Insert or update
             await conn.execute(
                 f"""
                 INSERT INTO post_viewer_states (post_uri, viewer_did, like_uri, repost_uri, bookmarked, thread_muted, reply_disabled, embedding_disabled, pinned)
-                VALUES ($1, $2, ${3 if like_uri else 'NULL'}, ${4 if repost_uri else 'NULL'}, ${'true' if bookmarked else 'false'}, false, false, false, false)
+                VALUES ($1, $2, {like_param}, {repost_param}, {bookmarked_value}, false, false, false, false)
                 ON CONFLICT (post_uri, viewer_did) DO UPDATE SET
                     {', '.join(updates) if updates else 'like_uri = post_viewer_states.like_uri'}
-                """.replace('${', '$'),
-                *params[:2], *(params[2:] if updates else [])
+                """,
+                *insert_params
             )
         except Exception as e:
             logger.debug(f"Error creating viewer state: {e}")
