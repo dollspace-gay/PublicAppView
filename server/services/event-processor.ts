@@ -1565,6 +1565,8 @@ export class EventProcessor {
 
     const existingUser = await this.storage.getUser(did);
 
+    // When processing profile records (e.g., from CAR imports), we trust the record data
+    // as the source of truth and apply it as-is
     const profileData = {
       handle: handle || 'handle.invalid', // Use resolved handle or standard fallback
       displayName: sanitizeText(record.displayName),
