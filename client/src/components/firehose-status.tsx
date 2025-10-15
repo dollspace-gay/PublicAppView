@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { CheckCircle2, XCircle } from 'lucide-react';
 
 interface FirehoseStatusProps {
   connected: boolean;
@@ -11,7 +11,14 @@ interface FirehoseStatusProps {
   onReconnect: () => void;
 }
 
-export function FirehoseStatus({ connected, commits, identity, account, errorRate, onReconnect }: FirehoseStatusProps) {
+export function FirehoseStatus({
+  connected,
+  commits,
+  identity,
+  account,
+  errorRate,
+  onReconnect,
+}: FirehoseStatusProps) {
   return (
     <Card className="border-border" data-testid="card-firehose-status">
       <CardHeader className="border-b border-border">
@@ -26,15 +33,20 @@ export function FirehoseStatus({ connected, commits, identity, account, errorRat
               <XCircle className="w-3 h-3 text-destructive" />
             )}
             <div>
-              <p className="text-sm font-semibold text-foreground" data-testid="text-firehose-status">
-                {connected ? "Connected" : "Disconnected"}
+              <p
+                className="text-sm font-semibold text-foreground"
+                data-testid="text-firehose-status"
+              >
+                {connected ? 'Connected' : 'Disconnected'}
               </p>
-              <p className="text-xs text-muted-foreground font-mono">wss://bsky.network</p>
+              <p className="text-xs text-muted-foreground font-mono">
+                wss://bsky.network
+              </p>
             </div>
           </div>
-          <Button 
-            size="sm" 
-            variant="ghost" 
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={onReconnect}
             data-testid="button-reconnect"
           >
@@ -44,15 +56,30 @@ export function FirehoseStatus({ connected, commits, identity, account, errorRat
 
         <div className="grid grid-cols-3 gap-4">
           <div className="text-center p-3 bg-muted rounded-lg">
-            <p className="text-2xl font-bold text-foreground font-mono" data-testid="text-commits">{commits.toLocaleString()}</p>
+            <p
+              className="text-2xl font-bold text-foreground font-mono"
+              data-testid="text-commits"
+            >
+              {commits.toLocaleString()}
+            </p>
             <p className="text-xs text-muted-foreground mt-1">#commit</p>
           </div>
           <div className="text-center p-3 bg-muted rounded-lg">
-            <p className="text-2xl font-bold text-foreground font-mono" data-testid="text-identity">{identity.toLocaleString()}</p>
+            <p
+              className="text-2xl font-bold text-foreground font-mono"
+              data-testid="text-identity"
+            >
+              {identity.toLocaleString()}
+            </p>
             <p className="text-xs text-muted-foreground mt-1">#identity</p>
           </div>
           <div className="text-center p-3 bg-muted rounded-lg">
-            <p className="text-2xl font-bold text-foreground font-mono" data-testid="text-account">{account.toLocaleString()}</p>
+            <p
+              className="text-2xl font-bold text-foreground font-mono"
+              data-testid="text-account"
+            >
+              {account.toLocaleString()}
+            </p>
             <p className="text-xs text-muted-foreground mt-1">#account</p>
           </div>
         </div>
@@ -60,9 +87,14 @@ export function FirehoseStatus({ connected, commits, identity, account, errorRat
         <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
           <div>
             <p className="text-sm font-semibold text-foreground">Error Rate</p>
-            <p className="text-xs text-muted-foreground mt-1">Invalid records discarded</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Invalid records discarded
+            </p>
           </div>
-          <span className="text-lg font-bold text-foreground font-mono" data-testid="text-error-rate">
+          <span
+            className="text-lg font-bold text-foreground font-mono"
+            data-testid="text-error-rate"
+          >
             {errorRate.toFixed(2)}%
           </span>
         </div>

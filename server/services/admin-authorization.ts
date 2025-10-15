@@ -1,13 +1,13 @@
 /**
  * Admin Authorization Service
- * 
+ *
  * Manages authorized admin users from ADMIN_DIDS environment variable
  */
 
-import { db } from "../db";
-import { authorizedAdmins } from "@shared/schema";
-import { eq } from "drizzle-orm";
-import { didResolver } from "./did-resolver";
+import { db } from '../db';
+import { authorizedAdmins } from '@shared/schema';
+import { eq } from 'drizzle-orm';
+import { didResolver } from './did-resolver';
 
 export class AdminAuthorizationService {
   private initialized = false;
@@ -22,17 +22,22 @@ export class AdminAuthorizationService {
     }
 
     const adminDids = process.env.ADMIN_DIDS?.trim();
-    
+
     if (!adminDids) {
-      console.log("[ADMIN_AUTH] No ADMIN_DIDS configured - admin panel will be inaccessible");
+      console.log(
+        '[ADMIN_AUTH] No ADMIN_DIDS configured - admin panel will be inaccessible'
+      );
       this.initialized = true;
       return;
     }
 
-    const entries = adminDids.split(",").map(s => s.trim()).filter(Boolean);
-    
+    const entries = adminDids
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     if (entries.length === 0) {
-      console.log("[ADMIN_AUTH] No admin DIDs/handles provided");
+      console.log('[ADMIN_AUTH] No admin DIDs/handles provided');
       this.initialized = true;
       return;
     }
@@ -45,9 +50,9 @@ export class AdminAuthorizationService {
         let handle: string;
 
         // Check if it's already a DID
-        if (entry.startsWith("did:")) {
+        if (entry.startsWith('did:')) {
           did = entry;
-          
+
           // Resolve DID to get handle
           const didDoc = await didResolver.resolveDID(did);
           if (!didDoc) {
@@ -56,38 +61,47 @@ export class AdminAuthorizationService {
           }
 
           // Extract handle from alsoKnownAs
-          const handleUri = didDoc.alsoKnownAs?.find((aka: string) => aka.startsWith("at://"));
+          const handleUri = didDoc.alsoKnownAs?.find((aka: string) =>
+            aka.startsWith('at://')
+          );
           if (handleUri) {
-            handle = handleUri.replace("at://", "");
+            handle = handleUri.replace('at://', '');
           } else {
             handle = did; // Fallback to using DID as handle
           }
         } else {
           // It's a handle - resolve to DID
           handle = entry;
-          
+
           // Try resolving with the DID resolver
           let resolvedDid = await didResolver.resolveHandle(handle);
-          
+
           if (!resolvedDid) {
             // Fallback: Try calling the official AT Protocol resolution endpoint
             try {
               const encodedHandle = encodeURIComponent(handle);
-              const response = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodedHandle}`);
+              const response = await fetch(
+                `https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodedHandle}`
+              );
               if (response.ok) {
                 const data = await response.json();
                 resolvedDid = data.did;
               }
             } catch (fetchError) {
-              console.error(`[ADMIN_AUTH] Fetch fallback failed for ${handle}:`, fetchError);
+              console.error(
+                `[ADMIN_AUTH] Fetch fallback failed for ${handle}:`,
+                fetchError
+              );
             }
           }
-          
+
           if (!resolvedDid) {
-            console.error(`[ADMIN_AUTH] Could not resolve handle ${handle} to DID`);
+            console.error(
+              `[ADMIN_AUTH] Could not resolve handle ${handle} to DID`
+            );
             continue;
           }
-          
+
           did = resolvedDid;
         }
 
@@ -97,7 +111,7 @@ export class AdminAuthorizationService {
           .values({ did, handle })
           .onConflictDoUpdate({
             target: authorizedAdmins.did,
-            set: { handle }
+            set: { handle },
           });
 
         console.log(`[ADMIN_AUTH] Authorized admin: ${handle} (${did})`);
@@ -107,7 +121,7 @@ export class AdminAuthorizationService {
     }
 
     this.initialized = true;
-    console.log("[ADMIN_AUTH] Admin authorization initialized");
+    console.log('[ADMIN_AUTH] Admin authorization initialized');
   }
 
   /**
@@ -123,7 +137,10 @@ export class AdminAuthorizationService {
 
       return admin.length > 0;
     } catch (error) {
-      console.error(`[ADMIN_AUTH] Error checking admin status for ${did}:`, error);
+      console.error(
+        `[ADMIN_AUTH] Error checking admin status for ${did}:`,
+        error
+      );
       return false;
     }
   }
@@ -133,11 +150,9 @@ export class AdminAuthorizationService {
    */
   async getAdmins() {
     try {
-      return await db
-        .select()
-        .from(authorizedAdmins);
+      return await db.select().from(authorizedAdmins);
     } catch (error) {
-      console.error("[ADMIN_AUTH] Error fetching admins:", error);
+      console.error('[ADMIN_AUTH] Error fetching admins:', error);
       return [];
     }
   }

@@ -1,6 +1,6 @@
 export interface LogEntry {
   timestamp: string;
-  level: "INFO" | "SUCCESS" | "WARNING" | "ERROR" | "EVENT";
+  level: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'EVENT';
   message: string;
   metadata?: Record<string, any>;
 }
@@ -9,7 +9,11 @@ class LogCollector {
   private logs: LogEntry[] = [];
   private maxLogs = 500;
 
-  log(level: LogEntry["level"], message: string, metadata?: Record<string, any>) {
+  log(
+    level: LogEntry['level'],
+    message: string,
+    metadata?: Record<string, any>
+  ) {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -18,17 +22,17 @@ class LogCollector {
     };
 
     this.logs.unshift(entry); // Add to beginning
-    
+
     if (this.logs.length > this.maxLogs) {
       this.logs.pop(); // Remove oldest
     }
 
     // ALWAYS output to stdout/stderr for production logging (captured by systemd/pm2/docker)
     const logLine = this.formatLogEntry(entry);
-    
-    if (level === "ERROR") {
+
+    if (level === 'ERROR') {
       console.error(logLine);
-    } else if (level === "WARNING") {
+    } else if (level === 'WARNING') {
       console.warn(logLine);
     } else {
       console.log(logLine);
@@ -44,23 +48,23 @@ class LogCollector {
   }
 
   info(message: string, metadata?: Record<string, any>) {
-    this.log("INFO", message, metadata);
+    this.log('INFO', message, metadata);
   }
 
   success(message: string, metadata?: Record<string, any>) {
-    this.log("SUCCESS", message, metadata);
+    this.log('SUCCESS', message, metadata);
   }
 
   warning(message: string, metadata?: Record<string, any>) {
-    this.log("WARNING", message, metadata);
+    this.log('WARNING', message, metadata);
   }
 
   error(message: string, metadata?: Record<string, any>) {
-    this.log("ERROR", message, metadata);
+    this.log('ERROR', message, metadata);
   }
 
   event(message: string, metadata?: Record<string, any>) {
-    this.log("EVENT", message, metadata);
+    this.log('EVENT', message, metadata);
   }
 
   getRecentLogs(limit: number = 100): LogEntry[] {

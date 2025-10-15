@@ -1,7 +1,7 @@
 // Feed types matching Bluesky's implementation
 export enum FeedType {
   POSTS_WITH_REPLIES = 'posts_with_replies',
-  POSTS_NO_REPLIES = 'posts_no_replies', 
+  POSTS_NO_REPLIES = 'posts_no_replies',
   POSTS_WITH_MEDIA = 'posts_with_media',
   POSTS_AND_AUTHOR_THREADS = 'posts_and_author_threads',
   POSTS_WITH_VIDEO = 'posts_with_video',
@@ -106,7 +106,7 @@ export class SelfThreadTracker {
 
   constructor(
     items: FeedItem[],
-    private hydration: HydrationState,
+    private hydration: HydrationState
   ) {
     items.forEach((item) => {
       if (!item.repost) {

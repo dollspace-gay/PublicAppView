@@ -1,8 +1,8 @@
-import { z } from "zod";
-import { didResolver } from "./did-resolver";
-import { storage } from "../storage";
-import { appViewJWTService } from "./appview-jwt";
-import type { Post } from "@shared/schema";
+import { z } from 'zod';
+import { didResolver } from './did-resolver';
+import { storage } from '../storage';
+import { appViewJWTService } from './appview-jwt';
+import type { Post } from '@shared/schema';
 
 const skeletonPostSchema = z.object({
   post: z.string(),
@@ -28,7 +28,8 @@ export interface HydratedFeedPost {
 
 export class FeedGeneratorClient {
   private readonly timeout = 10000; // 10 seconds
-  private cache: Map<string, { endpoint: string; timestamp: number }> = new Map();
+  private cache: Map<string, { endpoint: string; timestamp: number }> =
+    new Map();
   private readonly cacheTTL = 3600000; // 1 hour
 
   async getFeedSkeleton(
@@ -37,35 +38,47 @@ export class FeedGeneratorClient {
     options?: { viewerAuthorization?: string | undefined }
   ): Promise<{ feed: Array<{ post: string; reason?: any }>; cursor?: string }> {
     try {
-      const url = new URL("/xrpc/app.bsky.feed.getFeedSkeleton", serviceEndpoint);
-      url.searchParams.set("feed", params.feed);
-      url.searchParams.set("limit", params.limit.toString());
+      const url = new URL(
+        '/xrpc/app.bsky.feed.getFeedSkeleton',
+        serviceEndpoint
+      );
+      url.searchParams.set('feed', params.feed);
+      url.searchParams.set('limit', params.limit.toString());
       if (params.cursor) {
-        url.searchParams.set("cursor", params.cursor);
+        url.searchParams.set('cursor', params.cursor);
       }
 
       console.log(`[FeedGenClient] Fetching skeleton from ${url.toString()}`);
 
       const headers: Record<string, string> = {
-        "Accept": "application/json",
+        Accept: 'application/json',
       };
 
       // Forward viewer Authorization to feed generator when present, aligning with upstream behavior
       if (options?.viewerAuthorization) {
-        headers["Authorization"] = options.viewerAuthorization;
-        console.log(`[FeedGenClient] Forwarded viewer Authorization header to feedgen`);
+        headers['Authorization'] = options.viewerAuthorization;
+        console.log(
+          `[FeedGenClient] Forwarded viewer Authorization header to feedgen`
+        );
       } else if (params.feedGeneratorDid) {
         try {
-          const serviceToken = appViewJWTService.signFeedGeneratorToken(params.feedGeneratorDid);
-          headers["Authorization"] = `Bearer ${serviceToken}`;
-          console.log(`[FeedGenClient] Attached AppView service Authorization for ${params.feedGeneratorDid}`);
+          const serviceToken = appViewJWTService.signFeedGeneratorToken(
+            params.feedGeneratorDid
+          );
+          headers['Authorization'] = `Bearer ${serviceToken}`;
+          console.log(
+            `[FeedGenClient] Attached AppView service Authorization for ${params.feedGeneratorDid}`
+          );
         } catch (err) {
-          console.warn(`[FeedGenClient] Failed to attach AppView service token:`, err);
+          console.warn(
+            `[FeedGenClient] Failed to attach AppView service token:`,
+            err
+          );
         }
       }
 
       const response = await fetch(url.toString(), {
-        method: "GET",
+        method: 'GET',
         headers,
         signal: AbortSignal.timeout(this.timeout),
       });
@@ -80,11 +93,13 @@ export class FeedGeneratorClient {
       const data = await response.json();
       const skeleton = feedSkeletonResponseSchema.parse(data);
 
-      console.log(`[FeedGenClient] Received ${skeleton.feed.length} posts from feed generator`);
+      console.log(
+        `[FeedGenClient] Received ${skeleton.feed.length} posts from feed generator`
+      );
 
       return skeleton;
     } catch (error) {
-      console.error("[FeedGenClient] Error fetching skeleton:", error);
+      console.error('[FeedGenClient] Error fetching skeleton:', error);
       throw error;
     }
   }
@@ -96,12 +111,12 @@ export class FeedGeneratorClient {
       return [];
     }
 
-    const postUris = skeleton.map(item => item.post);
+    const postUris = skeleton.map((item) => item.post);
     console.log(`[FeedGenClient] Hydrating ${postUris.length} posts`);
 
     const posts = await storage.getPosts(postUris);
 
-    const postMap = new Map(posts.map(p => [p.uri, p]));
+    const postMap = new Map(posts.map((p) => [p.uri, p]));
 
     const hydrated: HydratedFeedPost[] = [];
     for (const item of skeleton) {
@@ -112,23 +127,29 @@ export class FeedGeneratorClient {
           reason: item.reason,
         });
       } else {
-        console.warn(`[FeedGenClient] Post not found in database: ${item.post}`);
+        console.warn(
+          `[FeedGenClient] Post not found in database: ${item.post}`
+        );
       }
     }
 
-    console.log(`[FeedGenClient] Successfully hydrated ${hydrated.length}/${postUris.length} posts`);
+    console.log(
+      `[FeedGenClient] Successfully hydrated ${hydrated.length}/${postUris.length} posts`
+    );
 
     return hydrated;
   }
 
-  async resolveFeedGeneratorEndpoint(serviceDid: string): Promise<string | null> {
+  async resolveFeedGeneratorEndpoint(
+    serviceDid: string
+  ): Promise<string | null> {
     const cached = this.cache.get(serviceDid);
     if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
       return cached.endpoint;
     }
 
     const endpoint = await didResolver.resolveDIDToFeedGenerator(serviceDid);
-    
+
     if (endpoint) {
       this.cache.set(serviceDid, { endpoint, timestamp: Date.now() });
     }
@@ -142,9 +163,11 @@ export class FeedGeneratorClient {
     options?: { viewerAuthorization?: string | undefined }
   ): Promise<{ feed: HydratedFeedPost[]; cursor?: string }> {
     const endpoint = await this.resolveFeedGeneratorEndpoint(serviceDid);
-    
+
     if (!endpoint) {
-      throw new Error(`Could not resolve feed generator endpoint for ${serviceDid}`);
+      throw new Error(
+        `Could not resolve feed generator endpoint for ${serviceDid}`
+      );
     }
 
     const paramsWithDid = {

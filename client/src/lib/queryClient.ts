@@ -1,17 +1,17 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { api } from "./api";
+import { QueryClient, QueryFunction } from '@tanstack/react-query';
+import { api } from './api';
 
-type UnauthorizedBehavior = "returnNull" | "throw";
+type UnauthorizedBehavior = 'returnNull' | 'throw';
 
 export const getQueryFn =
   <T>(options?: { on401?: UnauthorizedBehavior }): QueryFunction<T> =>
   async ({ queryKey }) => {
-    const url = queryKey.join("/");
+    const url = queryKey.join('/');
     try {
       const data = await api.get<T>(url);
       return data;
     } catch (error: any) {
-      if (options?.on401 === "returnNull" && error.response?.status === 401) {
+      if (options?.on401 === 'returnNull' && error.response?.status === 401) {
         return null as T;
       }
       // Re-throw other errors to be handled by React Query
@@ -22,7 +22,7 @@ export const getQueryFn =
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
+      queryFn: getQueryFn({ on401: 'throw' }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,

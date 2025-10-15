@@ -1,13 +1,13 @@
 /**
  * PDS Client Service for AT Protocol
- * 
+ *
  * Handles communication with Personal Data Servers (PDS)
  * - Token verification
  * - Proxying write operations
  * - API requests with authentication
  */
 
-import { didResolver } from "./did-resolver";
+import { didResolver } from './did-resolver';
 
 interface XRPCResponse<T = any> {
   success: boolean;
@@ -39,12 +39,14 @@ export class PDSClient {
       );
 
       if (!response.ok) {
-        console.error(`[PDS_CLIENT] Token verification failed: ${response.status}`);
+        console.error(
+          `[PDS_CLIENT] Token verification failed: ${response.status}`
+        );
         return null;
       }
 
       const session = await response.json();
-      
+
       // Verify the DID in the session matches the expected DID
       if (!session.did) {
         console.error('[PDS_CLIENT] Session response missing DID');
@@ -60,7 +62,10 @@ export class PDSClient {
 
       return session.did;
     } catch (error) {
-      console.error(`[PDS_CLIENT] Error verifying token for ${expectedDid}:`, error);
+      console.error(
+        `[PDS_CLIENT] Error verifying token for ${expectedDid}:`,
+        error
+      );
       return null;
     }
   }
@@ -88,7 +93,7 @@ export class PDSClient {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -143,7 +148,7 @@ export class PDSClient {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -200,7 +205,7 @@ export class PDSClient {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -245,7 +250,7 @@ export class PDSClient {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -346,14 +351,14 @@ export class PDSClient {
       if (!response.ok) {
         const errorText = await response.text();
         let errorMessage = `Authentication failed: ${response.status}`;
-        
+
         try {
           const errorJson = JSON.parse(errorText);
           errorMessage = errorJson.message || errorJson.error || errorMessage;
         } catch {
           // If not JSON, use the status message
         }
-        
+
         console.error(`[PDS_CLIENT] Create session failed: ${errorMessage}`);
         return {
           success: false,
@@ -362,17 +367,21 @@ export class PDSClient {
       }
 
       const data = await response.json();
-      
+
       // Validate response has minimum required fields
       if (!data.accessJwt || !data.refreshJwt || !data.did || !data.handle) {
-        console.error('[PDS_CLIENT] Invalid session response - missing required fields');
+        console.error(
+          '[PDS_CLIENT] Invalid session response - missing required fields'
+        );
         return {
           success: false,
           error: 'Invalid session response from PDS',
         };
       }
 
-      console.log(`[PDS_CLIENT] Successfully created session for ${data.handle} (${data.did})`);
+      console.log(
+        `[PDS_CLIENT] Successfully created session for ${data.handle} (${data.did})`
+      );
 
       // Return the complete response from PDS to preserve all AT Protocol fields
       // (active, status, authFactorToken, email, emailConfirmed, didDoc, etc.)
@@ -396,19 +405,21 @@ export class PDSClient {
   async refreshAccessToken(
     pdsEndpoint: string,
     refreshToken: string
-  ): Promise<XRPCResponse<{ 
-    accessJwt: string; 
-    refreshJwt: string;
-    did: string;
-    handle: string;
-  }>> {
+  ): Promise<
+    XRPCResponse<{
+      accessJwt: string;
+      refreshJwt: string;
+      did: string;
+      handle: string;
+    }>
+  > {
     try {
       const response = await fetch(
         `${pdsEndpoint}/xrpc/com.atproto.server.refreshSession`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${refreshToken}`,
+            Authorization: `Bearer ${refreshToken}`,
             'Content-Type': 'application/json',
           },
           signal: AbortSignal.timeout(10000),
@@ -417,7 +428,9 @@ export class PDSClient {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[PDS_CLIENT] Token refresh failed: ${response.status} - ${errorText}`);
+        console.error(
+          `[PDS_CLIENT] Token refresh failed: ${response.status} - ${errorText}`
+        );
         return {
           success: false,
           error: `Token refresh failed: ${response.status}`,
@@ -425,10 +438,12 @@ export class PDSClient {
       }
 
       const data = await response.json();
-      
+
       // Validate response has required fields
       if (!data.accessJwt || !data.refreshJwt || !data.did) {
-        console.error('[PDS_CLIENT] Invalid refresh response - missing required fields');
+        console.error(
+          '[PDS_CLIENT] Invalid refresh response - missing required fields'
+        );
         return {
           success: false,
           error: 'Invalid refresh response from PDS',
@@ -477,8 +492,8 @@ export class PDSClient {
         `${pdsEndpoint}/xrpc/com.atproto.server.getSession`,
         {
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
           },
           signal: AbortSignal.timeout(10000),
         }
@@ -517,17 +532,28 @@ export class PDSClient {
     query: Record<string, any>,
     userToken: string,
     body: any,
-    headers: any,
+    headers: any
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
     // Log request details for debugging
-    console.log(`[PDS_CLIENT] Proxying request to PDS with user authentication:`, {
+    console.log(
+      `[PDS_CLIENT] Proxying request to PDS with user authentication:`,
+      {
+        pdsEndpoint,
+        method,
+        path,
+        tokenPrefix: userToken.substring(0, 20) + '...',
+      }
+    );
+
+    return this.proxyXRPC(
       pdsEndpoint,
       method,
       path,
-      tokenPrefix: userToken.substring(0, 20) + '...'
-    });
-    
-    return this.proxyXRPC(pdsEndpoint, method, path, query, userToken, body, headers);
+      query,
+      userToken,
+      body,
+      headers
+    );
   }
 
   /**
@@ -542,7 +568,7 @@ export class PDSClient {
     query: Record<string, any>,
     accessToken: string,
     body: any,
-    headers: any,
+    headers: any
   ): Promise<{ status: number; headers: Record<string, string>; body: any }> {
     const searchParams = new URLSearchParams();
     for (const key in query) {
@@ -561,7 +587,7 @@ export class PDSClient {
 
     // Sanitize headers to prevent forwarding potentially problematic ones.
     const forwardedHeaders: Record<string, string> = {
-      'authorization': `Bearer ${accessToken}`,
+      authorization: `Bearer ${accessToken}`,
     };
     if (headers['accept']) {
       forwardedHeaders['accept'] = headers['accept'] as string;
@@ -570,7 +596,9 @@ export class PDSClient {
       forwardedHeaders['user-agent'] = headers['user-agent'] as string;
     }
     if (headers['accept-language']) {
-      forwardedHeaders['accept-language'] = headers['accept-language'] as string;
+      forwardedHeaders['accept-language'] = headers[
+        'accept-language'
+      ] as string;
     }
 
     const fetchOptions: RequestInit = {
@@ -581,7 +609,8 @@ export class PDSClient {
 
     if (method !== 'GET' && body && Object.keys(body).length > 0) {
       fetchOptions.body = JSON.stringify(body);
-      (fetchOptions.headers as Record<string, string>)['content-type'] = 'application/json';
+      (fetchOptions.headers as Record<string, string>)['content-type'] =
+        'application/json';
     }
 
     // Log the request details for debugging
@@ -590,9 +619,11 @@ export class PDSClient {
       method,
       headers: {
         ...forwardedHeaders,
-        authorization: forwardedHeaders.authorization ? 'Bearer [REDACTED]' : 'None'
+        authorization: forwardedHeaders.authorization
+          ? 'Bearer [REDACTED]'
+          : 'None',
       },
-      hasBody: !!fetchOptions.body
+      hasBody: !!fetchOptions.body,
     });
 
     const response = await fetch(url, fetchOptions);
@@ -612,7 +643,7 @@ export class PDSClient {
       statusText: response.statusText,
       hasBody: !!responseBody,
       error: responseBody?.error,
-      message: responseBody?.message
+      message: responseBody?.message,
     });
 
     return {

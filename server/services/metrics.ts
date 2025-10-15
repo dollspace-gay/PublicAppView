@@ -1,9 +1,9 @@
-import os from "os";
+import os from 'os';
 
 interface EventCounts {
-  "#commit": number;
-  "#identity": number;
-  "#account": number;
+  '#commit': number;
+  '#identity': number;
+  '#account': number;
 }
 
 interface SystemHealth {
@@ -24,19 +24,20 @@ interface EndpointMetrics {
 
 export class MetricsService {
   private eventCounts: EventCounts = {
-    "#commit": 0,
-    "#identity": 0,
-    "#account": 0,
+    '#commit': 0,
+    '#identity': 0,
+    '#account': 0,
   };
   private totalEvents = 0;
   private errorCount = 0;
-  private firehoseStatus: "connected" | "disconnected" | "error" = "disconnected";
+  private firehoseStatus: 'connected' | 'disconnected' | 'error' =
+    'disconnected';
   private lastUpdate = new Date();
   private startTime = new Date();
-  
+
   private apiRequests: { timestamp: number }[] = [];
   private readonly API_REQUEST_WINDOW = 60000;
-  
+
   private endpointMetrics: Map<string, EndpointMetrics> = new Map();
   private cleanupInterval: NodeJS.Timeout;
 
@@ -59,13 +60,15 @@ export class MetricsService {
   private cleanup() {
     const now = Date.now();
     const cutoff = now - this.API_REQUEST_WINDOW;
-    
+
     // Clean up API requests
-    this.apiRequests = this.apiRequests.filter(req => req.timestamp > cutoff);
-    
+    this.apiRequests = this.apiRequests.filter((req) => req.timestamp > cutoff);
+
     // Clean up endpoint metrics
     this.endpointMetrics.forEach((metrics) => {
-      metrics.requests = metrics.requests.filter(req => req.timestamp > cutoff);
+      metrics.requests = metrics.requests.filter(
+        (req) => req.timestamp > cutoff
+      );
     });
   }
 
@@ -79,16 +82,16 @@ export class MetricsService {
     this.errorCount++;
   }
 
-  updateFirehoseStatus(status: "connected" | "disconnected" | "error") {
+  updateFirehoseStatus(status: 'connected' | 'disconnected' | 'error') {
     this.firehoseStatus = status;
   }
 
   recordApiRequest() {
     const now = Date.now();
     this.apiRequests.push({ timestamp: now });
-    
+
     const cutoff = now - this.API_REQUEST_WINDOW;
-    this.apiRequests = this.apiRequests.filter(req => req.timestamp > cutoff);
+    this.apiRequests = this.apiRequests.filter((req) => req.timestamp > cutoff);
   }
 
   recordEndpointRequest(path: string, duration: number, success: boolean) {
@@ -116,13 +119,15 @@ export class MetricsService {
     metrics.requests.push({ timestamp: now, duration, success });
 
     const cutoff = now - this.API_REQUEST_WINDOW;
-    metrics.requests = metrics.requests.filter(req => req.timestamp > cutoff);
+    metrics.requests = metrics.requests.filter((req) => req.timestamp > cutoff);
   }
 
   getApiRequestsPerMinute(): number {
     const now = Date.now();
     const cutoff = now - this.API_REQUEST_WINDOW;
-    const recentRequests = this.apiRequests.filter(req => req.timestamp > cutoff);
+    const recentRequests = this.apiRequests.filter(
+      (req) => req.timestamp > cutoff
+    );
     return recentRequests.length;
   }
 
@@ -133,14 +138,22 @@ export class MetricsService {
 
       const now = Date.now();
       const cutoff = now - this.API_REQUEST_WINDOW;
-      const recentRequests = metrics.requests.filter(req => req.timestamp > cutoff);
+      const recentRequests = metrics.requests.filter(
+        (req) => req.timestamp > cutoff
+      );
 
       return {
         path: metrics.path,
         totalRequests: metrics.totalRequests,
         requestsPerMinute: recentRequests.length,
-        avgResponseTime: metrics.totalRequests > 0 ? Math.round(metrics.totalResponseTime / metrics.totalRequests) : 0,
-        successRate: metrics.totalRequests > 0 ? (metrics.successCount / metrics.totalRequests) * 100 : 0,
+        avgResponseTime:
+          metrics.totalRequests > 0
+            ? Math.round(metrics.totalResponseTime / metrics.totalRequests)
+            : 0,
+        successRate:
+          metrics.totalRequests > 0
+            ? (metrics.successCount / metrics.totalRequests) * 100
+            : 0,
       };
     }
 
@@ -148,14 +161,22 @@ export class MetricsService {
     this.endpointMetrics.forEach((metrics, path) => {
       const now = Date.now();
       const cutoff = now - this.API_REQUEST_WINDOW;
-      const recentRequests = metrics.requests.filter(req => req.timestamp > cutoff);
+      const recentRequests = metrics.requests.filter(
+        (req) => req.timestamp > cutoff
+      );
 
       result[path] = {
         path: metrics.path,
         totalRequests: metrics.totalRequests,
         requestsPerMinute: recentRequests.length,
-        avgResponseTime: metrics.totalRequests > 0 ? Math.round(metrics.totalResponseTime / metrics.totalRequests) : 0,
-        successRate: metrics.totalRequests > 0 ? (metrics.successCount / metrics.totalRequests) * 100 : 0,
+        avgResponseTime:
+          metrics.totalRequests > 0
+            ? Math.round(metrics.totalResponseTime / metrics.totalRequests)
+            : 0,
+        successRate:
+          metrics.totalRequests > 0
+            ? (metrics.successCount / metrics.totalRequests) * 100
+            : 0,
       };
     });
 
@@ -170,7 +191,8 @@ export class MetricsService {
     return {
       totalEvents: this.totalEvents,
       errorCount: this.errorCount,
-      errorRate: this.totalEvents > 0 ? (this.errorCount / this.totalEvents) * 100 : 0,
+      errorRate:
+        this.totalEvents > 0 ? (this.errorCount / this.totalEvents) * 100 : 0,
       firehoseStatus: this.firehoseStatus,
       lastUpdate: this.lastUpdate,
       uptime: Date.now() - this.startTime.getTime(),
@@ -185,19 +207,23 @@ export class MetricsService {
 
   async getSystemHealth(): Promise<SystemHealth> {
     // CPU calculation using process.cpuUsage() for accurate measurements
-    const currentCpuUsage = process.cpuUsage(this.previousCpuTimes || undefined);
+    const currentCpuUsage = process.cpuUsage(
+      this.previousCpuTimes || undefined
+    );
     const currentTime = Date.now();
     const timeDiff = currentTime - this.previousCpuTimestamp;
-    
+
     // Calculate CPU percentage: (user + system time in microseconds) / (elapsed time in microseconds)
     // Convert timeDiff from ms to microseconds (*1000)
-    const cpuPercent = ((currentCpuUsage.user + currentCpuUsage.system) / (timeDiff * 1000)) * 100;
+    const cpuPercent =
+      ((currentCpuUsage.user + currentCpuUsage.system) / (timeDiff * 1000)) *
+      100;
     const cpu = Math.min(100, Math.max(0, Math.round(cpuPercent)));
-    
+
     // Update previous values for next calculation
     this.previousCpuTimes = process.cpuUsage();
     this.previousCpuTimestamp = currentTime;
-    
+
     // Memory calculation (accurate)
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
@@ -207,16 +233,25 @@ export class MetricsService {
     const processMemUsage = process.memoryUsage();
     const processMemMB = Math.round(processMemUsage.heapUsed / 1024 / 1024);
     const totalMemMB = Math.round(totalMem / 1024 / 1024);
-    const disk = Math.min(100, Math.round((processMemMB / totalMemMB) * 100 * 10)); // Scale up for visibility
+    const disk = Math.min(
+      100,
+      Math.round((processMemMB / totalMemMB) * 100 * 10)
+    ); // Scale up for visibility
 
     // Network throughput (bytes/sec)
     const networkTimeDiff = (currentTime - this.previousNetworkTime) / 1000; // seconds
-    const receivedRate = networkTimeDiff > 0 ? Math.round(this.networkBytesReceived / networkTimeDiff / 1024) : 0; // KB/s
-    const sentRate = networkTimeDiff > 0 ? Math.round(this.networkBytesSent / networkTimeDiff / 1024) : 0; // KB/s
-    
+    const receivedRate =
+      networkTimeDiff > 0
+        ? Math.round(this.networkBytesReceived / networkTimeDiff / 1024)
+        : 0; // KB/s
+    const sentRate =
+      networkTimeDiff > 0
+        ? Math.round(this.networkBytesSent / networkTimeDiff / 1024)
+        : 0; // KB/s
+
     // Format network string
     const network = `↓ ${receivedRate} KB/s ↑ ${sentRate} KB/s`;
-    
+
     // Reset network counters
     this.networkBytesReceived = 0;
     this.networkBytesSent = 0;
@@ -231,7 +266,7 @@ export class MetricsService {
   }
 
   reset() {
-    this.eventCounts = { "#commit": 0, "#identity": 0, "#account": 0 };
+    this.eventCounts = { '#commit': 0, '#identity': 0, '#account': 0 };
     this.totalEvents = 0;
     this.errorCount = 0;
   }

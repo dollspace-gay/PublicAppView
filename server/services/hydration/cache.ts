@@ -27,14 +27,14 @@ export class HydrationCache {
    */
   async mget<T>(keys: string[]): Promise<Map<string, T>> {
     const result = new Map<string, T>();
-    
+
     for (const key of keys) {
       const value = await this.get<T>(key);
       if (value) {
         result.set(key, value);
       }
     }
-    
+
     return result;
   }
 

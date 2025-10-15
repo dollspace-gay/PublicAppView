@@ -1,9 +1,9 @@
 import { db } from '../../db';
-import { 
-  posts, 
-  users, 
-  postAggregations, 
-  postViewerStates 
+import {
+  posts,
+  users,
+  postAggregations,
+  postViewerStates,
 } from '../../../shared/schema';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { ViewerContextBuilder, ViewerContext } from './viewer-context';
@@ -41,7 +41,7 @@ export class EnhancedHydrator {
     }
 
     // Build viewer context if authenticated
-    const viewerContext = viewerDid 
+    const viewerContext = viewerDid
       ? await this.viewerBuilder.build(viewerDid)
       : undefined;
 
@@ -65,14 +65,16 @@ export class EnhancedHydrator {
         createdAt: post.createdAt.toISOString(),
         indexedAt: post.indexedAt.toISOString(),
         embed: post.embed,
-        reply: post.parentUri ? {
-          parent: { uri: post.parentUri },
-          root: { uri: post.rootUri || post.parentUri }
-        } : undefined,
-        tags: post.tags
+        reply: post.parentUri
+          ? {
+              parent: { uri: post.parentUri },
+              root: { uri: post.rootUri || post.parentUri },
+            }
+          : undefined,
+        tags: post.tags,
       });
       actorDids.add(post.authorDid);
-      
+
       // Collect parent and root URIs for reply hydration
       if (post.parentUri) {
         replyParentUris.add(post.parentUri);
@@ -83,15 +85,21 @@ export class EnhancedHydrator {
     // Fetch parent and root posts for replies
     if (replyParentUris.size > 0 || replyRootUris.size > 0) {
       try {
-        const replyUris = Array.from(new Set([...replyParentUris, ...replyRootUris]));
-        console.log(`[HYDRATION] Fetching ${replyUris.length} reply parent/root posts`);
-        
+        const replyUris = Array.from(
+          new Set([...replyParentUris, ...replyRootUris])
+        );
+        console.log(
+          `[HYDRATION] Fetching ${replyUris.length} reply parent/root posts`
+        );
+
         const replyPostsData = await db
           .select()
           .from(posts)
           .where(inArray(posts.uri, replyUris));
 
-        console.log(`[HYDRATION] Found ${replyPostsData.length} reply posts in database`);
+        console.log(
+          `[HYDRATION] Found ${replyPostsData.length} reply posts in database`
+        );
 
         for (const post of replyPostsData) {
           // Only add if not already in the map
@@ -104,21 +112,28 @@ export class EnhancedHydrator {
               createdAt: post.createdAt.toISOString(),
               indexedAt: post.indexedAt.toISOString(),
               embed: post.embed,
-              reply: post.parentUri ? {
-                parent: { uri: post.parentUri },
-                root: { uri: post.rootUri || post.parentUri }
-              } : undefined,
-              tags: post.tags
+              reply: post.parentUri
+                ? {
+                    parent: { uri: post.parentUri },
+                    root: { uri: post.rootUri || post.parentUri },
+                  }
+                : undefined,
+              tags: post.tags,
             });
             actorDids.add(post.authorDid);
           }
         }
-        
+
         // Log missing reply posts
-        const foundReplyUris = new Set(replyPostsData.map(p => p.uri));
-        const missingReplyUris = replyUris.filter(uri => !foundReplyUris.has(uri));
+        const foundReplyUris = new Set(replyPostsData.map((p) => p.uri));
+        const missingReplyUris = replyUris.filter(
+          (uri) => !foundReplyUris.has(uri)
+        );
         if (missingReplyUris.length > 0) {
-          console.warn(`[HYDRATION] ${missingReplyUris.length} reply posts not found in database:`, missingReplyUris);
+          console.warn(
+            `[HYDRATION] ${missingReplyUris.length} reply posts not found in database:`,
+            missingReplyUris
+          );
         }
       } catch (error) {
         console.error('[HYDRATION] Error fetching reply posts:', error);
@@ -139,16 +154,22 @@ export class EnhancedHydrator {
         repostCount: agg.repostCount,
         replyCount: agg.replyCount,
         quoteCount: agg.quoteCount,
-        bookmarkCount: agg.bookmarkCount
+        bookmarkCount: agg.bookmarkCount,
       });
     }
 
     // Enrich with Constellation stats if enabled
     if (constellationIntegration.isEnabled()) {
       try {
-        await constellationIntegration.enrichAggregations(aggregationsMap, postUris);
+        await constellationIntegration.enrichAggregations(
+          aggregationsMap,
+          postUris
+        );
       } catch (error) {
-        console.error('[HYDRATION] Error enriching with Constellation stats:', error);
+        console.error(
+          '[HYDRATION] Error enriching with Constellation stats:',
+          error
+        );
         // Continue with local stats on error
       }
     }
@@ -156,7 +177,10 @@ export class EnhancedHydrator {
     // Fetch viewer states for posts
     let viewerStatesMap = new Map<string, any>();
     if (viewerDid) {
-      viewerStatesMap = await this.viewerBuilder.buildPostStates(viewerDid, postUris);
+      viewerStatesMap = await this.viewerBuilder.buildPostStates(
+        viewerDid,
+        postUris
+      );
     }
 
     // Fetch actors
@@ -168,9 +192,12 @@ export class EnhancedHydrator {
     // Check for missing actors
     const actorDidsArray = Array.from(actorDids);
     if (actorsData.length !== actorDidsArray.length) {
-      const foundDids = new Set(actorsData.map(a => a.did));
-      const missingDids = actorDidsArray.filter(did => !foundDids.has(did));
-      console.warn(`[ENHANCED_HYDRATION] ${missingDids.length} actors missing from database:`, missingDids);
+      const foundDids = new Set(actorsData.map((a) => a.did));
+      const missingDids = actorDidsArray.filter((did) => !foundDids.has(did));
+      console.warn(
+        `[ENHANCED_HYDRATION] ${missingDids.length} actors missing from database:`,
+        missingDids
+      );
     }
 
     const actorsMap = new Map<string, any>();
@@ -181,7 +208,7 @@ export class EnhancedHydrator {
         displayName: actor.displayName,
         description: actor.description,
         avatarUrl: actor.avatarUrl,
-        indexedAt: actor.indexedAt?.toISOString()
+        indexedAt: actor.indexedAt?.toISOString(),
       });
     }
 
@@ -189,7 +216,7 @@ export class EnhancedHydrator {
     let actorViewerStatesMap = new Map<string, any>();
     if (viewerDid) {
       actorViewerStatesMap = await this.viewerBuilder.buildActorStates(
-        viewerDid, 
+        viewerDid,
         Array.from(actorDids)
       );
     }
@@ -212,7 +239,7 @@ export class EnhancedHydrator {
       actorViewerStates: actorViewerStatesMap,
       embeds: embedsMap,
       labels: labelsMap,
-      viewerContext
+      viewerContext,
     };
   }
 
@@ -227,7 +254,7 @@ export class EnhancedHydrator {
       return this.emptyState();
     }
 
-    const viewerContext = viewerDid 
+    const viewerContext = viewerDid
       ? await this.viewerBuilder.build(viewerDid)
       : undefined;
 
@@ -246,7 +273,7 @@ export class EnhancedHydrator {
         description: actor.description,
         avatarUrl: actor.avatarUrl,
         bannerUrl: actor.bannerUrl,
-        indexedAt: actor.indexedAt?.toISOString()
+        indexedAt: actor.indexedAt?.toISOString(),
       });
     }
 
@@ -270,7 +297,7 @@ export class EnhancedHydrator {
       actorViewerStates: actorViewerStatesMap,
       embeds: new Map(),
       labels: labelsMap,
-      viewerContext
+      viewerContext,
     };
   }
 
@@ -303,7 +330,7 @@ export class EnhancedHydrator {
       viewerStates: new Map(),
       actorViewerStates: new Map(),
       embeds: new Map(),
-      labels: new Map()
+      labels: new Map(),
     };
   }
 }

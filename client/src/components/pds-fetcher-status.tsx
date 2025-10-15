@@ -1,9 +1,16 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Trash2, Play, AlertTriangle, CheckCircle, Clock } from "lucide-react";
-import { api } from "@/lib/api";
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  RefreshCw,
+  Trash2,
+  Play,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+} from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface PDSFetcherStats {
   total: number;
@@ -20,10 +27,10 @@ export function PDSFetcherStatus() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/api/admin/pds-fetcher/stats");
+      const response = await api.get('/api/admin/pds-fetcher/stats');
       setStats((response as any).stats);
     } catch (error) {
-      console.error("Failed to fetch PDS fetcher stats:", error);
+      console.error('Failed to fetch PDS fetcher stats:', error);
     } finally {
       setLoading(false);
     }
@@ -32,9 +39,12 @@ export function PDSFetcherStatus() {
   const handleAction = async (action: string) => {
     try {
       setActionLoading(action);
-      const endpoint = action === "clear" ? "/api/admin/pds-fetcher/clear" : "/api/admin/pds-fetcher/process";
+      const endpoint =
+        action === 'clear'
+          ? '/api/admin/pds-fetcher/clear'
+          : '/api/admin/pds-fetcher/process';
       await api.post(endpoint, {});
-      
+
       // Refresh stats after action
       await fetchStats();
     } catch (error) {
@@ -55,16 +65,16 @@ export function PDSFetcherStatus() {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
-    
+
     if (hours > 0) return `${hours}h ${minutes % 60}m`;
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   };
 
   const getStatusColor = (total: number) => {
-    if (total === 0) return "bg-green-100 text-green-800";
-    if (total < 10) return "bg-yellow-100 text-yellow-800";
-    return "bg-red-100 text-red-800";
+    if (total === 0) return 'bg-green-100 text-green-800';
+    if (total < 10) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
   };
 
   const getStatusIcon = (total: number) => {
@@ -84,7 +94,7 @@ export function PDSFetcherStatus() {
         </CardHeader>
         <CardContent>
           <div className="text-center text-gray-500">
-            {loading ? "Loading..." : "No data available"}
+            {loading ? 'Loading...' : 'No data available'}
           </div>
         </CardContent>
       </Card>
@@ -110,7 +120,9 @@ export function PDSFetcherStatus() {
               onClick={fetchStats}
               disabled={loading}
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+              />
             </Button>
           </div>
         </CardTitle>
@@ -123,7 +135,9 @@ export function PDSFetcherStatus() {
             <div className="text-sm text-gray-500">Total Incomplete</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold">{formatDuration(stats.oldestEntry)}</div>
+            <div className="text-2xl font-bold">
+              {formatDuration(stats.oldestEntry)}
+            </div>
             <div className="text-sm text-gray-500">Oldest Entry</div>
           </div>
         </div>
@@ -165,30 +179,31 @@ export function PDSFetcherStatus() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => handleAction("process")}
-            disabled={actionLoading === "process" || stats.total === 0}
+            onClick={() => handleAction('process')}
+            disabled={actionLoading === 'process' || stats.total === 0}
             className="flex-1"
           >
             <Play className="h-4 w-4 mr-1" />
-            {actionLoading === "process" ? "Processing..." : "Process Now"}
+            {actionLoading === 'process' ? 'Processing...' : 'Process Now'}
           </Button>
           <Button
             size="sm"
             variant="destructive"
-            onClick={() => handleAction("clear")}
-            disabled={actionLoading === "clear" || stats.total === 0}
+            onClick={() => handleAction('clear')}
+            disabled={actionLoading === 'clear' || stats.total === 0}
             className="flex-1"
           >
             <Trash2 className="h-4 w-4 mr-1" />
-            {actionLoading === "clear" ? "Clearing..." : "Clear All"}
+            {actionLoading === 'clear' ? 'Clearing...' : 'Clear All'}
           </Button>
         </div>
 
         {/* Info Text */}
         {stats.total > 0 && (
           <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-            <strong>Note:</strong> Incomplete entries are automatically processed every 30 seconds. 
-            Use "Process Now" to trigger immediate processing, or "Clear All" to remove all incomplete entries.
+            <strong>Note:</strong> Incomplete entries are automatically
+            processed every 30 seconds. Use "Process Now" to trigger immediate
+            processing, or "Clear All" to remove all incomplete entries.
           </div>
         )}
       </CardContent>

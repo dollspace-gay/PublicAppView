@@ -1,4 +1,4 @@
-import { DidResolver } from "@atproto/identity";
+import { DidResolver } from '@atproto/identity';
 
 class IdentityResolver {
   private resolver: DidResolver;
@@ -23,17 +23,17 @@ class IdentityResolver {
     const promise = (async () => {
       try {
         const didDoc = await this.resolver.resolve(did);
-        
+
         if (didDoc && didDoc.alsoKnownAs && didDoc.alsoKnownAs.length > 0) {
           const handleUri = didDoc.alsoKnownAs[0];
           const handle = handleUri.replace('at://', '');
-          
+
           this.cache.set(did, handle);
           this.resolving.delete(did);
-          
+
           return handle;
         }
-        
+
         this.resolving.delete(did);
         return null;
       } catch (error) {
@@ -48,7 +48,7 @@ class IdentityResolver {
 
   async resolveDidsToHandles(dids: string[]): Promise<Map<string, string>> {
     const results = new Map<string, string>();
-    
+
     const promises = dids.map(async (did) => {
       const handle = await this.resolveDidToHandle(did);
       if (handle) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
 export function useEventStream<T>(onMessage: (data: T) => void) {
   const [isConnected, setIsConnected] = useState(false);
@@ -11,13 +11,13 @@ export function useEventStream<T>(onMessage: (data: T) => void) {
 
   useEffect(() => {
     const sseUrl = `/api/events/stream`;
-    console.log("[Dashboard] Connecting to SSE stream:", sseUrl);
+    console.log('[Dashboard] Connecting to SSE stream:', sseUrl);
 
     const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log("[Dashboard] SSE stream connected");
+      console.log('[Dashboard] SSE stream connected');
       setIsConnected(true);
     };
 
@@ -26,18 +26,21 @@ export function useEventStream<T>(onMessage: (data: T) => void) {
         const data = JSON.parse(event.data);
         onMessageRef.current(data);
       } catch (error) {
-        console.error("[Dashboard] SSE parse error:", error);
+        console.error('[Dashboard] SSE parse error:', error);
       }
     };
 
     eventSource.onerror = (error) => {
-      console.error("[Dashboard] SSE error - reconnecting automatically...", error);
+      console.error(
+        '[Dashboard] SSE error - reconnecting automatically...',
+        error
+      );
       setIsConnected(false);
       // Don't close - let browser handle automatic reconnection
     };
 
     return () => {
-      console.log("[Dashboard] SSE cleanup - closing connection");
+      console.log('[Dashboard] SSE cleanup - closing connection');
       eventSource.close();
     };
   }, []);

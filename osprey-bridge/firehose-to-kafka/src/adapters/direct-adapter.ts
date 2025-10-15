@@ -3,11 +3,11 @@ import { InputAdapter, EventHandler, AdapterEvent } from './base-adapter';
 /**
  * Adapter that receives events directly from in-process calls
  * Zero latency, no queue overhead - perfect for single-instance deployments
- * 
+ *
  * Usage:
  *   const adapter = new DirectAdapter();
  *   await adapter.start(eventHandler);
- *   
+ *
  *   // In your event processor:
  *   directAdapter.pushEvent({ type: 'commit', did: '...', data: {...} });
  */
@@ -30,7 +30,9 @@ export class DirectAdapter implements InputAdapter {
     // Start processing loop
     this.processingLoop = this.runProcessingLoop();
 
-    console.log(`[${this.getName()}] Started successfully (ready to receive events)`);
+    console.log(
+      `[${this.getName()}] Started successfully (ready to receive events)`
+    );
   }
 
   async stop(): Promise<void> {
@@ -55,7 +57,9 @@ export class DirectAdapter implements InputAdapter {
    */
   pushEvent(event: AdapterEvent): void {
     if (!this.isRunning) {
-      console.warn(`[${this.getName()}] Received event while not running, dropping`);
+      console.warn(
+        `[${this.getName()}] Received event while not running, dropping`
+      );
       return;
     }
 
@@ -67,7 +71,9 @@ export class DirectAdapter implements InputAdapter {
    */
   pushEvents(events: AdapterEvent[]): void {
     if (!this.isRunning) {
-      console.warn(`[${this.getName()}] Received ${events.length} events while not running, dropping`);
+      console.warn(
+        `[${this.getName()}] Received ${events.length} events while not running, dropping`
+      );
       return;
     }
 
@@ -86,7 +92,7 @@ export class DirectAdapter implements InputAdapter {
       try {
         if (this.eventQueue.length === 0) {
           // Wait a bit if queue is empty
-          await new Promise(resolve => setTimeout(resolve, 10));
+          await new Promise((resolve) => setTimeout(resolve, 10));
           continue;
         }
 
@@ -105,7 +111,7 @@ export class DirectAdapter implements InputAdapter {
         }
       } catch (error) {
         console.error(`[${this.getName()}] Error in processing loop:`, error);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }

@@ -51,7 +51,7 @@ export class DataLoaderHydrator {
       cacheHits: 0,
       cacheMisses: 0,
       queryTime: 0,
-      totalTime: 0
+      totalTime: 0,
     };
 
     if (postUris.length === 0) {
@@ -65,7 +65,7 @@ export class DataLoaderHydrator {
     try {
       // Load all posts and their basic data
       const posts = await Promise.all(
-        postUris.map(uri => loader.posts.load(uri))
+        postUris.map((uri) => loader.posts.load(uri))
       );
       stats.dataLoaderBatches++;
 
@@ -105,30 +105,44 @@ export class DataLoaderHydrator {
         threadGates,
         postGates,
         parentPosts,
-        rootPosts
+        rootPosts,
       ] = await Promise.all([
         // Authors
-        Promise.all(Array.from(authorDids).map(did => loader.users.load(did))),
+        Promise.all(
+          Array.from(authorDids).map((did) => loader.users.load(did))
+        ),
         // Aggregations
-        Promise.all(validPosts.map(p => loader.aggregations.load(p.uri))),
+        Promise.all(validPosts.map((p) => loader.aggregations.load(p.uri))),
         // Viewer states (if viewer is authenticated)
-        viewerDid ? Promise.all(validPosts.map(p => 
-          loader.viewerStates.load(`${p.uri}:${viewerDid}`)
-        )) : [],
+        viewerDid
+          ? Promise.all(
+              validPosts.map((p) =>
+                loader.viewerStates.load(`${p.uri}:${viewerDid}`)
+              )
+            )
+          : [],
         // Actor viewer states
-        viewerDid ? Promise.all(Array.from(authorDids).map(did => 
-          loader.actorViewerStates.load(`${did}:${viewerDid}`)
-        )) : [],
+        viewerDid
+          ? Promise.all(
+              Array.from(authorDids).map((did) =>
+                loader.actorViewerStates.load(`${did}:${viewerDid}`)
+              )
+            )
+          : [],
         // Labels
-        Promise.all(Array.from(allPostUris).map(uri => loader.labels.load(uri))),
+        Promise.all(
+          Array.from(allPostUris).map((uri) => loader.labels.load(uri))
+        ),
         // Thread gates
-        Promise.all(validPosts.map(p => loader.threadGates.load(p.uri))),
-        // Post gates  
-        Promise.all(validPosts.map(p => loader.postGates.load(p.uri))),
+        Promise.all(validPosts.map((p) => loader.threadGates.load(p.uri))),
+        // Post gates
+        Promise.all(validPosts.map((p) => loader.postGates.load(p.uri))),
         // Parent posts
-        Promise.all(Array.from(parentUris).map(uri => loader.posts.load(uri))),
+        Promise.all(
+          Array.from(parentUris).map((uri) => loader.posts.load(uri))
+        ),
         // Root posts
-        Promise.all(Array.from(rootUris).map(uri => loader.posts.load(uri)))
+        Promise.all(Array.from(rootUris).map((uri) => loader.posts.load(uri))),
       ]);
 
       stats.dataLoaderBatches += 8; // Count the parallel batch operations
@@ -144,9 +158,11 @@ export class DataLoaderHydrator {
       const postGateMap = new Map<string, any>();
 
       // Map posts
-      validPosts.forEach(post => postMap.set(post.uri, post));
-      parentPosts.filter(Boolean).forEach(post => postMap.set(post.uri, post));
-      rootPosts.filter(Boolean).forEach(post => postMap.set(post.uri, post));
+      validPosts.forEach((post) => postMap.set(post.uri, post));
+      parentPosts
+        .filter(Boolean)
+        .forEach((post) => postMap.set(post.uri, post));
+      rootPosts.filter(Boolean).forEach((post) => postMap.set(post.uri, post));
 
       // Map authors
       Array.from(authorDids).forEach((did, i) => {
@@ -205,7 +221,7 @@ export class DataLoaderHydrator {
         labels: propagatedLabels,
         threadGates: threadGateMap,
         postGates: postGateMap,
-        stats
+        stats,
       };
     } catch (error) {
       console.error('[DATALOADER_HYDRATOR] Error:', error);
@@ -227,7 +243,7 @@ export class DataLoaderHydrator {
       labels: new Map(),
       threadGates: new Map(),
       postGates: new Map(),
-      stats
+      stats,
     };
   }
 

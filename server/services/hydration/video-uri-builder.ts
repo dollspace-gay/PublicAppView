@@ -14,13 +14,20 @@ export class VideoUriBuilder {
   }) {
     // Default patterns based on typical video service URLs
     // These should be configured based on your video service endpoint
-    const baseUrl = process.env.VIDEO_SERVICE_URL || 
-                    process.env.PUBLIC_URL ||
-                    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : '') ||
-                    (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : '');
-    
-    this.playlistUrlPattern = opts?.playlistUrlPattern || `${baseUrl}/vid/%s/%s/playlist.m3u8`;
-    this.thumbnailUrlPattern = opts?.thumbnailUrlPattern || `${baseUrl}/vid/%s/%s/thumbnail.jpg`;
+    const baseUrl =
+      process.env.VIDEO_SERVICE_URL ||
+      process.env.PUBLIC_URL ||
+      (process.env.REPLIT_DEV_DOMAIN
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : '') ||
+      (process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : '');
+
+    this.playlistUrlPattern =
+      opts?.playlistUrlPattern || `${baseUrl}/vid/%s/%s/playlist.m3u8`;
+    this.thumbnailUrlPattern =
+      opts?.thumbnailUrlPattern || `${baseUrl}/vid/%s/%s/thumbnail.jpg`;
   }
 
   /**
@@ -30,7 +37,7 @@ export class VideoUriBuilder {
     return util.format(
       this.playlistUrlPattern,
       encodeURIComponent(did),
-      encodeURIComponent(cid),
+      encodeURIComponent(cid)
     );
   }
 
@@ -41,7 +48,7 @@ export class VideoUriBuilder {
     return util.format(
       this.thumbnailUrlPattern,
       encodeURIComponent(did),
-      encodeURIComponent(cid),
+      encodeURIComponent(cid)
     );
   }
 }

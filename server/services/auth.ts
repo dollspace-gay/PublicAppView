@@ -1,6 +1,6 @@
-import jwt from "jsonwebtoken";
-import { randomBytes, createPublicKey, verify } from "crypto";
-import type { Request, Response, NextFunction } from "express";
+import jwt from 'jsonwebtoken';
+import { randomBytes, createPublicKey, verify } from 'crypto';
+import type { Request, Response, NextFunction } from 'express';
 import * as jose from 'jose';
 import type { KeyObject, JWSHeaderParameters } from 'jose';
 import KeyEncoder from 'key-encoder';
@@ -13,7 +13,7 @@ const { ec: EC } = elliptic;
 const verifyEs256kSig = (
   publicKey: Uint8Array,
   data: Uint8Array,
-  sig: Uint8Array,
+  sig: Uint8Array
 ): boolean => {
   try {
     // The `key-encoder` library is a CJS module that, when bundled,
@@ -24,7 +24,7 @@ const verifyEs256kSig = (
     const pemKey = keyEncoder.encodePublic(
       toString(publicKey, 'hex'),
       'raw',
-      'pem',
+      'pem'
     );
     const key = createPublicKey({ format: 'pem', key: pemKey });
 
@@ -35,7 +35,7 @@ const verifyEs256kSig = (
         key,
         dsaEncoding: 'ieee-p1363',
       },
-      sig,
+      sig
     );
   } catch (err) {
     console.error('[AUTH] Error during ES256K signature verification:', err);
@@ -44,11 +44,13 @@ const verifyEs256kSig = (
 };
 
 if (!process.env.SESSION_SECRET) {
-  throw new Error("SESSION_SECRET environment variable is required for production use");
+  throw new Error(
+    'SESSION_SECRET environment variable is required for production use'
+  );
 }
 
 const JWT_SECRET = process.env.SESSION_SECRET;
-const JWT_EXPIRY = "7d";
+const JWT_EXPIRY = '7d';
 const MAX_SESSION_EXPIRY_DAYS = 30;
 
 export interface SessionPayload {
@@ -93,7 +95,7 @@ export class AuthService {
       // (e.g., signature mismatch, expiration), not for algorithm mismatches.
       console.log(
         '[AUTH] Local session token verification failed:',
-        error instanceof Error ? error.message : error,
+        error instanceof Error ? error.message : error
       );
       return null;
     }
@@ -103,38 +105,54 @@ export class AuthService {
    * Verify AT Protocol OAuth access token from third-party clients
    * With full cryptographic signature verification
    */
-  async verifyAtProtoToken(token: string): Promise<{ did: string; aud?: string; lxm?: string; scope?: string } | null> {
+  async verifyAtProtoToken(token: string): Promise<{
+    did: string;
+    aud?: string;
+    lxm?: string;
+    scope?: string;
+  } | null> {
     try {
       // Decode without verification to check token structure
       const decoded = jwt.decode(token, { complete: true }) as any;
-      
+
       if (!decoded || !decoded.payload) {
-        console.log("[AUTH] Failed to decode token");
+        console.log('[AUTH] Failed to decode token');
         return null;
       }
 
       const header = decoded.header;
       const payload = decoded.payload;
-      
+
       // AT Protocol supports two token formats:
       // 1. OAuth access tokens (RFC 9068): sub=userDID, iss=authServer, aud=resourceServer
       // 2. Service auth tokens: iss=userDID, aud=targetService, lxm=method
-      
+
       let userDid: string | null = null;
       let signingDid: string | null = null;
-      
+
       // Check for OAuth access token format (sub field with DID)
-      if (payload.sub && typeof payload.sub === 'string' && payload.sub.startsWith("did:")) {
+      if (
+        payload.sub &&
+        typeof payload.sub === 'string' &&
+        payload.sub.startsWith('did:')
+      ) {
         userDid = payload.sub;
-        
+
         // App password tokens from PDS: sub=userDID, aud=pdsDID, scope=com.atproto.appPassPrivileged
         // SECURITY: All JWTs MUST have their cryptographic signatures verified
         // Even app password tokens need signature verification to prevent forgery
         const pdsDid = payload.aud;
-        if (payload.scope === 'com.atproto.appPassPrivileged' && pdsDid && typeof pdsDid === 'string' && pdsDid.startsWith('did:')) {
+        if (
+          payload.scope === 'com.atproto.appPassPrivileged' &&
+          pdsDid &&
+          typeof pdsDid === 'string' &&
+          pdsDid.startsWith('did:')
+        ) {
           // For app password tokens, the PDS is the issuer
           signingDid = pdsDid;
-          console.log(`[AUTH] PDS app password token detected for DID: ${payload.sub} (from PDS: ${pdsDid}) - verifying signature`);
+          console.log(
+            `[AUTH] PDS app password token detected for DID: ${payload.sub} (from PDS: ${pdsDid}) - verifying signature`
+          );
         }
         // OAuth tokens with iss field need signature verification
         else if (payload.iss && typeof payload.iss === 'string') {
@@ -145,11 +163,15 @@ export class AuthService {
         }
       }
       // Check for AT Protocol service auth token format (iss field with DID, lxm field present)
-      else if (payload.iss && typeof payload.iss === 'string' && payload.iss.startsWith("did:") && payload.lxm) {
+      else if (
+        payload.iss &&
+        typeof payload.iss === 'string' &&
+        payload.iss.startsWith('did:') &&
+        payload.lxm
+      ) {
         userDid = payload.iss;
         signingDid = payload.iss; // Token signed by user's DID
-      }
-      else {
+      } else {
         console.log(`[AUTH] Not an AT Protocol token - invalid structure`);
         return null;
       }
@@ -160,23 +182,34 @@ export class AuthService {
 
       // Verify signature using signing DID's public keys
       const verified = await this.verifyJWTSignature(token, signingDid);
-      
+
       if (!verified) {
-        console.error(`[AUTH] Signature verification failed for DID: ${signingDid}`);
+        console.error(
+          `[AUTH] Signature verification failed for DID: ${signingDid}`
+        );
         return null;
       }
 
-      console.log(`[AUTH] ✓ AT Protocol token verified for DID: ${userDid} (signed by: ${signingDid})`);
-      return { did: userDid, aud: (payload as AtProtoTokenPayload).aud, lxm: (payload as AtProtoTokenPayload).lxm };
+      console.log(
+        `[AUTH] ✓ AT Protocol token verified for DID: ${userDid} (signed by: ${signingDid})`
+      );
+      return {
+        did: userDid,
+        aud: (payload as AtProtoTokenPayload).aud,
+        lxm: (payload as AtProtoTokenPayload).lxm,
+      };
     } catch (error) {
-      console.error("[AUTH] AT Protocol token verification failed:", error instanceof Error ? error.message : error);
+      console.error(
+        '[AUTH] AT Protocol token verification failed:',
+        error instanceof Error ? error.message : error
+      );
       return null;
     }
   }
 
   private async verifyJWTSignature(
     token: string,
-    signingDid: string,
+    signingDid: string
   ): Promise<boolean> {
     try {
       const [headerB64, payloadB64, signatureB64] = token.split('.');
@@ -184,14 +217,16 @@ export class AuthService {
         throw new Error('Invalid JWT structure');
       }
       const header = JSON.parse(
-        toString(fromString(headerB64, 'base64url')),
+        toString(fromString(headerB64, 'base64url'))
       ) as JWSHeaderParameters;
 
       const { didResolver } = await import('./did-resolver');
       const didDocument = await didResolver.resolveDID(signingDid);
 
       if (!didDocument || !didDocument.verificationMethod) {
-        console.error(`[AUTH] No verification methods found for DID: ${signingDid}`);
+        console.error(
+          `[AUTH] No verification methods found for DID: ${signingDid}`
+        );
         return false;
       }
 
@@ -202,20 +237,20 @@ export class AuthService {
 
       if (kid) {
         method = verificationMethods.find(
-          (m) => m.id.endsWith(`#${kid}`) || m.id === kid,
+          (m) => m.id.endsWith(`#${kid}`) || m.id === kid
         );
       } else {
         const atprotoKeys = verificationMethods.filter((m) =>
-          m.id.endsWith('#atproto'),
+          m.id.endsWith('#atproto')
         );
         if (atprotoKeys.length === 1) {
           console.log(
-            `[AUTH] JWT missing 'kid', using unique #atproto key for DID ${signingDid}`,
+            `[AUTH] JWT missing 'kid', using unique #atproto key for DID ${signingDid}`
           );
           method = atprotoKeys[0];
         } else {
           throw new Error(
-            "JWT missing 'kid' and could not find a unique '#atproto' verification key.",
+            "JWT missing 'kid' and could not find a unique '#atproto' verification key."
           );
         }
       }
@@ -258,11 +293,14 @@ export class AuthService {
           throw new Error('No supported key format found for ES256K');
         }
 
-        const verified = verifyEs256kSig(publicKeyBytes, signingInput, signature);
+        const verified = verifyEs256kSig(
+          publicKeyBytes,
+          signingInput,
+          signature
+        );
         if (!verified) {
           throw new Error('ES256K signature verification failed');
         }
-
       } else if (header.alg === 'ES256') {
         // Use jose for ES256, which is well-supported
         const getKey = async () => {
@@ -277,17 +315,22 @@ export class AuthService {
             const keyBytes = multicodecBytes.subarray(bytesRead);
             let x: Uint8Array, y: Uint8Array;
             if (keyBytes.length === 65 && keyBytes[0] === 0x04) {
-                x = keyBytes.subarray(1, 33);
-                y = keyBytes.subarray(33, 65);
+              x = keyBytes.subarray(1, 33);
+              y = keyBytes.subarray(33, 65);
             } else if (keyBytes.length === 33) {
-                const ec = new EC('p256');
-                const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
-                x = keyPoint.getX().toBuffer('be', 32);
-                y = keyPoint.getY().toBuffer('be', 32);
+              const ec = new EC('p256');
+              const keyPoint = ec.keyFromPublic(keyBytes).getPublic();
+              x = keyPoint.getX().toBuffer('be', 32);
+              y = keyPoint.getY().toBuffer('be', 32);
             } else {
-                throw new Error('Invalid ES256 public key format');
+              throw new Error('Invalid ES256 public key format');
             }
-            const jwk = { kty: 'EC', crv: 'P-256', x: toString(x, 'base64url'), y: toString(y, 'base64url') };
+            const jwk = {
+              kty: 'EC',
+              crv: 'P-256',
+              x: toString(x, 'base64url'),
+              y: toString(y, 'base64url'),
+            };
             return jose.importJWK(jwk, 'ES256');
           }
           throw new Error('No supported key format found for ES256');
@@ -302,7 +345,7 @@ export class AuthService {
     } catch (error) {
       console.error(
         `[AUTH] Signature verification failed for DID ${signingDid}:`,
-        error,
+        error
       );
       return false;
     }
@@ -311,11 +354,15 @@ export class AuthService {
   /**
    * Verify either local session token OR AT Protocol access token
    */
-  async verifyToken(token: string): Promise<{ did: string; sessionId?: string } | null> {
+  async verifyToken(
+    token: string
+  ): Promise<{ did: string; sessionId?: string } | null> {
     // Try local session token first (faster path for our own web UI)
     const sessionPayload = this.verifySessionToken(token);
     if (sessionPayload) {
-      console.log(`[AUTH] ✓ Local session token verified for DID: ${sessionPayload.did}`);
+      console.log(
+        `[AUTH] ✓ Local session token verified for DID: ${sessionPayload.did}`
+      );
       return sessionPayload;
     }
 
@@ -329,7 +376,7 @@ export class AuthService {
   }
 
   generateSessionId(): string {
-    return randomBytes(32).toString("hex");
+    return randomBytes(32).toString('hex');
   }
 
   extractToken(req: Request): string | null {
@@ -341,13 +388,17 @@ export class AuthService {
 
     // 2. Fallback to Bearer token for API clients
     const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      console.log(`[AUTH] Extracted Bearer token from ${req.path}: ${token.substring(0, 20)}...`);
+      console.log(
+        `[AUTH] Extracted Bearer token from ${req.path}: ${token.substring(0, 20)}...`
+      );
       return token;
     }
 
-    console.log(`[AUTH] No token found in cookie or Authorization header for ${req.path}`);
+    console.log(
+      `[AUTH] No token found in cookie or Authorization header for ${req.path}`
+    );
     return null;
   }
 }
@@ -364,7 +415,7 @@ export interface AuthRequest extends Request {
  * @returns The updated session object, or null if the session is invalid.
  */
 export async function validateAndRefreshSession(sessionId: string) {
-  const { storage } = await import("../storage");
+  const { storage } = await import('../storage');
   let session = await storage.getSession(sessionId);
 
   if (!session) {
@@ -374,15 +425,20 @@ export async function validateAndRefreshSession(sessionId: string) {
   const now = new Date();
   if (now > new Date(session.expiresAt)) {
     if (session.refreshToken) {
-      console.log(`[AUTH] Access token expired for ${session.userDid}, attempting refresh...`);
-      
-      const { pdsClient } = await import("./pds-client");
-      const { didResolver } = await import("./did-resolver");
-      
+      console.log(
+        `[AUTH] Access token expired for ${session.userDid}, attempting refresh...`
+      );
+
+      const { pdsClient } = await import('./pds-client');
+      const { didResolver } = await import('./did-resolver');
+
       const pdsEndpoint = await didResolver.resolveDIDToPDS(session.userDid);
       if (pdsEndpoint) {
-        const refreshResult = await pdsClient.refreshAccessToken(pdsEndpoint, session.refreshToken);
-        
+        const refreshResult = await pdsClient.refreshAccessToken(
+          pdsEndpoint,
+          session.refreshToken
+        );
+
         if (refreshResult.success && refreshResult.data) {
           const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
           const updatedSessionData = {
@@ -393,12 +449,14 @@ export async function validateAndRefreshSession(sessionId: string) {
 
           session = await storage.updateSession(sessionId, updatedSessionData);
           if (session) {
-            console.log(`[AUTH] Successfully refreshed and updated session for ${session.userDid}`);
+            console.log(
+              `[AUTH] Successfully refreshed and updated session for ${session.userDid}`
+            );
             return session;
           }
         }
       }
-      
+
       // If refresh fails for any reason, delete the invalid session
       await storage.deleteSession(sessionId);
       return null;
@@ -413,42 +471,50 @@ export async function validateAndRefreshSession(sessionId: string) {
   return session;
 }
 
-
-export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireAuth(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
   const token = authService.extractToken(req);
   if (!token) {
-    return res.status(401).json({ error: "No authentication token provided" });
+    return res.status(401).json({ error: 'No authentication token provided' });
   }
 
   // Use verifyToken to support both local session tokens AND AT Protocol access tokens
   const payload = await authService.verifyToken(token);
   if (!payload) {
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 
   // Use the centralized session validation and refresh logic
   const session = await validateAndRefreshSession(payload.sessionId);
   if (!session) {
-    return res.status(401).json({ error: "Session not found or has expired" });
+    return res.status(401).json({ error: 'Session not found or has expired' });
   }
 
   req.session = payload; // Attach original payload with DID and sessionID to the request
   next();
 }
 
-export async function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) {
   await requireAuth(req, res, async () => {
     if (!req.session) {
-      return res.status(401).json({ error: "Authentication required" });
+      return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const { adminAuthService } = await import("./admin-authorization");
+    const { adminAuthService } = await import('./admin-authorization');
     const isAdmin = await adminAuthService.isAdmin(req.session.did);
 
     if (!isAdmin) {
-      return res.status(403).json({ 
-        error: "Admin access required",
-        message: "Your account is not authorized to access admin features. Contact your instance administrator."
+      return res.status(403).json({
+        error: 'Admin access required',
+        message:
+          'Your account is not authorized to access admin features. Contact your instance administrator.',
       });
     }
 

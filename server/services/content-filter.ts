@@ -1,5 +1,5 @@
-import type { Post, UserSettings, Label } from "@shared/schema";
-import { labelService } from "./label";
+import type { Post, UserSettings, Label } from '@shared/schema';
+import { labelService } from './label';
 
 export interface FilterResult {
   filtered: boolean;
@@ -8,8 +8,8 @@ export interface FilterResult {
 }
 
 export interface FilterRule {
-  type: "keyword" | "user" | "custom";
-  action: "hide" | "warn";
+  type: 'keyword' | 'user' | 'custom';
+  action: 'hide' | 'warn';
   value: string | ((post: Post) => boolean);
 }
 
@@ -25,15 +25,25 @@ export class ContentFilterService {
   /**
    * Determine if labels should hide content
    */
-  private shouldFilterByLabels(labels: Label[]): { filter: boolean; reason?: string } {
-    const hideLabels = ["spam", "nsfw", "porn", "sexual", "graphic-media", "nudity"];
-    
+  private shouldFilterByLabels(labels: Label[]): {
+    filter: boolean;
+    reason?: string;
+  } {
+    const hideLabels = [
+      'spam',
+      'nsfw',
+      'porn',
+      'sexual',
+      'graphic-media',
+      'nudity',
+    ];
+
     for (const label of labels) {
       if (hideLabels.includes(label.val)) {
         return { filter: true, reason: `Labeled as ${label.val}` };
       }
     }
-    
+
     return { filter: false };
   }
 
@@ -50,14 +60,14 @@ export class ContentFilterService {
     if (mutedUsers.includes(post.authorDid)) {
       return {
         filtered: true,
-        reason: "Author is muted",
+        reason: 'Author is muted',
       };
     }
 
     // Check blocked keywords
     const blockedKeywords = (settings.blockedKeywords as string[]) || [];
     const postText = post.text.toLowerCase();
-    
+
     for (const keyword of blockedKeywords) {
       if (postText.includes(keyword.toLowerCase())) {
         return {
@@ -73,7 +83,10 @@ export class ContentFilterService {
   /**
    * Filter a single post with label checking (async version)
    */
-  async filterPostWithLabels(post: Post, settings: UserSettings | null): Promise<FilterResult> {
+  async filterPostWithLabels(
+    post: Post,
+    settings: UserSettings | null
+  ): Promise<FilterResult> {
     // First check user settings
     const basicResult = this.filterPost(post, settings);
     if (basicResult.filtered) {
@@ -121,7 +134,10 @@ export class ContentFilterService {
   /**
    * Filter an array of posts with label checking (async version)
    */
-  async filterPostsWithLabels(posts: Post[], settings: UserSettings | null): Promise<Post[]> {
+  async filterPostsWithLabels(
+    posts: Post[],
+    settings: UserSettings | null
+  ): Promise<Post[]> {
     if (posts.length === 0) return posts;
 
     // Collect all subjects (post URIs + author DIDs)
@@ -173,26 +189,34 @@ export class ContentFilterService {
     // Apply custom rules (only safe rule types - NO custom functions from untrusted sources)
     filtered = filtered.filter((post) => {
       for (const rule of customRules) {
-        if (rule.action === "hide") {
-          if (rule.type === "keyword" && typeof rule.value === "string") {
+        if (rule.action === 'hide') {
+          if (rule.type === 'keyword' && typeof rule.value === 'string') {
             if (post.text.toLowerCase().includes(rule.value.toLowerCase())) {
               return false;
             }
-          } else if (rule.type === "user" && typeof rule.value === "string") {
+          } else if (rule.type === 'user' && typeof rule.value === 'string') {
             if (post.authorDid === rule.value) {
               return false;
             }
-          } else if (rule.type === "custom" && typeof rule.value === "function") {
+          } else if (
+            rule.type === 'custom' &&
+            typeof rule.value === 'function'
+          ) {
             // SECURITY: Custom functions can execute arbitrary code (RCE risk)
             // This should ONLY be used with rules from trusted, server-defined sources
             // NEVER allow user-defined custom rules with function values
-            console.warn('[CONTENT_FILTER] WARNING: Executing custom filter function - ensure this is from a trusted source');
+            console.warn(
+              '[CONTENT_FILTER] WARNING: Executing custom filter function - ensure this is from a trusted source'
+            );
             try {
               if (rule.value(post)) {
                 return false;
               }
             } catch (error) {
-              console.error('[CONTENT_FILTER] Error executing custom filter function:', error);
+              console.error(
+                '[CONTENT_FILTER] Error executing custom filter function:',
+                error
+              );
               // On error, fail safe by not filtering the post
               return true;
             }
@@ -238,7 +262,10 @@ export class ContentFilterService {
   /**
    * Get filter statistics for a set of posts (async version with labels)
    */
-  async getFilterStatsWithLabels(posts: Post[], settings: UserSettings | null): Promise<{
+  async getFilterStatsWithLabels(
+    posts: Post[],
+    settings: UserSettings | null
+  ): Promise<{
     total: number;
     filtered: number;
     byKeyword: number;
@@ -272,14 +299,18 @@ export class ContentFilterService {
     // Now filter using pre-fetched labels (no redundant async calls)
     let filteredCount = 0;
     for (const post of posts) {
-      const result = this.filterPostWithPrecomputedLabels(post, settings, labelMap);
+      const result = this.filterPostWithPrecomputedLabels(
+        post,
+        settings,
+        labelMap
+      );
       if (result.filtered) {
         filteredCount++;
-        if (result.reason?.includes("keyword")) {
+        if (result.reason?.includes('keyword')) {
           byKeyword++;
-        } else if (result.reason?.includes("muted")) {
+        } else if (result.reason?.includes('muted')) {
           byMutedUser++;
-        } else if (result.reason?.includes("Labeled")) {
+        } else if (result.reason?.includes('Labeled')) {
           byLabel++;
         }
       }
@@ -298,7 +329,10 @@ export class ContentFilterService {
   /**
    * Get filter statistics for a set of posts
    */
-  getFilterStats(posts: Post[], settings: UserSettings | null): {
+  getFilterStats(
+    posts: Post[],
+    settings: UserSettings | null
+  ): {
     total: number;
     filtered: number;
     byKeyword: number;
@@ -321,9 +355,9 @@ export class ContentFilterService {
     const filtered = posts.filter((post) => {
       const result = this.filterPost(post, settings);
       if (result.filtered) {
-        if (result.reason?.includes("keyword")) {
+        if (result.reason?.includes('keyword')) {
           byKeyword++;
-        } else if (result.reason?.includes("muted")) {
+        } else if (result.reason?.includes('muted')) {
           byMutedUser++;
         }
         return true;
@@ -351,8 +385,8 @@ export class ContentFilterService {
    * Create a custom filter rule
    */
   createRule(
-    type: "keyword" | "user" | "custom",
-    action: "hide" | "warn",
+    type: 'keyword' | 'user' | 'custom',
+    action: 'hide' | 'warn',
     value: string | ((post: Post) => boolean)
   ): FilterRule {
     return { type, action, value };

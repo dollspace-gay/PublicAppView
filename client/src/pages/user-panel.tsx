@@ -1,14 +1,28 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
-import { User, Database, Trash2, ShieldOff, Download, AlertCircle, LogOut } from "lucide-react";
-import { api } from "@/lib/api";
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
+import {
+  User,
+  Database,
+  Trash2,
+  ShieldOff,
+  Download,
+  AlertCircle,
+  LogOut,
+} from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface UserSettings {
   userDid: string;
@@ -27,9 +41,11 @@ interface UserStats {
 export default function UserPanel() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [backfillDays, setBackfillDays] = useState<string>("0");
+  const [backfillDays, setBackfillDays] = useState<string>('0');
 
-  const { data: sessionData, isLoading: isSessionLoading } = useQuery<{ session?: { userDid: string } }>({
+  const { data: sessionData, isLoading: isSessionLoading } = useQuery<{
+    session?: { userDid: string };
+  }>({
     queryKey: ['/api/auth/session'],
     retry: false,
   });
@@ -52,61 +68,70 @@ export default function UserPanel() {
 
   // Backfill mutation
   const backfillMutation = useMutation({
-    mutationFn: (days: number) => api.post<{ message: string }>("/api/user/backfill", { days }),
+    mutationFn: (days: number) =>
+      api.post<{ message: string }>('/api/user/backfill', { days }),
     onSuccess: (data) => {
       toast({
-        title: "Backfill Started",
-        description: data.message || `Backfilling ${backfillDays} days of data...`,
+        title: 'Backfill Started',
+        description:
+          data.message || `Backfilling ${backfillDays} days of data...`,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
       queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
     },
     onError: (error: Error) => {
       toast({
-        title: "Backfill Failed",
-        description: error.message || "Failed to start backfill",
-        variant: "destructive",
+        title: 'Backfill Failed',
+        description: error.message || 'Failed to start backfill',
+        variant: 'destructive',
       });
     },
   });
 
   // Delete all data mutation
   const deleteDataMutation = useMutation({
-    mutationFn: () => api.post<{ message: string }>("/api/user/delete-data", {}),
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/user/delete-data', {}),
     onSuccess: (data) => {
       toast({
-        title: "Data Deleted",
-        description: data.message || "All your data has been removed from this instance",
+        title: 'Data Deleted',
+        description:
+          data.message || 'All your data has been removed from this instance',
       });
       queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
       queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
     },
     onError: (error: Error) => {
       toast({
-        title: "Delete Failed",
-        description: error.message || "Failed to delete data",
-        variant: "destructive",
+        title: 'Delete Failed',
+        description: error.message || 'Failed to delete data',
+        variant: 'destructive',
       });
     },
   });
 
   // Toggle data collection mutation
   const toggleCollectionMutation = useMutation({
-    mutationFn: (forbidden: boolean) => api.post<{ forbidden: boolean }>("/api/user/toggle-collection", { forbidden }),
+    mutationFn: (forbidden: boolean) =>
+      api.post<{ forbidden: boolean }>('/api/user/toggle-collection', {
+        forbidden,
+      }),
     onSuccess: (data) => {
       toast({
-        title: data.forbidden ? "Data Collection Disabled" : "Data Collection Enabled",
-        description: data.forbidden 
-          ? "This instance will no longer collect your data"
-          : "This instance can now collect your data from the firehose",
+        title: data.forbidden
+          ? 'Data Collection Disabled'
+          : 'Data Collection Enabled',
+        description: data.forbidden
+          ? 'This instance will no longer collect your data'
+          : 'This instance can now collect your data from the firehose',
       });
       queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
     },
     onError: (error: Error) => {
       toast({
-        title: "Update Failed",
-        description: error.message || "Failed to update setting",
-        variant: "destructive",
+        title: 'Update Failed',
+        description: error.message || 'Failed to update setting',
+        variant: 'destructive',
       });
     },
   });
@@ -124,18 +149,19 @@ export default function UserPanel() {
     const days = parseInt(backfillDays);
     if (isNaN(days) || days < 0) {
       toast({
-        title: "Invalid Days",
-        description: "Please enter a valid number (0 for all data, or 1+ for recent days)",
-        variant: "destructive",
+        title: 'Invalid Days',
+        description:
+          'Please enter a valid number (0 for all data, or 1+ for recent days)',
+        variant: 'destructive',
       });
       return;
     }
 
     if (days > 3650) {
       toast({
-        title: "Too Many Days",
-        description: "Maximum backfill is 3650 days (10 years)",
-        variant: "destructive",
+        title: 'Too Many Days',
+        description: 'Maximum backfill is 3650 days (10 years)',
+        variant: 'destructive',
       });
       return;
     }
@@ -144,7 +170,11 @@ export default function UserPanel() {
   };
 
   const handleDeleteData = () => {
-    if (!window.confirm("Are you sure you want to delete ALL your data from this instance? This action cannot be undone.")) {
+    if (
+      !window.confirm(
+        'Are you sure you want to delete ALL your data from this instance? This action cannot be undone.'
+      )
+    ) {
       return;
     }
 
@@ -183,7 +213,7 @@ export default function UserPanel() {
           </CardHeader>
           <CardContent>
             <Button
-              onClick={() => window.location.href = "/login"}
+              onClick={() => (window.location.href = '/login')}
               className="w-full"
               data-testid="button-go-login"
             >
@@ -224,20 +254,26 @@ export default function UserPanel() {
             <CardTitle>Backfill Your Data</CardTitle>
           </div>
           <CardDescription>
-            Import your historical posts and interactions from your Personal Data Server
+            Import your historical posts and interactions from your Personal
+            Data Server
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {settings?.lastBackfillAt && (
             <div className="flex items-center space-x-2 text-sm text-muted-foreground">
               <AlertCircle className="h-4 w-4" />
-              <span>Last backfill: {new Date(settings.lastBackfillAt).toLocaleString()}</span>
+              <span>
+                Last backfill:{' '}
+                {new Date(settings.lastBackfillAt).toLocaleString()}
+              </span>
             </div>
           )}
 
           <div className="flex items-end space-x-4">
             <div className="flex-1 space-y-2">
-              <Label htmlFor="backfill-days">Number of Days (0 = all time)</Label>
+              <Label htmlFor="backfill-days">
+                Number of Days (0 = all time)
+              </Label>
               <Input
                 id="backfill-days"
                 type="number"
@@ -250,10 +286,10 @@ export default function UserPanel() {
               />
               <p className="text-xs text-muted-foreground">
                 {parseInt(backfillDays) === 0
-                  ? "Will import ALL your data from your PDS (no date filter)"
-                  : parseInt(backfillDays) > 3 
+                  ? 'Will import ALL your data from your PDS (no date filter)'
+                  : parseInt(backfillDays) > 3
                     ? `Will import data from the last ${backfillDays} days from your PDS`
-                    : "Will fetch recent data from the firehose"}
+                    : 'Will fetch recent data from the firehose'}
               </p>
             </div>
             <Button
@@ -262,7 +298,7 @@ export default function UserPanel() {
               data-testid="button-backfill"
             >
               {backfillMutation.isPending ? (
-                "Processing..."
+                'Processing...'
               ) : (
                 <>
                   <Database className="h-4 w-4 mr-2" />
@@ -289,33 +325,47 @@ export default function UserPanel() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-1">Posts</p>
-              <p className="text-2xl font-bold font-mono" data-testid="text-stats-posts">
+              <p
+                className="text-2xl font-bold font-mono"
+                data-testid="text-stats-posts"
+              >
                 {stats?.posts.toLocaleString() || '0'}
               </p>
             </div>
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-1">Likes</p>
-              <p className="text-2xl font-bold font-mono" data-testid="text-stats-likes">
+              <p
+                className="text-2xl font-bold font-mono"
+                data-testid="text-stats-likes"
+              >
                 {stats?.likes.toLocaleString() || '0'}
               </p>
             </div>
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-1">Reposts</p>
-              <p className="text-2xl font-bold font-mono" data-testid="text-stats-reposts">
+              <p
+                className="text-2xl font-bold font-mono"
+                data-testid="text-stats-reposts"
+              >
                 {stats?.reposts.toLocaleString() || '0'}
               </p>
             </div>
             <div className="p-4 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-1">Follows</p>
-              <p className="text-2xl font-bold font-mono" data-testid="text-stats-follows">
+              <p
+                className="text-2xl font-bold font-mono"
+                data-testid="text-stats-follows"
+              >
                 {stats?.follows.toLocaleString() || '0'}
               </p>
             </div>
           </div>
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              <span className="font-semibold">Total: {stats?.totalRecords.toLocaleString() || '0'} records</span>
-              {" · "}Updates every 5 seconds to reflect real-time changes
+              <span className="font-semibold">
+                Total: {stats?.totalRecords.toLocaleString() || '0'} records
+              </span>
+              {' · '}Updates every 5 seconds to reflect real-time changes
             </p>
           </div>
         </CardContent>
@@ -348,14 +398,19 @@ export default function UserPanel() {
               data-testid="switch-forbid-collection"
             />
           </div>
-          
+
           {settings?.dataCollectionForbidden && (
             <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-md">
               <div className="flex items-start space-x-2">
                 <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5" />
                 <div className="text-sm text-yellow-800 dark:text-yellow-200">
-                  <p className="font-medium">Data collection is currently disabled</p>
-                  <p className="mt-1">This instance will not collect any new data about your account from the network firehose.</p>
+                  <p className="font-medium">
+                    Data collection is currently disabled
+                  </p>
+                  <p className="mt-1">
+                    This instance will not collect any new data about your
+                    account from the network firehose.
+                  </p>
                 </div>
               </div>
             </div>
@@ -377,9 +432,12 @@ export default function UserPanel() {
         <CardContent>
           <div className="space-y-4">
             <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-md">
-              <p className="text-sm text-destructive font-medium">⚠️ This action cannot be undone!</p>
+              <p className="text-sm text-destructive font-medium">
+                ⚠️ This action cannot be undone!
+              </p>
               <p className="text-sm text-muted-foreground mt-2">
-                This will delete all posts, likes, reposts, follows, and other data associated with your account from this instance's database.
+                This will delete all posts, likes, reposts, follows, and other
+                data associated with your account from this instance's database.
               </p>
             </div>
 
@@ -390,7 +448,7 @@ export default function UserPanel() {
               data-testid="button-delete-data"
             >
               {deleteDataMutation.isPending ? (
-                "Deleting..."
+                'Deleting...'
               ) : (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />

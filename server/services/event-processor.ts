@@ -1,12 +1,27 @@
-import { storage, type IStorage } from "../storage";
-import { lexiconValidator } from "./lexicon-validator";
-import { labelService } from "./label";
-import { didResolver } from "./did-resolver";
-import { pdsDataFetcher } from "./pds-data-fetcher";
-import { smartConsole } from "./console-wrapper";
-import { logAggregator } from "./log-aggregator";
-import { sanitizeObject } from "../utils/sanitize";
-import type { InsertUser, InsertPost, InsertLike, InsertRepost, InsertFollow, InsertBlock, InsertList, InsertListItem, InsertFeedGenerator, InsertStarterPack, InsertLabelerService, InsertFeedItem, InsertQuote, InsertVerification } from "@shared/schema";
+import { storage, type IStorage } from '../storage';
+import { lexiconValidator } from './lexicon-validator';
+import { labelService } from './label';
+import { didResolver } from './did-resolver';
+import { pdsDataFetcher } from './pds-data-fetcher';
+import { smartConsole } from './console-wrapper';
+import { logAggregator } from './log-aggregator';
+import { sanitizeObject } from '../utils/sanitize';
+import type {
+  InsertUser,
+  InsertPost,
+  InsertLike,
+  InsertRepost,
+  InsertFollow,
+  InsertBlock,
+  InsertList,
+  InsertListItem,
+  InsertFeedGenerator,
+  InsertStarterPack,
+  InsertLabelerService,
+  InsertFeedItem,
+  InsertQuote,
+  InsertVerification,
+} from '@shared/schema';
 import { CID } from 'multiformats/cid';
 import * as Digest from 'multiformats/hashes/digest';
 
@@ -22,7 +37,7 @@ function sanitizeRequiredText(text: string | undefined | null): string {
 
 /**
  * Extract CID from various blob reference formats used in AT Protocol
- * Handles: 
+ * Handles:
  * - {ref: {$link: 'cid'}} (JSON format from API)
  * - {ref: {code, version, multihash}} (Binary CID object from CAR files)
  * - {cid: 'cid'} (Direct CID field)
@@ -30,60 +45,71 @@ function sanitizeRequiredText(text: string | undefined | null): string {
  */
 function extractBlobCid(blob: any): string | null {
   if (!blob) return null;
-  
+
   // Handle direct string
   if (typeof blob === 'string') {
     return blob === 'undefined' ? null : blob;
   }
-  
+
   // Handle blob.ref field
   if (blob.ref) {
     // String CID: {ref: {$link: 'cid'}} or {ref: 'cid'}
     if (typeof blob.ref === 'string') {
       return blob.ref !== 'undefined' ? blob.ref : null;
     }
-    
+
     if (blob.ref.$link) {
       return blob.ref.$link !== 'undefined' ? blob.ref.$link : null;
     }
-    
+
     // Binary CID object from CAR files: {ref: {code, version, multihash}}
     if (blob.ref.code !== undefined && blob.ref.multihash) {
       try {
         // If it's already a CID object with toString method, use it
-        if (typeof blob.ref.toString === 'function' && blob.ref.toString !== Object.prototype.toString) {
+        if (
+          typeof blob.ref.toString === 'function' &&
+          blob.ref.toString !== Object.prototype.toString
+        ) {
           const cidString = blob.ref.toString();
           return cidString !== 'undefined' ? cidString : null;
         }
-        
+
         // Otherwise, construct CID from the binary parts
         const mh = blob.ref.multihash;
         const digest = mh.digest;
-        
+
         // Convert digest to Uint8Array if it's an object with numeric keys
         let digestBytes: Uint8Array;
-        if (digest && typeof digest === 'object' && !ArrayBuffer.isView(digest)) {
+        if (
+          digest &&
+          typeof digest === 'object' &&
+          !ArrayBuffer.isView(digest)
+        ) {
           const size = mh.size || Object.keys(digest).length;
           digestBytes = new Uint8Array(size);
           for (let i = 0; i < size; i++) {
             digestBytes[i] = digest[i];
           }
         } else if (ArrayBuffer.isView(digest)) {
-          digestBytes = new Uint8Array(digest.buffer, digest.byteOffset, digest.byteLength);
+          digestBytes = new Uint8Array(
+            digest.buffer,
+            digest.byteOffset,
+            digest.byteLength
+          );
         } else {
           return null;
         }
-        
+
         // Create a proper Multihash Digest
         const multihashDigest = Digest.create(mh.code, digestBytes);
-        
+
         // Create CID from parts: version, codec, and multihash
         const cidObj = CID.create(
           blob.ref.version || 1,
           blob.ref.code,
           multihashDigest
         );
-        
+
         return cidObj.toString();
       } catch (error) {
         console.error('[EXTRACT_CID] Error converting binary CID:', error);
@@ -91,12 +117,12 @@ function extractBlobCid(blob: any): string | null {
       }
     }
   }
-  
+
   // Handle blob.cid field
   if (blob.cid) {
     return blob.cid !== 'undefined' ? blob.cid : null;
   }
-  
+
   return null;
 }
 
@@ -106,13 +132,13 @@ function extractBlobCid(blob: any): string | null {
  */
 function normalizeEmbed(embed: any): any {
   if (!embed || typeof embed !== 'object') return embed;
-  
+
   const normalized = { ...embed };
-  
+
   // Handle external embeds with thumbnails
   if (normalized.$type === 'app.bsky.embed.external' && normalized.external) {
     normalized.external = { ...normalized.external };
-    
+
     // Remove thumb if it has no valid CID
     if (normalized.external.thumb) {
       const thumbCid = extractBlobCid(normalized.external.thumb);
@@ -121,9 +147,12 @@ function normalizeEmbed(embed: any): any {
       }
     }
   }
-  
+
   // Handle image embeds
-  if (normalized.$type === 'app.bsky.embed.images' && Array.isArray(normalized.images)) {
+  if (
+    normalized.$type === 'app.bsky.embed.images' &&
+    Array.isArray(normalized.images)
+  ) {
     normalized.images = normalized.images
       .map((img: any) => {
         if (!img.image) return null;
@@ -132,25 +161,28 @@ function normalizeEmbed(embed: any): any {
         return img;
       })
       .filter(Boolean); // Remove null entries
-    
+
     // If all images were invalid, remove the embed entirely
     if (normalized.images.length === 0) {
       return null;
     }
   }
-  
+
   // Handle recordWithMedia (quote with media)
-  if (normalized.$type === 'app.bsky.embed.recordWithMedia' && normalized.media) {
+  if (
+    normalized.$type === 'app.bsky.embed.recordWithMedia' &&
+    normalized.media
+  ) {
     normalized.media = normalizeEmbed(normalized.media);
     // If media normalization removed all content, convert to plain record embed
     if (!normalized.media) {
       return {
         $type: 'app.bsky.embed.record',
-        record: normalized.record
+        record: normalized.record,
       };
     }
   }
-  
+
   // Handle video embeds with thumbnails
   if (normalized.$type === 'app.bsky.embed.video') {
     if (normalized.thumbnail) {
@@ -160,7 +192,7 @@ function normalizeEmbed(embed: any): any {
       }
     }
   }
-  
+
   return normalized;
 }
 
@@ -195,7 +227,8 @@ export class EventProcessor {
   private pendingUserOpIndex: Map<string, string> = new Map(); // opUri -> userDid
   private pendingListItems: Map<string, PendingListItem[]> = new Map(); // listUri -> pending list items
   private pendingListItemIndex: Map<string, string> = new Map(); // itemUri -> listUri
-  private pendingUserCreationOps: Map<string, PendingUserCreationOp[]> = new Map(); // did -> ops
+  private pendingUserCreationOps: Map<string, PendingUserCreationOp[]> =
+    new Map(); // did -> ops
   private readonly TTL_MS = 24 * 60 * 60 * 1000; // 24 hour TTL for cleanup
   private totalPendingCount = 0; // Running counter for performance
   private totalPendingUserOps = 0; // Counter for pending user ops
@@ -222,13 +255,15 @@ export class EventProcessor {
     pendingUserCreationOpsExpired: 0,
   };
   private dataCollectionCache = new Map<string, boolean>(); // DID -> dataCollectionForbidden
-  
+
   // Concurrent user creation limiting to prevent connection pool exhaustion
   private pendingUserCreations = new Map<string, Promise<boolean>>(); // did -> pending promise
   private activeUserCreations = 0;
   // Limit concurrent user creations to avoid overwhelming DB pool
   // Set to 2x pool size to allow some queuing while preventing timeout
-  private readonly MAX_CONCURRENT_USER_CREATIONS = parseInt(process.env.MAX_CONCURRENT_USER_CREATIONS || '10');
+  private readonly MAX_CONCURRENT_USER_CREATIONS = parseInt(
+    process.env.MAX_CONCURRENT_USER_CREATIONS || '10'
+  );
 
   constructor(storageInstance: IStorage = storage) {
     this.storage = storageInstance;
@@ -244,7 +279,7 @@ export class EventProcessor {
   setSkipPdsFetching(skip: boolean) {
     this.skipPdsFetching = skip;
   }
-  
+
   /**
    * Check if data collection is forbidden for a user
    * Returns true if collection is forbidden, false otherwise
@@ -255,17 +290,17 @@ export class EventProcessor {
     if (this.dataCollectionCache.has(did)) {
       return this.dataCollectionCache.get(did)!;
     }
-    
+
     // Query database
     const settings = await this.storage.getUserSettings(did);
     const forbidden = settings?.dataCollectionForbidden || false;
-    
+
     // Cache the result
     this.dataCollectionCache.set(did, forbidden);
-    
+
     return forbidden;
   }
-  
+
   /**
    * Invalidate the data collection cache for a specific user
    * Called when user settings change to ensure immediate effect
@@ -327,7 +362,9 @@ export class EventProcessor {
     }
 
     // Sweep pending list items
-    for (const [listUri, items] of Array.from(this.pendingListItems.entries())) {
+    for (const [listUri, items] of Array.from(
+      this.pendingListItems.entries()
+    )) {
       const validItems = items.filter((item: PendingListItem) => {
         if (now - item.enqueuedAt > this.TTL_MS) {
           expiredListItems++;
@@ -348,23 +385,31 @@ export class EventProcessor {
     if (expired > 0) {
       this.totalPendingCount -= expired;
       this.metrics.pendingExpired += expired;
-      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Expired ${expired} pending operations (TTL exceeded)`
+      );
     }
 
     if (expiredUserOps > 0) {
       this.totalPendingUserOps -= expiredUserOps;
       this.metrics.pendingUserOpsExpired += expiredUserOps;
-      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Expired ${expiredUserOps} pending user operations (TTL exceeded)`
+      );
     }
 
     if (expiredListItems > 0) {
       this.totalPendingListItems -= expiredListItems;
       this.metrics.pendingListItemsExpired += expiredListItems;
-      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Expired ${expiredListItems} pending list items (TTL exceeded)`
+      );
     }
 
     let expiredUserCreationOps = 0;
-    for (const [did, ops] of Array.from(this.pendingUserCreationOps.entries())) {
+    for (const [did, ops] of Array.from(
+      this.pendingUserCreationOps.entries()
+    )) {
       const validOps = ops.filter((op: PendingUserCreationOp) => {
         if (now - op.enqueuedAt > this.TTL_MS) {
           expiredUserCreationOps++;
@@ -383,7 +428,9 @@ export class EventProcessor {
     if (expiredUserCreationOps > 0) {
       this.totalPendingUserCreationOps -= expiredUserCreationOps;
       this.metrics.pendingUserCreationOpsExpired += expiredUserCreationOps;
-      smartConsole.log(`[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Expired ${expiredUserCreationOps} pending user creation operations (TTL exceeded)`
+      );
     }
   }
 
@@ -406,7 +453,7 @@ export class EventProcessor {
 
   private enqueuePending(postUri: string, op: PendingOp) {
     const opUri = op.payload.uri;
-    
+
     // Check for duplicates
     if (this.pendingOpIndex.has(opUri)) {
       return; // Already pending, skip
@@ -414,13 +461,13 @@ export class EventProcessor {
 
     // Get or create queue for this post (no limits)
     const queue = this.pendingOps.get(postUri) || [];
-    
+
     queue.push(op);
     this.pendingOps.set(postUri, queue);
-    
+
     // Add to index
     this.pendingOpIndex.set(opUri, postUri);
-    
+
     this.totalPendingCount++;
     this.metrics.pendingQueued++;
   }
@@ -431,11 +478,13 @@ export class EventProcessor {
     if (!ops || ops.length === 0) {
       return;
     }
-    
+
     // Delete immediately to prevent new ops from being lost
     this.pendingOps.delete(postUri);
 
-    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending operations for ${postUri}`);
+    smartConsole.log(
+      `[EVENT_PROCESSOR] Flushing ${ops.length} pending operations for ${postUri}`
+    );
 
     for (const op of ops) {
       try {
@@ -446,14 +495,17 @@ export class EventProcessor {
           await this.storage.createRepost(op.payload as InsertRepost);
           this.metrics.pendingFlushed++;
         }
-        
+
         // Remove from index
         const opUri = op.payload.uri;
         this.pendingOpIndex.delete(opUri);
         this.totalPendingCount--;
       } catch (error: any) {
         // If still failing, skip it
-        smartConsole.error(`[EVENT_PROCESSOR] Error flushing pending ${op.type}:`, error.message);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error flushing pending ${op.type}:`,
+          error.message
+        );
         // Still remove from index and count
         const opUri = op.payload.uri;
         this.pendingOpIndex.delete(opUri);
@@ -475,15 +527,15 @@ export class EventProcessor {
     }
 
     // Filter out the op and count removed
-    const filteredQueue = queue.filter(op => op.payload.uri !== opUri);
+    const filteredQueue = queue.filter((op) => op.payload.uri !== opUri);
     const removed = queue.length - filteredQueue.length;
-    
+
     if (filteredQueue.length === 0) {
       this.pendingOps.delete(postUri);
     } else if (removed > 0) {
       this.pendingOps.set(postUri, filteredQueue);
     }
-    
+
     // Update count and index
     if (removed > 0) {
       this.totalPendingCount -= removed;
@@ -537,7 +589,7 @@ export class EventProcessor {
     const queue = this.pendingUserOps.get(userDid);
     if (!queue) return;
 
-    const filteredQueue = queue.filter(op => op.payload.uri !== opUri);
+    const filteredQueue = queue.filter((op) => op.payload.uri !== opUri);
     const removed = queue.length - filteredQueue.length;
 
     if (filteredQueue.length === 0) {
@@ -554,7 +606,7 @@ export class EventProcessor {
 
   private enqueuePendingListItem(listUri: string, item: PendingListItem) {
     const itemUri = item.payload.uri;
-    
+
     // Check for duplicates
     if (this.pendingListItemIndex.has(itemUri)) {
       return; // Already pending, skip
@@ -562,13 +614,13 @@ export class EventProcessor {
 
     // Get or create queue for this list (no limits)
     const queue = this.pendingListItems.get(listUri) || [];
-    
+
     queue.push(item);
     this.pendingListItems.set(listUri, queue);
-    
+
     // Add to index
     this.pendingListItemIndex.set(itemUri, listUri);
-    
+
     this.totalPendingListItems++;
     this.metrics.pendingListItemsQueued++;
   }
@@ -579,23 +631,28 @@ export class EventProcessor {
     if (!items || items.length === 0) {
       return;
     }
-    
+
     // Delete immediately to prevent new items from being lost
     this.pendingListItems.delete(listUri);
 
-    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${items.length} pending list items for ${listUri}`);
+    smartConsole.log(
+      `[EVENT_PROCESSOR] Flushing ${items.length} pending list items for ${listUri}`
+    );
 
     for (const item of items) {
       try {
         await this.storage.createListItem(item.payload);
         this.metrics.pendingListItemsFlushed++;
-        
+
         // Remove from index
         this.pendingListItemIndex.delete(item.payload.uri);
         this.totalPendingListItems--;
       } catch (error: any) {
         // If still failing, skip it
-        smartConsole.error(`[EVENT_PROCESSOR] Error flushing pending list item:`, error.message);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error flushing pending list item:`,
+          error.message
+        );
         // Still remove from index and count
         this.pendingListItemIndex.delete(item.payload.uri);
         this.totalPendingListItems--;
@@ -611,7 +668,9 @@ export class EventProcessor {
 
     this.pendingUserCreationOps.delete(did);
 
-    smartConsole.log(`[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`);
+    smartConsole.log(
+      `[EVENT_PROCESSOR] Flushing ${ops.length} pending user creation operations for ${did}`
+    );
 
     for (const pendingOp of ops) {
       // Reprocess the original commit operation
@@ -638,11 +697,13 @@ export class EventProcessor {
    */
   async retryPendingOperations() {
     smartConsole.log(`[EVENT_PROCESSOR] Retrying pending operations...`);
-    
+
     let retriedCount = 0;
-    
+
     // Retry pending user creation operations
-    for (const [did, ops] of Array.from(this.pendingUserCreationOps.entries())) {
+    for (const [did, ops] of Array.from(
+      this.pendingUserCreationOps.entries()
+    )) {
       try {
         // Check if user now exists
         const user = await this.storage.getUser(did);
@@ -652,10 +713,13 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        smartConsole.error(`[EVENT_PROCESSOR] Error retrying user creation ops for ${did}:`, error);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error retrying user creation ops for ${did}:`,
+          error
+        );
       }
     }
-    
+
     // Retry pending user operations
     for (const [userDid, ops] of Array.from(this.pendingUserOps.entries())) {
       try {
@@ -667,12 +731,17 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        smartConsole.error(`[EVENT_PROCESSOR] Error retrying user ops for ${userDid}:`, error);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error retrying user ops for ${userDid}:`,
+          error
+        );
       }
     }
-    
+
     // Retry pending list items
-    for (const [listUri, items] of Array.from(this.pendingListItems.entries())) {
+    for (const [listUri, items] of Array.from(
+      this.pendingListItems.entries()
+    )) {
       try {
         // Check if list now exists
         const list = await this.storage.getList(listUri);
@@ -682,10 +751,13 @@ export class EventProcessor {
           retriedCount += items.length;
         }
       } catch (error) {
-        smartConsole.error(`[EVENT_PROCESSOR] Error retrying list items for ${listUri}:`, error);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error retrying list items for ${listUri}:`,
+          error
+        );
       }
     }
-    
+
     // Retry pending likes/reposts
     for (const [postUri, ops] of Array.from(this.pendingOps.entries())) {
       try {
@@ -697,14 +769,19 @@ export class EventProcessor {
           retriedCount += ops.length;
         }
       } catch (error) {
-        smartConsole.error(`[EVENT_PROCESSOR] Error retrying pending ops for ${postUri}:`, error);
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Error retrying pending ops for ${postUri}:`,
+          error
+        );
       }
     }
-    
+
     if (retriedCount > 0) {
-      smartConsole.log(`[EVENT_PROCESSOR] Successfully retried ${retriedCount} pending operations`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Successfully retried ${retriedCount} pending operations`
+      );
     }
-    
+
     return retriedCount;
   }
 
@@ -715,43 +792,43 @@ export class EventProcessor {
     if (existingCreation) {
       return existingCreation;
     }
-    
+
     // Create the promise and store it
     const creationPromise = this.ensureUserInternal(did);
     this.pendingUserCreations.set(did, creationPromise);
-    
+
     // Clean up after completion
     creationPromise.finally(() => {
       this.pendingUserCreations.delete(did);
     });
-    
+
     return creationPromise;
   }
-  
+
   private async ensureUserInternal(did: string): Promise<boolean> {
     try {
       // First check if user exists - quick DB query
       const user = await this.storage.getUser(did);
-      
+
       if (!user) {
         // Wait if we're at the concurrent creation limit
         // This prevents overwhelming the database with too many concurrent user creations
         while (this.activeUserCreations >= this.MAX_CONCURRENT_USER_CREATIONS) {
-          await new Promise(resolve => setTimeout(resolve, 10)); // Wait 10ms before checking again
+          await new Promise((resolve) => setTimeout(resolve, 10)); // Wait 10ms before checking again
         }
-        
+
         this.activeUserCreations++;
-        
+
         try {
           // User doesn't exist - we need to create them
           // CRITICAL: We skip DID resolution during initial creation to avoid holding DB connections
           // for extended periods, which would exhaust the connection pool
           // The user will be marked for profile fetching to get the proper handle later
-          
+
           // Use 'handle.invalid' as a temporary fallback (matches Bluesky's approach)
           // This will be updated when the profile is fetched with the actual handle
           const INVALID_HANDLE = 'handle.invalid';
-          
+
           // Create user with fallback handle - will be updated when profile is fetched
           // This keeps the DB operation fast
           try {
@@ -759,17 +836,19 @@ export class EventProcessor {
               did,
               handle: INVALID_HANDLE, // Use standard fallback handle
             });
-            
+
             // Mark user for profile fetching to get proper handle and avatar/banner data
             // Skip during bulk operations to avoid overwhelming the system
             if (!this.skipPdsFetching) {
               pdsDataFetcher.markIncomplete('user', did);
             }
-            
+
             // Batch logging: only log every 5000 user creations
             this.userCreationCount++;
             if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
-              smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+              smartConsole.log(
+                `[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`
+              );
             }
           } catch (createError: any) {
             // If createUser resulted in a unique constraint violation, it means the user was created
@@ -788,7 +867,7 @@ export class EventProcessor {
           pdsDataFetcher.markIncomplete('user', did);
         }
       }
-      
+
       // If we reach here, the user *should* exist, either from before or from creation.
       // Now, flush all pending operations for this user.
       await this.flushPendingUserOps(did);
@@ -802,7 +881,10 @@ export class EventProcessor {
         await this.flushPendingUserCreationOps(did);
         return true;
       }
-      smartConsole.error(`[EVENT_PROCESSOR] Error ensuring user ${did}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error ensuring user ${did}:`,
+        error
+      );
       return false;
     }
   }
@@ -810,17 +892,32 @@ export class EventProcessor {
   /**
    * Mark an entry as incomplete for PDS data fetching
    */
-  private markIncompleteForFetch(action: string, uri: string, constraint?: string) {
+  private markIncompleteForFetch(
+    action: string,
+    uri: string,
+    constraint?: string
+  ) {
     try {
       // Extract DID from URI
       const uriParts = uri.split('/');
       if (uriParts.length < 3) return;
-      
+
       const did = uriParts[2]; // at://did:plc:xxx/collection/rkey
-      
+
       // Determine the type based on the action and constraint
-      let type: 'user' | 'post' | 'like' | 'repost' | 'follow' | 'list' | 'listitem' | 'feedgen' | 'starterpack' | 'labeler' | 'record' = 'user';
-      
+      let type:
+        | 'user'
+        | 'post'
+        | 'like'
+        | 'repost'
+        | 'follow'
+        | 'list'
+        | 'listitem'
+        | 'feedgen'
+        | 'starterpack'
+        | 'labeler'
+        | 'record' = 'user';
+
       if (action === 'create' || action === 'update') {
         if (uri.includes('/app.bsky.feed.post/')) {
           type = 'post';
@@ -844,53 +941,70 @@ export class EventProcessor {
           type = 'record';
         }
       }
-      
+
       pdsDataFetcher.markIncomplete(type, did, uri, { action, constraint });
     } catch (error) {
-      smartConsole.error(`[EVENT_PROCESSOR] Error marking incomplete entry:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error marking incomplete entry:`,
+        error
+      );
     }
   }
 
   /**
    * Process a record (used by PDS data fetcher)
    */
-  async processRecord(uri: string, cid: string, authorDid: string, record: any) {
+  async processRecord(
+    uri: string,
+    cid: string,
+    authorDid: string,
+    record: any
+  ) {
     try {
       const recordType = record.$type;
-      
+
       switch (recordType) {
-        case "app.bsky.feed.post":
+        case 'app.bsky.feed.post':
           await this.processPost(uri, cid, authorDid, record);
           break;
-        case "app.bsky.feed.like":
+        case 'app.bsky.feed.like':
           await this.processLike(authorDid, { uri, cid, record });
           break;
-        case "app.bsky.feed.repost":
+        case 'app.bsky.feed.repost':
           await this.processRepost(uri, authorDid, record);
           break;
-        case "app.bsky.graph.follow":
-          await this.processFollow(authorDid, { path: uri.split('at://')[1].split(authorDid + '/')[1], record });
+        case 'app.bsky.graph.follow':
+          await this.processFollow(authorDid, {
+            path: uri.split('at://')[1].split(authorDid + '/')[1],
+            record,
+          });
           break;
-        case "app.bsky.graph.block":
+        case 'app.bsky.graph.block':
           await this.processBlock(uri, authorDid, record);
           break;
-        case "app.bsky.graph.list":
+        case 'app.bsky.graph.list':
           await this.processList(uri, cid, authorDid, record);
           break;
-        case "app.bsky.graph.listitem":
+        case 'app.bsky.graph.listitem':
           await this.processListItem(uri, cid, authorDid, record);
           break;
-        case "app.bsky.feed.generator":
+        case 'app.bsky.feed.generator':
           await this.processFeedGenerator(uri, cid, authorDid, record);
           break;
-        case "app.bsky.graph.starterpack":
-          await this.processStarterPack(authorDid, { path: uri.split('at://')[1].split(authorDid + '/')[1], cid, record });
+        case 'app.bsky.graph.starterpack':
+          await this.processStarterPack(authorDid, {
+            path: uri.split('at://')[1].split(authorDid + '/')[1],
+            cid,
+            record,
+          });
           break;
-        case "app.bsky.labeler.service":
+        case 'app.bsky.labeler.service':
           await this.processLabelerService(uri, cid, authorDid, record);
           break;
         default:
-          smartConsole.log(`[EVENT_PROCESSOR] Unknown record type: ${recordType}`);
+          smartConsole.log(
+            `[EVENT_PROCESSOR] Unknown record type: ${recordType}`
+          );
       }
     } catch (error: any) {
       // Handle duplicate key errors gracefully (common during firehose reconnections)
@@ -899,7 +1013,10 @@ export class EventProcessor {
         // Silently skip duplicates
         return;
       }
-      smartConsole.error(`[EVENT_PROCESSOR] Error processing record ${uri}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error processing record ${uri}:`,
+        error
+      );
     }
   }
 
@@ -908,11 +1025,11 @@ export class EventProcessor {
 
     for (const op of ops) {
       const { action, path, cid } = op;
-      const collection = path.split("/")[0];
+      const collection = path.split('/')[0];
       const uri = `at://${repo}/${path}`;
 
       try {
-        if (action === "create" || action === "update") {
+        if (action === 'create' || action === 'update') {
           const record = op.record;
           const recordType = record.$type;
 
@@ -923,58 +1040,58 @@ export class EventProcessor {
           // }
 
           switch (recordType) {
-            case "app.bsky.feed.post":
+            case 'app.bsky.feed.post':
               await this.processPost(uri, cid, repo, record);
               break;
-            case "app.bsky.feed.like":
+            case 'app.bsky.feed.like':
               await this.processLike(repo, op);
               break;
-            case "app.bsky.feed.repost":
+            case 'app.bsky.feed.repost':
               await this.processRepost(uri, repo, record, cid);
               break;
-            case "app.bsky.bookmark":
+            case 'app.bsky.bookmark':
               await this.processBookmark(uri, repo, record, cid);
               break;
-            case "app.bsky.actor.profile":
+            case 'app.bsky.actor.profile':
               await this.processProfile(repo, record);
               break;
-            case "app.bsky.graph.follow":
+            case 'app.bsky.graph.follow':
               await this.processFollow(repo, op);
               break;
-            case "app.bsky.graph.block":
+            case 'app.bsky.graph.block':
               await this.processBlock(uri, repo, record);
               break;
-            case "app.bsky.graph.list":
+            case 'app.bsky.graph.list':
               await this.processList(uri, cid, repo, record);
               break;
-            case "app.bsky.graph.listitem":
+            case 'app.bsky.graph.listitem':
               await this.processListItem(uri, cid, repo, record);
               break;
-            case "app.bsky.feed.generator":
+            case 'app.bsky.feed.generator':
               await this.processFeedGenerator(uri, cid, repo, record);
               break;
-            case "app.bsky.graph.starterpack":
+            case 'app.bsky.graph.starterpack':
               await this.processStarterPack(repo, op);
               break;
-            case "app.bsky.labeler.service":
+            case 'app.bsky.labeler.service':
               await this.processLabelerService(uri, cid, repo, record);
               break;
-            case "com.atproto.label.label":
+            case 'com.atproto.label.label':
               await this.processLabel(uri, repo, record);
               break;
-            case "app.bsky.graph.verification":
+            case 'app.bsky.graph.verification':
               await this.processVerification(uri, cid, repo, record);
               break;
-            case "app.bsky.feed.postgate":
+            case 'app.bsky.feed.postgate':
               await this.processPostGate(uri, cid, repo, record);
               break;
-            case "app.bsky.feed.threadgate":
+            case 'app.bsky.feed.threadgate':
               await this.processThreadGate(uri, cid, repo, record);
               break;
-            case "app.bsky.graph.listblock":
+            case 'app.bsky.graph.listblock':
               await this.processListBlock(uri, cid, repo, record);
               break;
-            case "app.bsky.notification.declaration":
+            case 'app.bsky.notification.declaration':
               await this.processNotificationDeclaration(uri, cid, repo, record);
               break;
             default:
@@ -982,23 +1099,27 @@ export class EventProcessor {
               await this.processGenericRecord(uri, cid, repo, record);
               break;
           }
-        } else if (action === "delete") {
+        } else if (action === 'delete') {
           await this.processDelete(uri, collection);
         }
       } catch (error: any) {
         // Handle duplicate key errors gracefully (common during firehose reconnections)
         if (error?.code === '23505') {
           // Silently skip duplicates
-        } 
+        }
         // Handle foreign key constraint violations (record references missing data)
         else if (error?.code === '23503') {
-          smartConsole.log(`[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`);
-          
+          smartConsole.log(
+            `[EVENT_PROCESSOR] Skipped ${action} ${uri} - referenced record not yet indexed (${error.constraint || 'unknown constraint'})`
+          );
+
           // Mark as incomplete for PDS data fetching
           this.markIncompleteForFetch(action, uri, error.constraint);
-        } 
-        else {
-          smartConsole.error(`[EVENT_PROCESSOR] Error processing ${action} ${uri}:`, error);
+        } else {
+          smartConsole.error(
+            `[EVENT_PROCESSOR] Error processing ${action} ${uri}:`,
+            error
+          );
         }
       }
     }
@@ -1006,35 +1127,49 @@ export class EventProcessor {
 
   async processIdentity(event: any) {
     const { did, handle } = event;
-    
+
     try {
       await this.storage.upsertUserHandle(did, handle);
       smartConsole.log(`[IDENTITY] Upserted handle for ${did} to ${handle}`);
     } catch (error) {
-      smartConsole.error(`[EVENT_PROCESSOR] Error processing identity for ${did}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error processing identity for ${did}:`,
+        error
+      );
     }
   }
 
   async processAccount(event: any) {
     const { did, active } = event;
-    smartConsole.log(`[ACCOUNT] Account status change: ${did} - active: ${active}`);
+    smartConsole.log(
+      `[ACCOUNT] Account status change: ${did} - active: ${active}`
+    );
   }
 
-  private async processPost(uri: string, cid: string, authorDid: string, record: any) {
+  private async processPost(
+    uri: string,
+    cid: string,
+    authorDid: string,
+    record: any
+  ) {
     const authorReady = await this.ensureUser(authorDid);
     if (!authorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping post ${uri} - author not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(authorDid)) {
       return;
     }
 
     // Normalize embed to remove invalid blob references
-    const normalizedEmbed = record.embed ? normalizeEmbed(record.embed) : undefined;
-    
+    const normalizedEmbed = record.embed
+      ? normalizeEmbed(record.embed)
+      : undefined;
+
     const post: InsertPost = {
       uri,
       cid,
@@ -1048,7 +1183,7 @@ export class EventProcessor {
     };
 
     await this.storage.createPost(post);
-    
+
     // Create post aggregation record
     try {
       await this.storage.createPostAggregation({
@@ -1065,25 +1200,32 @@ export class EventProcessor {
         throw error;
       }
     }
-    
+
     // If this is a reply, increment the parent post's reply count and create thread context
     if (record.reply?.parent.uri) {
-      await this.storage.incrementPostAggregation(record.reply.parent.uri, 'replyCount', 1);
-      
+      await this.storage.incrementPostAggregation(
+        record.reply.parent.uri,
+        'replyCount',
+        1
+      );
+
       // Create thread context for the reply
       const rootUri = record.reply.root?.uri || record.reply.parent.uri;
       const rootPost = await this.storage.getPost(rootUri);
       if (rootPost) {
         // Check if the root author has liked this post (for thread context)
-        const rootAuthorLikeUri = await this.storage.getLikeUri(rootPost.authorDid, uri);
-        
+        const rootAuthorLikeUri = await this.storage.getLikeUri(
+          rootPost.authorDid,
+          uri
+        );
+
         await this.storage.createThreadContext({
           postUri: uri,
           rootAuthorLikeUri: rootAuthorLikeUri || undefined,
         });
       }
     }
-    
+
     // Create feed item for the post
     const feedItem: InsertFeedItem = {
       uri: uri,
@@ -1095,7 +1237,7 @@ export class EventProcessor {
       createdAt: this.safeDate(record.createdAt),
     };
     await this.storage.createFeedItem(feedItem);
-    
+
     // Create notification for reply
     if (record.reply?.parent.uri) {
       try {
@@ -1113,7 +1255,10 @@ export class EventProcessor {
           });
         }
       } catch (error) {
-        smartConsole.error(`[NOTIFICATION] Error creating reply notification:`, error);
+        smartConsole.error(
+          `[NOTIFICATION] Error creating reply notification:`,
+          error
+        );
       }
     }
 
@@ -1121,15 +1266,15 @@ export class EventProcessor {
     try {
       const mentions = record.text?.match(/@([a-zA-Z0-9.-]+)/g) || [];
       const processedMentions = new Set<string>();
-      
+
       for (const mention of mentions) {
         const handle = mention.substring(1);
-        
+
         // Skip if we've already processed this handle in this post
         if (processedMentions.has(handle)) {
           continue;
         }
-        
+
         const mentionedUser = await this.storage.getUserByHandle(handle);
         if (mentionedUser && mentionedUser.did !== authorDid) {
           await this.storage.createNotification({
@@ -1146,14 +1291,17 @@ export class EventProcessor {
         }
       }
     } catch (error) {
-        smartConsole.error(`[NOTIFICATION] Error creating mention notifications:`, error);
+      smartConsole.error(
+        `[NOTIFICATION] Error creating mention notifications:`,
+        error
+      );
     }
-    
+
     // Handle quote posts (embed.record or embed.recordWithMedia)
     try {
       let quotedUri: string | null = null;
       let quotedCid: string | null = null;
-      
+
       if (record.embed?.$type === 'app.bsky.embed.record') {
         quotedUri = record.embed.record.uri;
         quotedCid = record.embed.record.cid;
@@ -1161,7 +1309,7 @@ export class EventProcessor {
         quotedUri = record.embed.record.record.uri;
         quotedCid = record.embed.record.record.cid;
       }
-      
+
       if (quotedUri) {
         await this.storage.createQuote({
           uri: `${uri}#quote`,
@@ -1171,10 +1319,10 @@ export class EventProcessor {
           quotedCid: quotedCid || undefined,
           createdAt: this.safeDate(record.createdAt),
         });
-        
+
         // Increment quoted post's quote count
         await this.storage.incrementPostAggregation(quotedUri, 'quoteCount', 1);
-        
+
         // Create notification for quote
         const quotedPost = await this.storage.getPost(quotedUri);
         if (quotedPost && quotedPost.authorDid !== authorDid) {
@@ -1193,7 +1341,7 @@ export class EventProcessor {
     } catch (error) {
       smartConsole.error(`[QUOTE] Error processing quote:`, error);
     }
-    
+
     // Flush any pending operations for this post
     await this.flushPending(uri);
   }
@@ -1205,11 +1353,13 @@ export class EventProcessor {
 
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping like ${uri} - user not ready, enqueuing`
+      );
       this.enqueuePendingUserCreationOp(userDid, repo, op);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(userDid)) {
       return;
@@ -1226,10 +1376,10 @@ export class EventProcessor {
     // Insert like directly - foreign key constraints removed for federated data
     try {
       await this.storage.createLike(like);
-      
+
       // Increment post aggregation like count
       await this.storage.incrementPostAggregation(postUri, 'likeCount', 1);
-      
+
       // Create viewer state for the like
       await this.storage.createPostViewerState({
         postUri,
@@ -1241,7 +1391,7 @@ export class EventProcessor {
         embeddingDisabled: false,
         pinned: false,
       });
-      
+
       // Try to create notification if post exists locally
       const post = await this.storage.getPost(postUri);
       if (post && post.authorDid !== userDid) {
@@ -1257,7 +1407,10 @@ export class EventProcessor {
             createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
-          smartConsole.error(`[NOTIFICATION] Error creating like notification:`, error);
+          smartConsole.error(
+            `[NOTIFICATION] Error creating like notification:`,
+            error
+          );
         }
       }
     } catch (error: any) {
@@ -1269,13 +1422,20 @@ export class EventProcessor {
     }
   }
 
-  private async processRepost(uri: string, userDid: string, record: any, cid?: string) {
+  private async processRepost(
+    uri: string,
+    userDid: string,
+    record: any,
+    cid?: string
+  ) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping repost ${uri} - user not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(userDid)) {
       return;
@@ -1292,10 +1452,10 @@ export class EventProcessor {
     // Insert repost directly - foreign key constraints removed for federated data
     try {
       await this.storage.createRepost(repost);
-      
+
       // Increment post aggregation repost count
       await this.storage.incrementPostAggregation(postUri, 'repostCount', 1);
-      
+
       // Create or update viewer state for the repost
       await this.storage.createPostViewerState({
         postUri,
@@ -1307,7 +1467,7 @@ export class EventProcessor {
         embeddingDisabled: false,
         pinned: false,
       });
-      
+
       // Create feed item for the repost
       const feedItem: InsertFeedItem = {
         uri: uri,
@@ -1319,7 +1479,7 @@ export class EventProcessor {
         createdAt: this.safeDate(record.createdAt),
       };
       await this.storage.createFeedItem(feedItem);
-      
+
       // Try to create notification if post exists locally
       const post = await this.storage.getPost(postUri);
       if (post && post.authorDid !== userDid) {
@@ -1335,7 +1495,10 @@ export class EventProcessor {
             createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
-          smartConsole.error(`[NOTIFICATION] Error creating repost notification:`, error);
+          smartConsole.error(
+            `[NOTIFICATION] Error creating repost notification:`,
+            error
+          );
         }
       }
     } catch (error: any) {
@@ -1347,13 +1510,20 @@ export class EventProcessor {
     }
   }
 
-  private async processBookmark(uri: string, userDid: string, record: any, cid?: string) {
+  private async processBookmark(
+    uri: string,
+    userDid: string,
+    record: any,
+    cid?: string
+  ) {
     const userReady = await this.ensureUser(userDid);
     if (!userReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping bookmark ${uri} - user not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping bookmark ${uri} - user not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(userDid)) {
       return;
@@ -1370,10 +1540,10 @@ export class EventProcessor {
     // Insert bookmark directly - foreign key constraints removed for federated data
     try {
       await this.storage.createBookmark(bookmark);
-      
+
       // Increment post aggregation bookmark count
       await this.storage.incrementPostAggregation(postUri, 'bookmarkCount', 1);
-      
+
       // Create or update viewer state for the bookmark
       await this.storage.createPostViewerState({
         postUri,
@@ -1396,7 +1566,7 @@ export class EventProcessor {
   private async processProfile(did: string, record: any) {
     // Resolve DID to get handle from DID document
     const handle = await didResolver.resolveDIDToHandle(did);
-    
+
     const existingUser = await this.storage.getUser(did);
 
     const profileData = {
@@ -1411,7 +1581,9 @@ export class EventProcessor {
     if (existingUser) {
       await this.storage.updateUser(did, profileData);
       if (handle) {
-        smartConsole.log(`[EVENT_PROCESSOR] Updated user ${did} with handle ${handle}`);
+        smartConsole.log(
+          `[EVENT_PROCESSOR] Updated user ${did} with handle ${handle}`
+        );
       }
     } else {
       await this.storage.createUser({ did, ...profileData });
@@ -1419,10 +1591,14 @@ export class EventProcessor {
         // Batch logging: only log every 5000 user creations
         this.userCreationCount++;
         if (this.userCreationCount % this.USER_BATCH_LOG_SIZE === 0) {
-          smartConsole.log(`[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`);
+          smartConsole.log(
+            `[EVENT_PROCESSOR] Created ${this.USER_BATCH_LOG_SIZE} users (total: ${this.userCreationCount})`
+          );
         }
       } else {
-        smartConsole.warn(`[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`);
+        smartConsole.warn(
+          `[EVENT_PROCESSOR] Created user ${did} without handle (DID resolution failed)`
+        );
       }
     }
   }
@@ -1435,7 +1611,9 @@ export class EventProcessor {
     // Ensure the user performing the action exists
     const followerReady = await this.ensureUser(followerDid);
     if (!followerReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping follow ${uri} - follower not ready, enqueuing`
+      );
       this.enqueuePendingUserCreationOp(followerDid, repo, op);
       return;
     }
@@ -1446,7 +1624,7 @@ export class EventProcessor {
     }
 
     const followingDid = record.subject;
-    
+
     // CRITICAL FIX: Ensure the user being followed also exists
     // This is especially important for CAR file imports where users may be created
     // out of order. Without this, follows won't show up in knownFollowers queries
@@ -1454,11 +1632,13 @@ export class EventProcessor {
     // following user doesn't exist.
     const followingReady = await this.ensureUser(followingDid);
     if (!followingReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping follow ${uri} - following user not ready, enqueuing`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping follow ${uri} - following user not ready, enqueuing`
+      );
       this.enqueuePendingUserCreationOp(followingDid, repo, op);
       return;
     }
-    
+
     const follow: InsertFollow = {
       uri,
       followerDid,
@@ -1469,7 +1649,7 @@ export class EventProcessor {
     // Insert follow directly - foreign key constraints removed for federated data
     try {
       await this.storage.createFollow(follow);
-      
+
       // Try to create notification if target user exists locally
       const followingUser = await this.storage.getUser(followingDid);
       if (followingUser) {
@@ -1485,7 +1665,10 @@ export class EventProcessor {
             createdAt: this.safeDate(record.createdAt),
           });
         } catch (error) {
-          smartConsole.error(`[NOTIFICATION] Error creating follow notification:`, error);
+          smartConsole.error(
+            `[NOTIFICATION] Error creating follow notification:`,
+            error
+          );
         }
       }
     } catch (error: any) {
@@ -1493,7 +1676,10 @@ export class EventProcessor {
       if (error.code === '23505') {
         return;
       }
-      smartConsole.error(`[EVENT_PROCESSOR] Error creating follow ${uri}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error creating follow ${uri}:`,
+        error
+      );
     }
   }
 
@@ -1501,7 +1687,9 @@ export class EventProcessor {
     // Ensure the user performing the action exists
     const blockerReady = await this.ensureUser(blockerDid);
     if (!blockerReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping block ${uri} - blocker not ready`
+      );
       return;
     }
 
@@ -1511,16 +1699,18 @@ export class EventProcessor {
     }
 
     const blockedDid = record.subject;
-    
+
     // CRITICAL FIX: Ensure the user being blocked also exists
     // This is especially important for CAR file imports where users may be created
     // out of order. Without this, blocks may reference non-existent users.
     const blockedReady = await this.ensureUser(blockedDid);
     if (!blockedReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping block ${uri} - blocked user not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping block ${uri} - blocked user not ready`
+      );
       return;
     }
-    
+
     const block: InsertBlock = {
       uri,
       blockerDid,
@@ -1536,17 +1726,27 @@ export class EventProcessor {
       if (error.code === '23505') {
         return;
       }
-      smartConsole.error(`[EVENT_PROCESSOR] Error creating block ${uri}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error creating block ${uri}:`,
+        error
+      );
     }
   }
 
-  private async processList(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processList(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    record: any
+  ) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping list ${uri} - creator not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1564,20 +1764,27 @@ export class EventProcessor {
     };
 
     await this.storage.createList(list);
-    
+
     // Flush any pending list items that were waiting for this list
     await this.flushPendingListItems(uri);
   }
 
-  private async processListItem(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processListItem(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    record: any
+  ) {
     const creatorReady = await this.ensureUser(creatorDid);
     const subjectReady = await this.ensureUser(record.subject);
-    
+
     if (!creatorReady || !subjectReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping list item ${uri} - users not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1626,23 +1833,34 @@ export class EventProcessor {
         neg: record.neg || false,
         createdAt: new Date(record.cid ? record.createdAt : Date.now()),
       });
-      smartConsole.log(`[LABEL] Applied label ${record.val} to ${record.uri || record.did} from ${src}`);
+      smartConsole.log(
+        `[LABEL] Applied label ${record.val} to ${record.uri || record.did} from ${src}`
+      );
     } catch (error: any) {
       if (error?.code === '23505') {
-        smartConsole.log(`[EVENT_PROCESSOR] Skipped duplicate label ${record.val} for ${record.uri || record.did}`);
+        smartConsole.log(
+          `[EVENT_PROCESSOR] Skipped duplicate label ${record.val} for ${record.uri || record.did}`
+        );
       } else {
         smartConsole.error(`[EVENT_PROCESSOR] Error processing label:`, error);
       }
     }
   }
 
-  private async processFeedGenerator(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processFeedGenerator(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    record: any
+  ) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping feed generator ${uri} - creator not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1660,12 +1878,12 @@ export class EventProcessor {
     };
 
     await this.storage.createFeedGenerator(feedGenerator);
-    
+
     // Auto-discover all other feed generators from this creator
     // This runs in the background and won't block the firehose
     this.autoDiscoverCreatorFeeds(creatorDid);
   }
-  
+
   /**
    * Auto-discover all feed generators from a creator when we encounter one
    * Runs asynchronously without blocking the firehose
@@ -1673,13 +1891,23 @@ export class EventProcessor {
   private autoDiscoverCreatorFeeds(creatorDid: string): void {
     // Import and trigger discovery asynchronously
     // Don't await - let it run in the background
-    import("./feed-generator-discovery").then(({ feedGeneratorDiscovery }) => {
-      feedGeneratorDiscovery.autoDiscoverFromCreator(creatorDid).catch(error => {
-        smartConsole.error(`[EVENT_PROCESSOR] Failed to auto-discover feeds from ${creatorDid}:`, error);
+    import('./feed-generator-discovery')
+      .then(({ feedGeneratorDiscovery }) => {
+        feedGeneratorDiscovery
+          .autoDiscoverFromCreator(creatorDid)
+          .catch((error) => {
+            smartConsole.error(
+              `[EVENT_PROCESSOR] Failed to auto-discover feeds from ${creatorDid}:`,
+              error
+            );
+          });
+      })
+      .catch((error) => {
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Failed to import feed generator discovery:`,
+          error
+        );
       });
-    }).catch(error => {
-      smartConsole.error(`[EVENT_PROCESSOR] Failed to import feed generator discovery:`, error);
-    });
   }
 
   private async processStarterPack(repo: string, op: any) {
@@ -1689,11 +1917,13 @@ export class EventProcessor {
 
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping starter pack ${uri} - creator not ready, enqueuing`
+      );
       this.enqueuePendingUserCreationOp(creatorDid, repo, op);
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1713,13 +1943,20 @@ export class EventProcessor {
     await this.storage.createStarterPack(starterPack);
   }
 
-  private async processLabelerService(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processLabelerService(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    record: any
+  ) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping labeler service ${uri} - creator not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1729,21 +1966,33 @@ export class EventProcessor {
       uri,
       cid,
       creatorDid,
-      policies: record.policies || { labelValues: [], labelValueDefinitions: [] },
+      policies: record.policies || {
+        labelValues: [],
+        labelValueDefinitions: [],
+      },
       createdAt: this.safeDate(record.createdAt),
     };
 
     await this.storage.createLabelerService(labelerService);
-    smartConsole.log(`[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`);
+    smartConsole.log(
+      `[LABELER_SERVICE] Processed labeler service ${uri} for ${creatorDid}`
+    );
   }
 
-  private async processVerification(uri: string, cid: string, creatorDid: string, record: any) {
+  private async processVerification(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    record: any
+  ) {
     const creatorReady = await this.ensureUser(creatorDid);
     if (!creatorReady) {
-      smartConsole.warn(`[EVENT_PROCESSOR] Skipping verification ${uri} - creator not ready`);
+      smartConsole.warn(
+        `[EVENT_PROCESSOR] Skipping verification ${uri} - creator not ready`
+      );
       return;
     }
-    
+
     // Check if data collection is forbidden for this user
     if (await this.isDataCollectionForbidden(creatorDid)) {
       return;
@@ -1759,7 +2008,9 @@ export class EventProcessor {
     };
 
     await this.storage.createVerification(verification);
-    smartConsole.log(`[VERIFICATION] Processed verification ${uri} for ${verification.subjectDid}`);
+    smartConsole.log(
+      `[VERIFICATION] Processed verification ${uri} for ${verification.subjectDid}`
+    );
   }
 
   // Guard against invalid or missing dates in upstream records
@@ -1771,14 +2022,20 @@ export class EventProcessor {
 
   private async processDelete(uri: string, collection: string) {
     // Cancel pending op if it's a like/repost being deleted
-    if (collection === "app.bsky.feed.like" || collection === "app.bsky.feed.repost") {
+    if (
+      collection === 'app.bsky.feed.like' ||
+      collection === 'app.bsky.feed.repost'
+    ) {
       this.cancelPendingOp(uri);
-    } else if (collection === "app.bsky.graph.follow" || collection === "app.bsky.graph.block") {
+    } else if (
+      collection === 'app.bsky.graph.follow' ||
+      collection === 'app.bsky.graph.block'
+    ) {
       this.cancelPendingUserOp(uri);
     }
-    
+
     // If it's a post being deleted, clear all pending likes/reposts for it
-    if (collection === "app.bsky.feed.post") {
+    if (collection === 'app.bsky.feed.post') {
       const ops = this.pendingOps.get(uri);
       if (ops && ops.length > 0) {
         // Remove from index and update count
@@ -1787,41 +2044,64 @@ export class EventProcessor {
           this.totalPendingCount--;
         }
         this.pendingOps.delete(uri);
-        smartConsole.log(`[EVENT_PROCESSOR] Cleared ${ops.length} pending operations for deleted post ${uri}`);
+        smartConsole.log(
+          `[EVENT_PROCESSOR] Cleared ${ops.length} pending operations for deleted post ${uri}`
+        );
       }
     }
-    
+
     switch (collection) {
-      case "app.bsky.feed.post":
+      case 'app.bsky.feed.post':
         await this.storage.deletePost(uri);
         await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
         break;
-      case "app.bsky.feed.like":
+      case 'app.bsky.feed.like': {
         const like = await this.storage.getLike(uri);
         if (like) {
           await this.storage.deleteLike(uri, like.userDid);
-          await this.storage.incrementPostAggregation(like.postUri, 'likeCount', -1);
+          await this.storage.incrementPostAggregation(
+            like.postUri,
+            'likeCount',
+            -1
+          );
           await this.storage.deletePostViewerState(like.postUri, like.userDid);
         }
         break;
-      case "app.bsky.feed.repost":
+      }
+      case 'app.bsky.feed.repost': {
         const repost = await this.storage.getRepost(uri);
         if (repost) {
           await this.storage.deleteRepost(uri);
           await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
-          await this.storage.incrementPostAggregation(repost.postUri, 'repostCount', -1);
-          await this.storage.deletePostViewerState(repost.postUri, repost.userDid);
+          await this.storage.incrementPostAggregation(
+            repost.postUri,
+            'repostCount',
+            -1
+          );
+          await this.storage.deletePostViewerState(
+            repost.postUri,
+            repost.userDid
+          );
         }
         break;
-      case "app.bsky.bookmark":
+      }
+      case 'app.bsky.bookmark': {
         const bookmark = await this.storage.getBookmark(uri);
         if (bookmark) {
           await this.storage.deleteBookmark(uri);
-          await this.storage.incrementPostAggregation(bookmark.postUri, 'bookmarkCount', -1);
-          await this.storage.deletePostViewerState(bookmark.postUri, bookmark.userDid);
+          await this.storage.incrementPostAggregation(
+            bookmark.postUri,
+            'bookmarkCount',
+            -1
+          );
+          await this.storage.deletePostViewerState(
+            bookmark.postUri,
+            bookmark.userDid
+          );
         }
         break;
-      case "app.bsky.graph.follow":
+      }
+      case 'app.bsky.graph.follow':
         try {
           const follow = await this.storage.getFollow(uri);
           if (follow) {
@@ -1835,44 +2115,49 @@ export class EventProcessor {
             try {
               await this.storage.deleteFollow(uri, followerDid);
             } catch (deleteError: any) {
-              smartConsole.error(`[EVENT_PROCESSOR] Error deleting follow ${uri}:`, deleteError);
+              smartConsole.error(
+                `[EVENT_PROCESSOR] Error deleting follow ${uri}:`,
+                deleteError
+              );
             }
           }
         }
         break;
-      case "app.bsky.graph.block":
+      case 'app.bsky.graph.block':
         await this.storage.deleteBlock(uri);
         break;
-      case "app.bsky.graph.list":
+      case 'app.bsky.graph.list':
         await this.storage.deleteList(uri);
         break;
-      case "app.bsky.graph.listitem":
+      case 'app.bsky.graph.listitem':
         await this.storage.deleteListItem(uri);
         break;
-      case "app.bsky.feed.generator":
+      case 'app.bsky.feed.generator':
         await this.storage.deleteFeedGenerator(uri);
         break;
-      case "app.bsky.graph.starterpack":
+      case 'app.bsky.graph.starterpack':
         await this.storage.deleteStarterPack(uri);
         break;
-      case "app.bsky.labeler.service":
+      case 'app.bsky.labeler.service':
         await this.storage.deleteLabelerService(uri);
         break;
-      case "com.atproto.label.label":
+      case 'com.atproto.label.label':
         await labelService.removeLabel(uri);
         break;
-      case "app.bsky.feed.postgate":
+      case 'app.bsky.feed.postgate':
         await this.storage.deletePostGate(uri);
         break;
-      case "app.bsky.feed.threadgate":
+      case 'app.bsky.feed.threadgate':
         // Thread gates are stored as metadata on posts, not in a separate table
         // The hasThreadGate flag on posts will be updated when the post is re-indexed
-        smartConsole.log(`[EVENT_PROCESSOR] Thread gate deletion requested for ${uri} - handled via post metadata`);
+        smartConsole.log(
+          `[EVENT_PROCESSOR] Thread gate deletion requested for ${uri} - handled via post metadata`
+        );
         break;
-      case "app.bsky.graph.listblock":
+      case 'app.bsky.graph.listblock':
         await this.storage.deleteListBlock(uri);
         break;
-      case "app.bsky.notification.declaration":
+      case 'app.bsky.notification.declaration':
         await this.storage.deleteNotificationDeclaration(uri);
         break;
       default:
@@ -1885,7 +2170,12 @@ export class EventProcessor {
   /**
    * Process post gate record
    */
-  private async processPostGate(uri: string, cid: string, repo: string, record: any) {
+  private async processPostGate(
+    uri: string,
+    cid: string,
+    repo: string,
+    record: any
+  ) {
     // Post gates are typically stored as metadata on posts
     // For now, we'll just log them as they're not critical for basic functionality
     smartConsole.log(`[EVENT_PROCESSOR] Post gate processed: ${uri}`);
@@ -1894,7 +2184,12 @@ export class EventProcessor {
   /**
    * Process thread gate record
    */
-  private async processThreadGate(uri: string, cid: string, repo: string, record: any) {
+  private async processThreadGate(
+    uri: string,
+    cid: string,
+    repo: string,
+    record: any
+  ) {
     // Thread gates are typically stored as metadata on posts
     // For now, we'll just log them as they're not critical for basic functionality
     smartConsole.log(`[EVENT_PROCESSOR] Thread gate processed: ${uri}`);
@@ -1903,7 +2198,12 @@ export class EventProcessor {
   /**
    * Process list block record
    */
-  private async processListBlock(uri: string, cid: string, repo: string, record: any) {
+  private async processListBlock(
+    uri: string,
+    cid: string,
+    repo: string,
+    record: any
+  ) {
     // List blocks are already handled by the existing listBlocks table
     // This is just a placeholder for the specific record type
     smartConsole.log(`[EVENT_PROCESSOR] List block processed: ${uri}`);
@@ -1912,20 +2212,34 @@ export class EventProcessor {
   /**
    * Process notification declaration record
    */
-  private async processNotificationDeclaration(uri: string, cid: string, repo: string, record: any) {
+  private async processNotificationDeclaration(
+    uri: string,
+    cid: string,
+    repo: string,
+    record: any
+  ) {
     // Notification declarations are typically stored as user preferences
     // For now, we'll just log them as they're not critical for basic functionality
-    smartConsole.log(`[EVENT_PROCESSOR] Notification declaration processed: ${uri}`);
+    smartConsole.log(
+      `[EVENT_PROCESSOR] Notification declaration processed: ${uri}`
+    );
   }
 
   /**
    * Process generic/unknown record types
    */
-  private async processGenericRecord(uri: string, cid: string, repo: string, record: any) {
+  private async processGenericRecord(
+    uri: string,
+    cid: string,
+    repo: string,
+    record: any
+  ) {
     try {
       const recordType = record.$type || 'unknown';
-      const createdAt = record.createdAt ? new Date(record.createdAt) : new Date();
-      
+      const createdAt = record.createdAt
+        ? new Date(record.createdAt)
+        : new Date();
+
       await this.storage.createGenericRecord({
         uri,
         cid,
@@ -1934,14 +2248,19 @@ export class EventProcessor {
         record: sanitizeObject(record),
         createdAt,
       });
-      
-      smartConsole.log(`[EVENT_PROCESSOR] Generic record processed: ${recordType} - ${uri}`);
+
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Generic record processed: ${recordType} - ${uri}`
+      );
     } catch (error: any) {
       if (error?.code === '23505') {
         // Duplicate key - skip silently
         return;
       }
-      console.error(`[EVENT_PROCESSOR] Error processing generic record ${uri}:`, error);
+      console.error(
+        `[EVENT_PROCESSOR] Error processing generic record ${uri}:`,
+        error
+      );
     }
   }
 }

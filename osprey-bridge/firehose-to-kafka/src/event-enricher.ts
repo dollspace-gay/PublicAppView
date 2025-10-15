@@ -5,7 +5,7 @@ export interface EnrichedEvent {
   type: 'commit' | 'identity' | 'account';
   seq?: string;
   time: string;
-  
+
   // Commit event fields
   repo?: string;
   ops?: Array<{
@@ -14,7 +14,7 @@ export interface EnrichedEvent {
     cid?: string;
     record?: any;
   }>;
-  
+
   // Enriched metadata
   enriched?: {
     author?: {
@@ -46,7 +46,7 @@ export class EventEnricher {
     if (databaseUrl) {
       this.pool = new Pool({ connectionString: databaseUrl });
     }
-    
+
     this.enrichWithProfiles = options.enrichWithProfiles ?? true;
     this.enrichWithHandles = options.enrichWithHandles ?? true;
   }
@@ -91,17 +91,19 @@ export class EventEnricher {
 
         if (result.rows.length > 0) {
           const author = result.rows[0];
-          
+
           // Filter based on enrichment settings
           const enrichedAuthor: any = {};
-          
+
           if (this.enrichWithHandles && author.handle) {
             enrichedAuthor.handle = author.handle;
           }
-          
+
           if (this.enrichWithProfiles) {
-            if (author.displayName) enrichedAuthor.displayName = author.displayName;
-            if (author.description) enrichedAuthor.description = author.description;
+            if (author.displayName)
+              enrichedAuthor.displayName = author.displayName;
+            if (author.description)
+              enrichedAuthor.description = author.description;
             enrichedAuthor.followersCount = author.followersCount || 0;
             enrichedAuthor.followsCount = author.followsCount || 0;
             enrichedAuthor.postsCount = author.postsCount || 0;
@@ -119,7 +121,10 @@ export class EventEnricher {
           });
         }
       } catch (error) {
-        console.error(`[ENRICHER] Error enriching event for ${authorDid}:`, error);
+        console.error(
+          `[ENRICHER] Error enriching event for ${authorDid}:`,
+          error
+        );
       }
     }
 

@@ -33,7 +33,9 @@ export class RedisAdapter implements InputAdapter {
   }
 
   async start(eventHandler: EventHandler): Promise<void> {
-    console.log(`[${this.getName()}] Connecting to Redis at ${this.config.redisUrl}...`);
+    console.log(
+      `[${this.getName()}] Connecting to Redis at ${this.config.redisUrl}...`
+    );
 
     this.redis = new Redis(this.config.redisUrl, {
       maxRetriesPerRequest: null,
@@ -55,14 +57,16 @@ export class RedisAdapter implements InputAdapter {
     this.redis.on('error', (error) => {
       // Handle READONLY errors specifically - indicates connection to replica instead of master
       if (error.message && error.message.includes('READONLY')) {
-        console.error(`[${this.getName()}] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.`);
+        console.error(
+          `[${this.getName()}] READONLY error - connected to replica instead of master. Check REDIS_URL configuration.`
+        );
       }
       console.error(`[${this.getName()}] Redis error:`, error);
     });
 
     // Ensure consumer group exists
     await this.ensureConsumerGroup();
-    
+
     // Verify we're connected to master (not replica)
     await this.verifyMasterConnection();
 
@@ -86,12 +90,20 @@ export class RedisAdapter implements InputAdapter {
     // Log pending message count before shutdown
     if (this.redis) {
       try {
-        const pending = await this.redis.xpending(this.streamKey, this.consumerGroup);
+        const pending = await this.redis.xpending(
+          this.streamKey,
+          this.consumerGroup
+        );
         if (pending && pending[0] > 0) {
-          console.warn(`[${this.getName()}] Shutting down with ${pending[0]} pending messages (will be retried on restart)`);
+          console.warn(
+            `[${this.getName()}] Shutting down with ${pending[0]} pending messages (will be retried on restart)`
+          );
         }
       } catch (error) {
-        console.error(`[${this.getName()}] Error checking pending messages:`, error);
+        console.error(
+          `[${this.getName()}] Error checking pending messages:`,
+          error
+        );
       }
 
       await this.redis.quit();
@@ -107,13 +119,21 @@ export class RedisAdapter implements InputAdapter {
     try {
       // Check if we're connected to a master or replica
       const info = await this.redis.info('replication');
-      
+
       if (info.includes('role:slave') || info.includes('role:replica')) {
-        console.error(`[${this.getName()}] WARNING: Connected to Redis replica (read-only)!`);
-        console.error(`[${this.getName()}] Write operations like XREADGROUP will fail.`);
-        console.error(`[${this.getName()}] Please update REDIS_URL to point to the master Redis instance.`);
+        console.error(
+          `[${this.getName()}] WARNING: Connected to Redis replica (read-only)!`
+        );
+        console.error(
+          `[${this.getName()}] Write operations like XREADGROUP will fail.`
+        );
+        console.error(
+          `[${this.getName()}] Please update REDIS_URL to point to the master Redis instance.`
+        );
       } else if (info.includes('role:master')) {
-        console.log(`[${this.getName()}] Verified connection to master (read-write)`);
+        console.log(
+          `[${this.getName()}] Verified connection to master (read-write)`
+        );
       }
     } catch (error) {
       console.warn(`[${this.getName()}] Could not verify Redis role:`, error);
@@ -131,12 +151,19 @@ export class RedisAdapter implements InputAdapter {
         '0',
         'MKSTREAM'
       );
-      console.log(`[${this.getName()}] Created consumer group: ${this.consumerGroup}`);
+      console.log(
+        `[${this.getName()}] Created consumer group: ${this.consumerGroup}`
+      );
     } catch (error: any) {
       if (error.message.includes('BUSYGROUP')) {
-        console.log(`[${this.getName()}] Consumer group already exists: ${this.consumerGroup}`);
+        console.log(
+          `[${this.getName()}] Consumer group already exists: ${this.consumerGroup}`
+        );
       } else {
-        console.error(`[${this.getName()}] Error creating consumer group:`, error);
+        console.error(
+          `[${this.getName()}] Error creating consumer group:`,
+          error
+        );
         throw error;
       }
     }
@@ -149,26 +176,35 @@ export class RedisAdapter implements InputAdapter {
     while (this.isRunning && this.redis) {
       try {
         const events = await this.consumeEvents(10);
-        
+
         for (const event of events) {
           try {
             await eventHandler(event.event);
-            
+
             // Only acknowledge after successful processing
-            await this.redis!.xack(this.streamKey, this.consumerGroup, event.messageId);
+            await this.redis!.xack(
+              this.streamKey,
+              this.consumerGroup,
+              event.messageId
+            );
             errorCount = 0; // Reset error counter on success
           } catch (error) {
-            console.error(`[${this.getName()}] Error processing event (messageId: ${event.messageId}):`, error);
+            console.error(
+              `[${this.getName()}] Error processing event (messageId: ${event.messageId}):`,
+              error
+            );
             errorCount++;
-            
+
             // Don't acknowledge - leave message pending for retry
             // If we hit too many consecutive errors, back off to prevent tight loop
             if (errorCount >= MAX_CONSECUTIVE_ERRORS) {
-              console.warn(`[${this.getName()}] ${MAX_CONSECUTIVE_ERRORS} consecutive errors, backing off for 5s`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
+              console.warn(
+                `[${this.getName()}] ${MAX_CONSECUTIVE_ERRORS} consecutive errors, backing off for 5s`
+              );
+              await new Promise((resolve) => setTimeout(resolve, 5000));
               errorCount = 0; // Reset counter after backoff
             }
-            
+
             // Break the loop to let pending messages be retried
             break;
           }
@@ -176,22 +212,24 @@ export class RedisAdapter implements InputAdapter {
 
         // Small delay if no events to prevent tight loop
         if (events.length === 0) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       } catch (error) {
         console.error(`[${this.getName()}] Error in consume loop:`, error);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
   }
 
-  private async consumeEvents(count: number): Promise<Array<{ event: AdapterEvent; messageId: string }>> {
+  private async consumeEvents(
+    count: number
+  ): Promise<Array<{ event: AdapterEvent; messageId: string }>> {
     if (!this.redis) {
       return [];
     }
 
     try {
-      const results = await this.redis.xreadgroup(
+      const results = (await this.redis.xreadgroup(
         'GROUP',
         this.consumerGroup,
         this.consumerId,
@@ -202,14 +240,14 @@ export class RedisAdapter implements InputAdapter {
         'STREAMS',
         this.streamKey,
         '>'
-      ) as any;
+      )) as any;
 
       if (!results || results.length === 0) {
         return [];
       }
 
       const events: Array<{ event: AdapterEvent; messageId: string }> = [];
-      
+
       for (const [_stream, messages] of results as any[]) {
         for (const [messageId, fields] of messages as any[]) {
           try {
@@ -228,7 +266,11 @@ export class RedisAdapter implements InputAdapter {
           } catch (error) {
             console.error(`[${this.getName()}] Error parsing message:`, error);
             // Acknowledge malformed messages
-            await this.redis.xack(this.streamKey, this.consumerGroup, messageId);
+            await this.redis.xack(
+              this.streamKey,
+              this.consumerGroup,
+              messageId
+            );
           }
         }
       }
@@ -237,7 +279,9 @@ export class RedisAdapter implements InputAdapter {
     } catch (error: any) {
       // Handle READONLY errors specifically
       if (error.message && error.message.includes('READONLY')) {
-        console.error(`[${this.getName()}] READONLY error - Redis is configured as a read-only replica. XREADGROUP requires write access. Please connect to the master Redis instance.`);
+        console.error(
+          `[${this.getName()}] READONLY error - Redis is configured as a read-only replica. XREADGROUP requires write access. Please connect to the master Redis instance.`
+        );
       } else {
         console.error(`[${this.getName()}] Error consuming events:`, error);
       }

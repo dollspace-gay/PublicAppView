@@ -7,22 +7,24 @@
  * Remove null bytes from a string
  * PostgreSQL cannot store null bytes in text/JSON fields
  */
-export function sanitizeString(str: string | null | undefined): string | null | undefined {
+export function sanitizeString(
+  str: string | null | undefined
+): string | null | undefined {
   if (str === null || str === undefined) return str;
   return str.replace(/\u0000/g, '');
 }
 
 /**
  * Recursively remove null bytes from all string values in an object
- * 
+ *
  * ⚠️ SECURITY WARNING: This function does NOT sanitize for XSS, SQL injection, or other security vulnerabilities!
  * It ONLY removes null bytes (\u0000) that PostgreSQL cannot handle.
- * 
+ *
  * For security sanitization:
  * - Use proper HTML escaping for user-facing outputs (React does this by default)
  * - Use parameterized queries for SQL (Drizzle ORM handles this)
  * - Validate and sanitize user inputs before rendering or storing
- * 
+ *
  * @param obj - The object to process
  * @returns A new object with null bytes removed from all string values
  */
@@ -41,7 +43,7 @@ export function removeNullBytesFromObject<T>(obj: T): T {
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => removeNullBytesFromObject(item)) as T;
+    return obj.map((item) => removeNullBytesFromObject(item)) as T;
   }
 
   if (typeof obj === 'object') {

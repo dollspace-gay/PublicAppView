@@ -1,9 +1,9 @@
-import { pool, db } from "../db";
-import { users } from "../../shared/schema";
-import { ilike } from "drizzle-orm";
-import { sql } from "drizzle-orm";
-import { storage } from "../storage";
-import { contentFilter } from "./content-filter";
+import { pool, db } from '../db';
+import { users } from '../../shared/schema';
+import { ilike } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
+import { storage } from '../storage';
+import { contentFilter } from './content-filter';
 
 export interface PostSearchResult {
   uri: string;
@@ -43,26 +43,30 @@ class SearchService {
     userDid?: string
   ): Promise<{ posts: PostSearchResult[]; cursor?: string }> {
     const trimmedQuery = query.trim();
-    
+
     if (!trimmedQuery) {
       return { posts: [] };
     }
-    
+
     // Use plainto_tsquery which safely handles Unicode, punctuation, and special characters
     const sqlQuery = cursor
       ? `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) AND ts_rank(search_vector, plainto_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
       : `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
-    
-    const params = cursor ? [trimmedQuery, parseFloat(cursor), limit + 1] : [trimmedQuery, limit + 1];
+
+    const params = cursor
+      ? [trimmedQuery, parseFloat(cursor), limit + 1]
+      : [trimmedQuery, limit + 1];
     const queryResult = await pool.query(sqlQuery, params);
-    const results = { rows: queryResult.rows as (PostSearchResult & { rank: number })[] };
+    const results = {
+      rows: queryResult.rows as (PostSearchResult & { rank: number })[],
+    };
 
     // Apply content filtering if user is authenticated
     let filteredResults = results.rows;
     if (userDid) {
       const settings = await storage.getUserSettings(userDid);
       if (settings) {
-        filteredResults = results.rows.filter(post => {
+        filteredResults = results.rows.filter((post) => {
           const filterResult = contentFilter.wouldFilter(post, settings);
           return !filterResult.filtered;
         });
@@ -72,9 +76,10 @@ class SearchService {
     // Determine pagination
     const hasMore = filteredResults.length > limit;
     const postsToReturn = filteredResults.slice(0, limit);
-    const nextCursor = hasMore && postsToReturn.length > 0
-      ? postsToReturn[postsToReturn.length - 1].rank.toString()
-      : undefined;
+    const nextCursor =
+      hasMore && postsToReturn.length > 0
+        ? postsToReturn[postsToReturn.length - 1].rank.toString()
+        : undefined;
 
     return {
       posts: postsToReturn as PostSearchResult[],
@@ -94,14 +99,14 @@ class SearchService {
     cursor?: string
   ): Promise<{ actors: ActorSearchResult[]; cursor?: string }> {
     const trimmedQuery = query.trim();
-    
+
     if (!trimmedQuery) {
       return { actors: [] };
     }
 
     // Use trigram search for handles (substring matching) combined with full-text search
     // This allows finding "kawanishi" within "kawanishitakumi.bsky.social"
-    const cursorCondition = cursor 
+    const cursorCondition = cursor
       ? sql`AND (
           GREATEST(
             similarity(handle, ${trimmedQuery}),
@@ -132,12 +137,15 @@ class SearchService {
     `);
 
     // Determine pagination
-    const rows = results.rows as unknown as (ActorSearchResult & { rank: number })[];
+    const rows = results.rows as unknown as (ActorSearchResult & {
+      rank: number;
+    })[];
     const hasMore = rows.length > limit;
     const actorsToReturn = rows.slice(0, limit);
-    const nextCursor = hasMore && actorsToReturn.length > 0
-      ? actorsToReturn[actorsToReturn.length - 1].rank.toString()
-      : undefined;
+    const nextCursor =
+      hasMore && actorsToReturn.length > 0
+        ? actorsToReturn[actorsToReturn.length - 1].rank.toString()
+        : undefined;
 
     return {
       actors: actorsToReturn,
@@ -159,7 +167,7 @@ class SearchService {
       .toLowerCase()
       // Escape LIKE special characters to prevent pattern injection
       .replace(/[%_\\]/g, '\\$&');
-    
+
     if (!sanitizedQuery) {
       return [];
     }

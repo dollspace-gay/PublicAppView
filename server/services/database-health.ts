@@ -1,7 +1,7 @@
-import { db } from "../db";
-import { sql } from "drizzle-orm";
-import { users, posts, likes, reposts, follows } from "../../shared/schema";
-import { logCollector } from "./log-collector";
+import { db } from '../db';
+import { sql } from 'drizzle-orm';
+import { users, posts, likes, reposts, follows } from '../../shared/schema';
+import { logCollector } from './log-collector';
 
 interface HealthMetrics {
   connected: boolean;
@@ -24,13 +24,13 @@ export class DatabaseHealthService {
   private readonly DATA_LOSS_THRESHOLD = 0.5; // Alert if >50% of data disappears
 
   constructor() {
-    console.log("[DB_HEALTH] Database health monitoring initialized");
+    console.log('[DB_HEALTH] Database health monitoring initialized');
   }
 
   async start() {
     // Run initial health check
     await this.performHealthCheck();
-    
+
     // Schedule periodic checks
     this.healthCheckInterval = setInterval(() => {
       this.performHealthCheck();
@@ -46,10 +46,10 @@ export class DatabaseHealthService {
         posts: 0,
         likes: 0,
         reposts: 0,
-        follows: 0
+        follows: 0,
       },
       lastCheck: new Date(),
-      errors: []
+      errors: [],
     };
 
     try {
@@ -71,22 +71,34 @@ export class DatabaseHealthService {
         ) as posts_exists
       `);
 
-      metrics.tablesExist = (tableCheck.rows[0] as any)?.users_exists && (tableCheck.rows[0] as any)?.posts_exists;
+      metrics.tablesExist =
+        (tableCheck.rows[0] as any)?.users_exists &&
+        (tableCheck.rows[0] as any)?.posts_exists;
 
       if (metrics.tablesExist) {
         // Get record counts
-        const [userCount] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
-        const [postCount] = await db.select({ count: sql<number>`count(*)::int` }).from(posts);
-        const [likeCount] = await db.select({ count: sql<number>`count(*)::int` }).from(likes);
-        const [repostCount] = await db.select({ count: sql<number>`count(*)::int` }).from(reposts);
-        const [followCount] = await db.select({ count: sql<number>`count(*)::int` }).from(follows);
+        const [userCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(users);
+        const [postCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(posts);
+        const [likeCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(likes);
+        const [repostCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(reposts);
+        const [followCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(follows);
 
         metrics.recordCounts = {
           users: userCount.count,
           posts: postCount.count,
           likes: likeCount.count,
           reposts: repostCount.count,
-          follows: followCount.count
+          follows: followCount.count,
         };
 
         // Detect data loss
@@ -97,49 +109,59 @@ export class DatabaseHealthService {
         // Update last known counts
         this.lastKnownCounts = metrics.recordCounts;
       } else {
-        metrics.errors.push("Critical tables missing");
-        console.error("[DB_HEALTH] CRITICAL: Database tables are missing!");
-        logCollector.error("Database tables missing", { tables: tableCheck.rows });
+        metrics.errors.push('Critical tables missing');
+        console.error('[DB_HEALTH] CRITICAL: Database tables are missing!');
+        logCollector.error('Database tables missing', {
+          tables: tableCheck.rows,
+        });
       }
-
     } catch (error: any) {
       metrics.connected = false;
       metrics.errors.push(error.message);
-      console.error("[DB_HEALTH] Health check failed:", error);
-      logCollector.error("Database health check failed", { error: error.message });
+      console.error('[DB_HEALTH] Health check failed:', error);
+      logCollector.error('Database health check failed', {
+        error: error.message,
+      });
     }
 
     // Log status
     if (metrics.connected && metrics.tablesExist) {
-      console.log(`[DB_HEALTH] ✓ Healthy - Users: ${metrics.recordCounts.users}, Posts: ${metrics.recordCounts.posts}, Likes: ${metrics.recordCounts.likes}`);
+      console.log(
+        `[DB_HEALTH] ✓ Healthy - Users: ${metrics.recordCounts.users}, Posts: ${metrics.recordCounts.posts}, Likes: ${metrics.recordCounts.likes}`
+      );
     } else {
-      console.error(`[DB_HEALTH] ✗ Unhealthy - Connected: ${metrics.connected}, Tables: ${metrics.tablesExist}`);
+      console.error(
+        `[DB_HEALTH] ✗ Unhealthy - Connected: ${metrics.connected}, Tables: ${metrics.tablesExist}`
+      );
     }
 
     return metrics;
   }
 
-  private detectDataLoss(previous: HealthMetrics['recordCounts'], current: HealthMetrics['recordCounts']) {
+  private detectDataLoss(
+    previous: HealthMetrics['recordCounts'],
+    current: HealthMetrics['recordCounts']
+  ) {
     const checks = [
       { name: 'users', prev: previous.users, curr: current.users },
       { name: 'posts', prev: previous.posts, curr: current.posts },
       { name: 'likes', prev: previous.likes, curr: current.likes },
       { name: 'reposts', prev: previous.reposts, curr: current.reposts },
-      { name: 'follows', prev: previous.follows, curr: current.follows }
+      { name: 'follows', prev: previous.follows, curr: current.follows },
     ];
 
     for (const check of checks) {
       if (check.prev > 0) {
         const loss = (check.prev - check.curr) / check.prev;
-        
+
         if (loss > this.DATA_LOSS_THRESHOLD) {
           const message = `CRITICAL DATA LOSS DETECTED: ${check.name} dropped from ${check.prev} to ${check.curr} (${(loss * 100).toFixed(1)}% loss)`;
           console.error(`[DB_HEALTH] ${message}`);
-          logCollector.error("Data loss detected", {
+          logCollector.error('Data loss detected', {
             table: check.name,
             previous: check.prev,
             current: check.curr,
-            lossPercentage: (loss * 100).toFixed(1)
+            lossPercentage: (loss * 100).toFixed(1),
           });
         }
       }
@@ -159,16 +181,16 @@ export class DatabaseHealthService {
         healthy,
         details: {
           responseTimeMs: responseTime,
-          status: healthy ? 'healthy' : 'slow'
-        }
+          status: healthy ? 'healthy' : 'slow',
+        },
       };
     } catch (error: any) {
       return {
         healthy: false,
         details: {
           error: error.message,
-          status: 'failed'
-        }
+          status: 'failed',
+        },
       };
     }
   }
@@ -177,7 +199,7 @@ export class DatabaseHealthService {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
-      console.log("[DB_HEALTH] Stopped");
+      console.log('[DB_HEALTH] Stopped');
     }
   }
 }

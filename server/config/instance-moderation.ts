@@ -1,15 +1,15 @@
 /**
  * Instance Moderation Configuration
- * 
+ *
  * This file defines legal compliance labels for your App View instance.
  * Customize these based on your jurisdiction and legal requirements.
- * 
+ *
  * These are INSTANCE labels (applied by the server), separate from
  * third-party labeler services that users can choose.
  */
 
 export interface InstanceLabel {
-  value: string;           // Label identifier (e.g., 'dmca-takedown')
+  value: string; // Label identifier (e.g., 'dmca-takedown')
   severity: 'info' | 'warn' | 'alert' | 'none';
   action: 'hide' | 'blur' | 'flag' | 'delete-reference';
   reason: 'legal' | 'safety' | 'quality' | 'tos';
@@ -143,16 +143,16 @@ export const QUALITY_LABELS: InstanceLabel[] = [
 export const INSTANCE_CONFIG = {
   // Your App View's DID (used as label source)
   labelerDid: process.env.APPVIEW_DID || '',
-  
+
   // Legal jurisdiction (affects which laws apply)
   jurisdiction: process.env.INSTANCE_JURISDICTION || 'US',
-  
+
   // Contact for legal/DMCA requests
   legalContact: process.env.LEGAL_CONTACT_EMAIL || 'legal@example.com',
-  
+
   // Automatic report threshold (hide after X reports)
   autoHideThreshold: parseInt(process.env.AUTO_HIDE_THRESHOLD || '10'),
-  
+
   // Enable/disable instance moderation entirely
   enabled: process.env.ENABLE_INSTANCE_MODERATION !== 'false',
 };
@@ -161,18 +161,16 @@ export const INSTANCE_CONFIG = {
  * Get all enabled labels
  */
 export function getEnabledLabels(): InstanceLabel[] {
-  return [
-    ...LEGAL_LABELS,
-    ...SAFETY_LABELS,
-    ...QUALITY_LABELS,
-  ].filter(label => label.enabled);
+  return [...LEGAL_LABELS, ...SAFETY_LABELS, ...QUALITY_LABELS].filter(
+    (label) => label.enabled
+  );
 }
 
 /**
  * Get label configuration by value
  */
 export function getLabelConfig(value: string): InstanceLabel | undefined {
-  return getEnabledLabels().find(label => label.value === value);
+  return getEnabledLabels().find((label) => label.value === value);
 }
 
 /**
@@ -186,6 +184,8 @@ export function shouldDeleteReference(value: string): boolean {
 /**
  * Get labels by reason (legal, safety, quality, tos)
  */
-export function getLabelsByReason(reason: InstanceLabel['reason']): InstanceLabel[] {
-  return getEnabledLabels().filter(label => label.reason === reason);
+export function getLabelsByReason(
+  reason: InstanceLabel['reason']
+): InstanceLabel[] {
+  return getEnabledLabels().filter((label) => label.reason === reason);
 }

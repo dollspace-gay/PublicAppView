@@ -1,14 +1,15 @@
-import { Pool as NeonPool, neonConfig } from "@neondatabase/serverless";
-import { Pool as PgPool } from "pg";
-import ws from "ws";
+import { Pool as NeonPool, neonConfig } from '@neondatabase/serverless';
+import { Pool as PgPool } from 'pg';
+import ws from 'ws';
 
 const databaseUrl = process.env.DATABASE_URL!;
 
 // Detect if we're using Neon (serverless) or standard PostgreSQL
-const isNeon = databaseUrl.includes('neon.tech') || 
-               databaseUrl.includes('@ep-') || 
-               databaseUrl.includes('neon.') ||
-               databaseUrl.includes('pooler.supabase.com');
+const isNeon =
+  databaseUrl.includes('neon.tech') ||
+  databaseUrl.includes('@ep-') ||
+  databaseUrl.includes('neon.') ||
+  databaseUrl.includes('pooler.supabase.com');
 
 // Create appropriate pool based on database type
 let schemaPool: NeonPool | PgPool;
@@ -21,7 +22,9 @@ if (isNeon) {
 } else {
   // Use standard PostgreSQL pool for traditional databases
   schemaPool = new PgPool({ connectionString: databaseUrl, max: 1 });
-  console.log('[SCHEMA] Using standard PostgreSQL pool for schema introspection');
+  console.log(
+    '[SCHEMA] Using standard PostgreSQL pool for schema introspection'
+  );
 }
 
 export interface TableField {
@@ -41,40 +44,40 @@ export interface TableSchema {
 
 // Curated table descriptions mapping
 const tableDescriptions: Record<string, string> = {
-  users: "Profile and identity data",
-  posts: "Feed posts and content",
-  likes: "Post like interactions",
-  reposts: "Post repost/retweet interactions",
-  follows: "Social graph relationships",
-  blocks: "User block relationships",
-  mutes: "User mute relationships (soft blocks)",
-  list_mutes: "Muted list relationships",
-  list_blocks: "Blocked list relationships",
-  thread_mutes: "Muted thread relationships",
-  feed_generators: "Custom feed algorithm definitions",
-  starter_packs: "Starter pack configurations",
-  labeler_services: "Content labeling services",
-  push_subscriptions: "Push notification subscriptions",
-  video_jobs: "Video processing job status",
-  firehose_cursor: "Firehose position tracking",
-  lists: "User-created lists",
-  list_items: "List item memberships",
-  sessions: "User authentication sessions",
-  user_preferences: "User preference settings",
-  reports: "Content moderation reports",
+  users: 'Profile and identity data',
+  posts: 'Feed posts and content',
+  likes: 'Post like interactions',
+  reposts: 'Post repost/retweet interactions',
+  follows: 'Social graph relationships',
+  blocks: 'User block relationships',
+  mutes: 'User mute relationships (soft blocks)',
+  list_mutes: 'Muted list relationships',
+  list_blocks: 'Blocked list relationships',
+  thread_mutes: 'Muted thread relationships',
+  feed_generators: 'Custom feed algorithm definitions',
+  starter_packs: 'Starter pack configurations',
+  labeler_services: 'Content labeling services',
+  push_subscriptions: 'Push notification subscriptions',
+  video_jobs: 'Video processing job status',
+  firehose_cursor: 'Firehose position tracking',
+  lists: 'User-created lists',
+  list_items: 'List item memberships',
+  sessions: 'User authentication sessions',
+  user_preferences: 'User preference settings',
+  reports: 'Content moderation reports',
 };
 
 // Field description mapping for common patterns
 const fieldDescriptions: Record<string, string> = {
-  did: "Decentralized identifier (DID)",
-  uri: "AT Protocol URI",
-  cid: "Content identifier (CID)",
-  handle: "User handle/username",
-  display_name: "Display name",
-  avatar_url: "Avatar image URL",
-  description: "Description text",
-  created_at: "Creation timestamp",
-  indexed_at: "Indexing timestamp",
+  did: 'Decentralized identifier (DID)',
+  uri: 'AT Protocol URI',
+  cid: 'Content identifier (CID)',
+  handle: 'User handle/username',
+  display_name: 'Display name',
+  avatar_url: 'Avatar image URL',
+  description: 'Description text',
+  created_at: 'Creation timestamp',
+  indexed_at: 'Indexing timestamp',
   author_did: "Author's DID",
   user_did: "User's DID",
   follower_did: "Follower's DID",
@@ -83,13 +86,13 @@ const fieldDescriptions: Record<string, string> = {
   blocked_did: "Blocked user's DID",
   muter_did: "Muting user's DID",
   muted_did: "Muted user's DID",
-  post_uri: "Post URI reference",
-  parent_uri: "Parent post URI",
-  root_uri: "Thread root URI",
-  text: "Text content",
-  embed: "Embedded media/content",
-  cursor: "Firehose cursor position",
-  last_saved_at: "Last save timestamp",
+  post_uri: 'Post URI reference',
+  parent_uri: 'Parent post URI',
+  root_uri: 'Thread root URI',
+  text: 'Text content',
+  embed: 'Embedded media/content',
+  cursor: 'Firehose cursor position',
+  last_saved_at: 'Last save timestamp',
 };
 
 interface CacheEntry {
@@ -103,8 +106,17 @@ class SchemaIntrospectionService {
 
   private getColorForTable(tableName: string): string {
     // Stable color assignment based on table name hash
-    const colors = ["primary", "accent", "success", "warning", "info", "destructive"];
-    const hash = tableName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const colors = [
+      'primary',
+      'accent',
+      'success',
+      'warning',
+      'info',
+      'destructive',
+    ];
+    const hash = tableName
+      .split('')
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return colors[hash % colors.length];
   }
 
@@ -112,17 +124,22 @@ class SchemaIntrospectionService {
     // Try exact match first
     const key = `${tableName}.${columnName}`;
     if (fieldDescriptions[key]) return fieldDescriptions[key];
-    
+
     // Try pattern match
     if (fieldDescriptions[columnName]) return fieldDescriptions[columnName];
-    
+
     // Generate from column name
-    return columnName.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
+    return columnName
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   }
 
-  private formatPostgresType(dataType: string, charMaxLength: number | null, udtName: string | null): string {
+  private formatPostgresType(
+    dataType: string,
+    charMaxLength: number | null,
+    udtName: string | null
+  ): string {
     // Map PostgreSQL types to readable format
     if (dataType === 'character varying') {
       return charMaxLength ? `VARCHAR(${charMaxLength})` : 'VARCHAR';
@@ -139,17 +156,22 @@ class SchemaIntrospectionService {
       const baseType = udtName?.replace('_', '').toUpperCase() || 'UNKNOWN';
       return `${baseType}[]`;
     }
-    if (dataType === 'USER-DEFINED' && udtName === 'tsvector') return 'TSVECTOR';
-    
+    if (dataType === 'USER-DEFINED' && udtName === 'tsvector')
+      return 'TSVECTOR';
+
     return dataType.toUpperCase();
   }
 
   async getSchema(forceRefresh = false): Promise<TableSchema[]> {
     // Check cache
-    if (!forceRefresh && this.cache && Date.now() - this.cache.timestamp < this.CACHE_TTL) {
+    if (
+      !forceRefresh &&
+      this.cache &&
+      Date.now() - this.cache.timestamp < this.CACHE_TTL
+    ) {
       return this.cache.data;
     }
-    
+
     try {
       // Get all tables in the public schema
       const tablesResult = await schemaPool.query(`
@@ -169,9 +191,10 @@ class SchemaIntrospectionService {
 
       for (const tableRow of tablesResult.rows) {
         const tableName = tableRow.table_name;
-        
+
         // Get columns
-        const columnsResult = await schemaPool.query(`
+        const columnsResult = await schemaPool.query(
+          `
           SELECT 
             c.column_name,
             c.data_type,
@@ -184,16 +207,25 @@ class SchemaIntrospectionService {
           WHERE c.table_schema = 'public' 
             AND c.table_name = $1
           ORDER BY c.ordinal_position
-        `, [tableName]);
+        `,
+          [tableName]
+        );
 
         const fields: TableField[] = columnsResult.rows.map((col: any) => ({
           name: col.column_name,
-          type: this.formatPostgresType(col.data_type, col.character_maximum_length, col.udt_name),
-          description: col.column_comment || this.getFieldDescription(col.column_name, tableName),
+          type: this.formatPostgresType(
+            col.data_type,
+            col.character_maximum_length,
+            col.udt_name
+          ),
+          description:
+            col.column_comment ||
+            this.getFieldDescription(col.column_name, tableName),
         }));
 
         // Get indexes
-        const indexesResult = await schemaPool.query(`
+        const indexesResult = await schemaPool.query(
+          `
           SELECT 
             i.indexname,
             i.indexdef,
@@ -207,13 +239,15 @@ class SchemaIntrospectionService {
             AND i.tablename = $1
             AND i.indexname NOT LIKE '%_pkey'
           ORDER BY i.indexname
-        `, [tableName]);
+        `,
+          [tableName]
+        );
 
         const indexes: string[] = indexesResult.rows.map((idx: any) => {
           let indexName = idx.indexname;
           const isUnique = idx.indisunique;
           const indexType = idx.index_type;
-          
+
           // Add type annotation for special index types
           if (indexType === 'gin') {
             indexName += ' (GIN)';
@@ -222,20 +256,23 @@ class SchemaIntrospectionService {
           } else if (indexType === 'hash') {
             indexName += ' (Hash)';
           }
-          
+
           if (isUnique && !indexName.includes('unique')) {
             indexName += ' (Unique)';
           }
-          
+
           return indexName;
         });
 
         // Get row count estimate (fast)
         const rowEstimate = Number(tableRow.row_estimate) || 0;
-        
+
         schemas.push({
           name: tableName,
-          description: (tableRow.table_comment as string) || tableDescriptions[tableName] || `${tableName} table`,
+          description:
+            (tableRow.table_comment as string) ||
+            tableDescriptions[tableName] ||
+            `${tableName} table`,
           rows: rowEstimate.toLocaleString(),
           color: this.getColorForTable(tableName),
           fields,

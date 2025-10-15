@@ -2,12 +2,12 @@ import { Kafka, Consumer, EachMessagePayload } from 'kafkajs';
 
 export interface OspreyLabel {
   ver: number;
-  src: string;  // DID of labeler
-  uri: string;  // Subject AT-URI
+  src: string; // DID of labeler
+  uri: string; // Subject AT-URI
   cid?: string; // Optional CID
-  val: string;  // Label value (spam, porn, etc.)
+  val: string; // Label value (spam, porn, etc.)
   neg?: boolean; // Negation flag
-  cts: string;  // Created timestamp
+  cts: string; // Created timestamp
   exp?: string; // Optional expiration
   sig?: Uint8Array; // Optional signature
 }
@@ -43,24 +43,24 @@ export class LabelConsumer {
 
   async connect(): Promise<void> {
     console.log(`[KAFKA] Connecting to Kafka at ${this.brokers.join(', ')}...`);
-    
+
     await this.consumer.connect();
     this.connected = true;
-    
+
     console.log(`[KAFKA] Connected successfully`);
     console.log(`[KAFKA] Subscribing to topic: ${this.topic}`);
-    
+
     await this.consumer.subscribe({
       topic: this.topic,
       fromBeginning: false, // Only consume new labels
     });
-    
+
     console.log(`[KAFKA] Subscribed successfully`);
   }
 
   async start(): Promise<void> {
     console.log(`[KAFKA] Starting label consumer...`);
-    
+
     await this.consumer.run({
       autoCommit: false, // Disable auto-commit to prevent data loss on errors
       eachMessage: async (payload: EachMessagePayload) => {
@@ -71,56 +71,67 @@ export class LabelConsumer {
 
   private async processMessage(payload: EachMessagePayload): Promise<void> {
     const { topic, partition, message } = payload;
-    
+
     if (!message.value) {
       console.warn('[KAFKA] Received message with no value');
       // Commit offset for empty messages to avoid reprocessing
-      await this.consumer.commitOffsets([{
-        topic,
-        partition,
-        offset: (parseInt(message.offset) + 1).toString(),
-      }]);
+      await this.consumer.commitOffsets([
+        {
+          topic,
+          partition,
+          offset: (parseInt(message.offset) + 1).toString(),
+        },
+      ]);
       return;
     }
 
     try {
       const labelData = JSON.parse(message.value.toString());
-      
+
       // Validate label format
       if (!this.isValidLabel(labelData)) {
         console.warn('[KAFKA] Invalid label format:', labelData);
         // Commit offset for invalid messages to avoid reprocessing
-        await this.consumer.commitOffsets([{
-          topic,
-          partition,
-          offset: (parseInt(message.offset) + 1).toString(),
-        }]);
+        await this.consumer.commitOffsets([
+          {
+            topic,
+            partition,
+            offset: (parseInt(message.offset) + 1).toString(),
+          },
+        ]);
         return;
       }
 
       const label: OspreyLabel = labelData;
-      
-      console.log(`[KAFKA] Received label from ${label.src}: ${label.val} → ${label.uri}`, {
-        partition,
-        offset: message.offset,
-        neg: label.neg || false,
-      });
+
+      console.log(
+        `[KAFKA] Received label from ${label.src}: ${label.val} → ${label.uri}`,
+        {
+          partition,
+          offset: message.offset,
+          neg: label.neg || false,
+        }
+      );
 
       // Apply label via callback - if this fails, don't commit offset
       await this.onLabel(label);
-      
+
       // Only commit offset after successful processing
-      await this.consumer.commitOffsets([{
-        topic,
-        partition,
-        offset: (parseInt(message.offset) + 1).toString(),
-      }]);
-      
+      await this.consumer.commitOffsets([
+        {
+          topic,
+          partition,
+          offset: (parseInt(message.offset) + 1).toString(),
+        },
+      ]);
+
       this.messagesProcessed++;
       this.lastMessageTime = new Date();
-      
     } catch (error) {
-      console.error('[KAFKA] Error processing message - will retry on next poll:', error);
+      console.error(
+        '[KAFKA] Error processing message - will retry on next poll:',
+        error
+      );
       console.error('[KAFKA] Message value:', message.value.toString());
       // Don't commit offset on error - message will be redelivered
       // Consider implementing a dead letter queue for messages that fail repeatedly

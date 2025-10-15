@@ -1,6 +1,6 @@
 /**
  * Constellation API Client
- * 
+ *
  * HTTP client for interacting with Constellation's backlink index API.
  * Provides methods to query interaction counts across the AT Protocol network.
  */
@@ -29,7 +29,7 @@ export class ConstellationAPIClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.timeout = config.timeout || 5000;
     this.userAgent = config.userAgent || 'AppView-Constellation-Bridge/1.0';
-    
+
     // Rate limiting: ensure we don't exceed max requests per second
     const maxRps = config.maxRequestsPerSecond || 10;
     this.minRequestInterval = 1000 / maxRps;
@@ -41,12 +41,12 @@ export class ConstellationAPIClient {
   private async rateLimit(): Promise<void> {
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
-    
+
     if (timeSinceLastRequest < this.minRequestInterval) {
       const waitTime = this.minRequestInterval - timeSinceLastRequest;
-      await new Promise(resolve => setTimeout(resolve, waitTime));
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
     }
-    
+
     this.lastRequestTime = Date.now();
   }
 
@@ -71,9 +71,11 @@ export class ConstellationAPIClient {
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
-      
+
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Constellation API request timeout after ${this.timeout}ms`);
+        throw new Error(
+          `Constellation API request timeout after ${this.timeout}ms`
+        );
       }
       throw error;
     }
@@ -81,7 +83,7 @@ export class ConstellationAPIClient {
 
   /**
    * Get count of backlinks to a target from specified collection/path
-   * 
+   *
    * @param target - AT-URI, DID, or URL to query
    * @param collection - Source NSID (e.g., 'app.bsky.feed.like')
    * @param path - JSON path in source documents (e.g., '.subject.uri')
@@ -92,7 +94,8 @@ export class ConstellationAPIClient {
     collection: string,
     path: string
   ): Promise<number> {
-    const url = `${this.baseUrl}/links/count?` +
+    const url =
+      `${this.baseUrl}/links/count?` +
       `target=${encodeURIComponent(target)}` +
       `&collection=${encodeURIComponent(collection)}` +
       `&path=${encodeURIComponent(path)}`;
@@ -101,12 +104,14 @@ export class ConstellationAPIClient {
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
-        throw new Error(`Constellation API error: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `Constellation API error: ${response.status} ${response.statusText}`
+        );
       }
 
       const text = await response.text();
       let count: number;
-      
+
       // Try to parse as JSON first (new API format)
       try {
         const json = JSON.parse(text);
@@ -133,7 +138,7 @@ export class ConstellationAPIClient {
 
   /**
    * Get all backlinks to a target (any collection/path)
-   * 
+   *
    * @param target - AT-URI, DID, or URL to query
    * @returns Object mapping collection → path → count
    */
@@ -144,7 +149,9 @@ export class ConstellationAPIClient {
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
-        throw new Error(`Constellation API error: ${response.status} ${response.statusText}`);
+        throw new Error(
+          `Constellation API error: ${response.status} ${response.statusText}`
+        );
       }
 
       return await response.json();
@@ -172,14 +179,22 @@ export class ConstellationAPIClient {
    * Convenience method: Get reply count for a Bluesky post
    */
   async getPostReplies(postUri: string): Promise<number> {
-    return this.getLinksCount(postUri, 'app.bsky.feed.post', '.reply.parent.uri');
+    return this.getLinksCount(
+      postUri,
+      'app.bsky.feed.post',
+      '.reply.parent.uri'
+    );
   }
 
   /**
    * Convenience method: Get quote post count for a Bluesky post
    */
   async getPostQuotes(postUri: string): Promise<number> {
-    return this.getLinksCount(postUri, 'app.bsky.feed.post', '.embed.record.uri');
+    return this.getLinksCount(
+      postUri,
+      'app.bsky.feed.post',
+      '.embed.record.uri'
+    );
   }
 
   /**
@@ -193,7 +208,11 @@ export class ConstellationAPIClient {
    * Convenience method: Get mention count for a DID
    */
   async getMentions(did: string): Promise<number> {
-    return this.getLinksCount(did, 'app.bsky.feed.post', '.facets[].features[].did');
+    return this.getLinksCount(
+      did,
+      'app.bsky.feed.post',
+      '.facets[].features[].did'
+    );
   }
 
   /**

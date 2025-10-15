@@ -1,12 +1,12 @@
-import { Firehose } from "@skyware/firehose";
-import WebSocket from "ws";
-import { eventProcessor } from "./event-processor";
-import { metricsService } from "./metrics";
-import { logCollector } from "./log-collector";
-import { redisQueue } from "./redis-queue";
+import { Firehose } from '@skyware/firehose';
+import WebSocket from 'ws';
+import { eventProcessor } from './event-processor';
+import { metricsService } from './metrics';
+import { logCollector } from './log-collector';
+import { redisQueue } from './redis-queue';
 
 // Make WebSocket available globally for @skyware/firehose in Node.js environment
-if (typeof globalThis.WebSocket === "undefined") {
+if (typeof globalThis.WebSocket === 'undefined') {
   (globalThis as any).WebSocket = WebSocket;
 }
 
@@ -24,50 +24,55 @@ export class FirehoseClient {
   private statusHeartbeat: NodeJS.Timeout | null = null;
   private lastEventTime: number = Date.now(); // Track last event for stall detection
   private readonly STALL_THRESHOLD = 2 * 60 * 1000; // 2 minutes without events = stalled
-  
+
   // WebSocket ping/pong keepalive (production-grade zombie connection prevention)
   private pingInterval: NodeJS.Timeout | null = null;
   private lastPongTime: number = Date.now();
   private readonly PING_INTERVAL = 30000; // Send ping every 30s (Bluesky recommended)
   private readonly PONG_TIMEOUT = 45000; // Expect pong within 45s
-  
+
   // Worker distribution for parallel processing
   private workerId: number = 0;
   private totalWorkers: number = 1;
-  
+
   // Cursor persistence for restart recovery
   private currentCursor: string | null = null;
   private lastCursorSave = 0;
   private readonly CURSOR_SAVE_INTERVAL = 5000; // Save cursor every 5 seconds
-  
+
   // Concurrency control to prevent database connection pool exhaustion
   // With pool size of 100 per worker, allow 80 concurrent operations per worker
   // This enables maximum throughput on high-memory VPS (47GB+)
   // 32 workers × 80 = 2560 total concurrent operations across cluster
   private processingQueue: Array<() => Promise<void>> = [];
   private activeProcessing = 0;
-  private readonly MAX_CONCURRENT_PROCESSING = parseInt(process.env.MAX_CONCURRENT_OPS || '80');
+  private readonly MAX_CONCURRENT_PROCESSING = parseInt(
+    process.env.MAX_CONCURRENT_OPS || '80'
+  );
 
-  constructor(url: string = process.env.RELAY_URL || "wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos") {
+  constructor(
+    url: string = process.env.RELAY_URL ||
+      'wss://bsky.network/xrpc/com.atproto.sync.subscribeRepos'
+  ) {
     this.url = url;
   }
-  
+
   // Simple hash function for consistent event distribution
   private hashString(str: string): number {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32bit integer
     }
     return Math.abs(hash);
   }
-  
+
   // Check if this worker should process this event
   private shouldProcessEvent(eventId: string): boolean {
     if (this.totalWorkers === 1) return true;
     const hash = this.hashString(eventId);
-    return (hash % this.totalWorkers) === this.workerId;
+    return hash % this.totalWorkers === this.workerId;
   }
 
   private async processQueuedEvent(task: () => Promise<void>) {
@@ -82,7 +87,10 @@ export class FirehoseClient {
 
   private processNextInQueue() {
     // Process as many queued events as concurrency allows
-    if (this.activeProcessing < this.MAX_CONCURRENT_PROCESSING && this.processingQueue.length > 0) {
+    if (
+      this.activeProcessing < this.MAX_CONCURRENT_PROCESSING &&
+      this.processingQueue.length > 0
+    ) {
       const nextTask = this.processingQueue.shift();
       if (nextTask) {
         this.processQueuedEvent(nextTask);
@@ -97,15 +105,17 @@ export class FirehoseClient {
     } else {
       // Add backpressure: limit queue size to prevent memory exhaustion
       const MAX_QUEUE_SIZE = 10000;
-      
+
       if (this.processingQueue.length >= MAX_QUEUE_SIZE) {
         // Queue is full - log warning and drop oldest events to prevent memory exhaustion
-        console.warn(`[FIREHOSE] Processing queue full (${this.processingQueue.length}), dropping old events to prevent OOM`);
+        console.warn(
+          `[FIREHOSE] Processing queue full (${this.processingQueue.length}), dropping old events to prevent OOM`
+        );
         metricsService.incrementError();
         // Drop oldest 20% of queued events
         this.processingQueue.splice(0, Math.floor(MAX_QUEUE_SIZE * 0.2));
       }
-      
+
       this.processingQueue.push(task);
     }
   }
@@ -129,21 +139,21 @@ export class FirehoseClient {
     }
 
     // Store in Redis for cluster-wide visibility (non-blocking)
-    redisQueue.setRecentEvents(this.recentEvents).catch(err => {
-      console.error("[FIREHOSE] Error storing events in Redis:", err);
+    redisQueue.setRecentEvents(this.recentEvents).catch((err) => {
+      console.error('[FIREHOSE] Error storing events in Redis:', err);
     });
 
     // Publish to Redis for cluster-wide broadcasting
-    redisQueue.publishEvent(event).catch(err => {
-      console.error("[FIREHOSE] Error publishing event to Redis:", err);
+    redisQueue.publishEvent(event).catch((err) => {
+      console.error('[FIREHOSE] Error publishing event to Redis:', err);
     });
 
     // Also call local callbacks
-    this.eventCallbacks.forEach(callback => {
+    this.eventCallbacks.forEach((callback) => {
       try {
         callback(event);
       } catch (error) {
-        console.error("[FIREHOSE] Error in event callback:", error);
+        console.error('[FIREHOSE] Error in event callback:', error);
       }
     });
   }
@@ -156,29 +166,31 @@ export class FirehoseClient {
         url: this.url,
         currentCursor: this.currentCursor,
       });
-      console.log(`[FIREHOSE] Status updated in Redis: connected=${this.isConnected}`);
+      console.log(
+        `[FIREHOSE] Status updated in Redis: connected=${this.isConnected}`
+      );
     } catch (err) {
-      console.error("[FIREHOSE] Error storing status in Redis:", err);
+      console.error('[FIREHOSE] Error storing status in Redis:', err);
     }
   }
 
   private saveCursor(cursor: string) {
     // Update current cursor in memory immediately
     this.currentCursor = cursor;
-    
+
     // Save to database periodically (every 5 seconds) to avoid excessive writes
     const now = Date.now();
     if (now - this.lastCursorSave > this.CURSOR_SAVE_INTERVAL) {
       this.lastCursorSave = now;
-      
+
       // Queue cursor save through concurrency system to prevent timeout
       // Don't await - let it run in background without blocking event processing
       this.queueEventProcessing(async () => {
         try {
-          const { storage } = await import("../storage");
-          await storage.saveFirehoseCursor("firehose", cursor, new Date());
+          const { storage } = await import('../storage');
+          await storage.saveFirehoseCursor('firehose', cursor, new Date());
         } catch (error) {
-          console.error("[FIREHOSE] Error saving cursor:", error);
+          console.error('[FIREHOSE] Error saving cursor:', error);
         }
       });
     }
@@ -188,83 +200,95 @@ export class FirehoseClient {
     // Store worker info for event distribution
     this.workerId = workerId;
     this.totalWorkers = totalWorkers;
-    
+
     // Close existing client before creating new one to prevent memory leaks
     if (this.client) {
       try {
         this.client.close();
       } catch (error) {
-        console.error("[FIREHOSE] Error closing existing client:", error);
+        console.error('[FIREHOSE] Error closing existing client:', error);
       }
       this.client = null;
     }
-    
+
     // Load saved cursor for restart recovery (only worker 0 manages cursor)
     if (workerId === 0) {
       try {
-        const { storage } = await import("../storage");
-        const savedCursor = await storage.getFirehoseCursor("firehose");
+        const { storage } = await import('../storage');
+        const savedCursor = await storage.getFirehoseCursor('firehose');
         if (savedCursor && savedCursor.cursor) {
           this.currentCursor = savedCursor.cursor;
-          console.log(`[FIREHOSE] Worker ${workerId} - Resuming from saved cursor: ${this.currentCursor.slice(0, 20)}...`);
-          logCollector.info(`Worker ${workerId} - Resuming firehose from cursor: ${this.currentCursor.slice(0, 20)}...`);
+          console.log(
+            `[FIREHOSE] Worker ${workerId} - Resuming from saved cursor: ${this.currentCursor.slice(0, 20)}...`
+          );
+          logCollector.info(
+            `Worker ${workerId} - Resuming firehose from cursor: ${this.currentCursor.slice(0, 20)}...`
+          );
         } else {
-          console.log(`[FIREHOSE] Worker ${workerId} - No saved cursor found, starting from now`);
-          logCollector.info(`Worker ${workerId} - No saved cursor - starting from current position`);
+          console.log(
+            `[FIREHOSE] Worker ${workerId} - No saved cursor found, starting from now`
+          );
+          logCollector.info(
+            `Worker ${workerId} - No saved cursor - starting from current position`
+          );
         }
       } catch (error) {
-        console.error("[FIREHOSE] Error loading cursor:", error);
-        logCollector.error("Failed to load firehose cursor", { error });
+        console.error('[FIREHOSE] Error loading cursor:', error);
+        logCollector.error('Failed to load firehose cursor', { error });
       }
     }
-    
-    console.log(`[FIREHOSE] Worker ${workerId}/${totalWorkers} - Connecting to ${this.url}...`);
-    logCollector.info(`Worker ${workerId}/${totalWorkers} - Connecting to firehose at ${this.url}`);
-    
+
+    console.log(
+      `[FIREHOSE] Worker ${workerId}/${totalWorkers} - Connecting to ${this.url}...`
+    );
+    logCollector.info(
+      `Worker ${workerId}/${totalWorkers} - Connecting to firehose at ${this.url}`
+    );
+
     try {
       // Configure options for Firehose constructor
       const options: any = {
-        relay: this.url
+        relay: this.url,
       };
-      
+
       // Resume from saved cursor if available
       if (this.currentCursor) {
         options.cursor = this.currentCursor;
       }
-      
+
       // WebSocket is now available globally, so library will detect it automatically
       this.client = new Firehose(options);
 
-      this.client.on("open", () => {
-        console.log("[FIREHOSE] Connected to relay");
+      this.client.on('open', () => {
+        console.log('[FIREHOSE] Connected to relay');
         logCollector.success(`Firehose connected to ${this.url}`);
         this.isConnected = true;
         this.reconnectDelay = 1000;
-        metricsService.updateFirehoseStatus("connected");
-        
+        metricsService.updateFirehoseStatus('connected');
+
         // Reset stall detection timer on new connection
         this.lastEventTime = Date.now();
         this.lastPongTime = Date.now();
-        
+
         // Start WebSocket ping/pong keepalive (prevents zombie connections)
         this.startWebSocketKeepalive();
-        
+
         // Update status immediately and start heartbeat
         this.updateRedisStatus();
         this.startStatusHeartbeat();
       });
 
-      this.client.on("commit", async (commit) => {
+      this.client.on('commit', async (commit) => {
         // Update last event time for stall detection
         this.lastEventTime = Date.now();
-        
-        metricsService.incrementEvent("#commit");
-        
+
+        metricsService.incrementEvent('#commit');
+
         // Save cursor for restart recovery (only worker 0)
         if (commit.seq && this.workerId === 0) {
           this.saveCursor(String(commit.seq));
         }
-        
+
         const event = {
           repo: commit.repo,
           ops: commit.ops.map((op) => {
@@ -272,139 +296,139 @@ export class FirehoseClient {
               action: op.action,
               path: op.path,
             };
-            
+
             if (op.action !== 'delete' && 'cid' in op) {
-              baseOp.cid = op.cid?.toString() || "";
+              baseOp.cid = op.cid?.toString() || '';
             }
             if (op.action !== 'delete' && 'record' in op) {
               baseOp.record = op.record;
             }
-            
+
             return baseOp;
           }),
         };
-        
+
         // Broadcast to WebSocket clients (synchronous, non-blocking)
         const firstOp = commit.ops[0];
         if (firstOp) {
           const lexicon = firstOp.path.split('/')[0];
           this.broadcastEvent({
-            type: "#commit",
+            type: '#commit',
             lexicon: lexicon,
             did: commit.repo,
             action: firstOp.action,
             timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
           });
         }
-        
+
         // Push to Redis queue for distributed processing
         try {
           await redisQueue.push({
-            type: "commit",
+            type: 'commit',
             data: event,
             seq: commit.seq ? String(commit.seq) : undefined,
           });
         } catch (error) {
-          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          console.error('[FIREHOSE] Error pushing to Redis:', error);
           metricsService.incrementError();
         }
       });
 
-      this.client.on("identity", async (identity) => {
+      this.client.on('identity', async (identity) => {
         // Update last event time for stall detection
         this.lastEventTime = Date.now();
-        
-        metricsService.incrementEvent("#identity");
-        
+
+        metricsService.incrementEvent('#identity');
+
         // Broadcast to WebSocket clients
         this.broadcastEvent({
-          type: "#identity",
-          lexicon: "com.atproto.identity",
+          type: '#identity',
+          lexicon: 'com.atproto.identity',
           did: identity.did,
-          action: identity.handle ? `→ ${identity.handle}` : "update",
+          action: identity.handle ? `→ ${identity.handle}` : 'update',
           timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
         });
-        
+
         // Push to Redis queue for distributed processing
         try {
           await redisQueue.push({
-            type: "identity",
+            type: 'identity',
             data: {
               did: identity.did,
               handle: identity.handle || identity.did,
             },
           });
         } catch (error) {
-          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          console.error('[FIREHOSE] Error pushing to Redis:', error);
           metricsService.incrementError();
         }
       });
 
-      this.client.on("account", async (account) => {
+      this.client.on('account', async (account) => {
         // Update last event time for stall detection
         this.lastEventTime = Date.now();
-        
-        metricsService.incrementEvent("#account");
-        
+
+        metricsService.incrementEvent('#account');
+
         // Broadcast to WebSocket clients
         this.broadcastEvent({
-          type: "#account",
-          lexicon: "com.atproto.account",
+          type: '#account',
+          lexicon: 'com.atproto.account',
           did: account.did,
-          action: account.active ? "active" : "inactive",
+          action: account.active ? 'active' : 'inactive',
           timestamp: new Date().toISOString().split('T')[1].slice(0, 8),
         });
-        
+
         // Push to Redis queue for distributed processing
         try {
           await redisQueue.push({
-            type: "account",
+            type: 'account',
             data: {
               did: account.did,
               active: account.active,
             },
           });
         } catch (error) {
-          console.error("[FIREHOSE] Error pushing to Redis:", error);
+          console.error('[FIREHOSE] Error pushing to Redis:', error);
           metricsService.incrementError();
         }
       });
 
-      this.client.on("error", ({ cursor, error }) => {
-        console.error("[FIREHOSE] WebSocket error:", error);
-        
+      this.client.on('error', ({ cursor, error }) => {
+        console.error('[FIREHOSE] WebSocket error:', error);
+
         // Categorize errors for better monitoring
         const errorType = this.categorizeError(error);
-        logCollector.error(`Firehose ${errorType} error`, { 
+        logCollector.error(`Firehose ${errorType} error`, {
           error: error instanceof Error ? error.message : String(error),
           type: errorType,
           url: this.url,
-          cursor
+          cursor,
         });
-        
+
         this.isConnected = false;
-        metricsService.updateFirehoseStatus("error");
+        metricsService.updateFirehoseStatus('error');
         metricsService.incrementError();
-        
+
         // Stop heartbeat on error
         if (this.statusHeartbeat) {
           clearInterval(this.statusHeartbeat);
           this.statusHeartbeat = null;
         }
-        
+
         this.updateRedisStatus();
-        
+
         // Attempt reconnection for recoverable errors
-        if (errorType !== "fatal") {
+        if (errorType !== 'fatal') {
           this.reconnect();
         }
       });
 
       this.client.start();
     } catch (error) {
-      console.error("[FIREHOSE] Failed to create client:", error);
+      console.error('[FIREHOSE] Failed to create client:', error);
       this.isConnected = false;
-      metricsService.updateFirehoseStatus("error");
+      metricsService.updateFirehoseStatus('error');
       this.reconnect();
     }
   }
@@ -415,10 +439,13 @@ export class FirehoseClient {
     }
 
     console.log(`[FIREHOSE] Reconnecting in ${this.reconnectDelay}ms...`);
-    
+
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+      this.reconnectDelay = Math.min(
+        this.reconnectDelay * 2,
+        this.maxReconnectDelay
+      );
       this.connect(this.workerId, this.totalWorkers);
     }, this.reconnectDelay);
   }
@@ -429,12 +456,14 @@ export class FirehoseClient {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
-    
+
     // Access underlying WebSocket from @skyware/firehose (exposed as .ws property)
     const socket = (this.client as any)?.ws;
-    
+
     if (!socket || typeof socket.ping !== 'function') {
-      console.warn("[FIREHOSE] Cannot access WebSocket for keepalive - ws not available yet");
+      console.warn(
+        '[FIREHOSE] Cannot access WebSocket for keepalive - ws not available yet'
+      );
       // Try again in 1 second after connection is fully established
       setTimeout(() => {
         const retrySocket = (this.client as any)?.ws;
@@ -444,61 +473,72 @@ export class FirehoseClient {
       }, 1000);
       return;
     }
-    
+
     this.setupWebSocketPingPong(socket);
   }
-  
+
   private setupWebSocketPingPong(socket: any) {
-    console.log("[FIREHOSE] Setting up WebSocket keepalive (ping every 30s, timeout 45s)");
-    
+    console.log(
+      '[FIREHOSE] Setting up WebSocket keepalive (ping every 30s, timeout 45s)'
+    );
+
     // Listen for pong responses from the server
     socket.on('pong', () => {
       this.lastPongTime = Date.now();
     });
-    
+
     // Listen for unexpected close events (NAT timeout, TLS timeout, etc.)
     socket.on('unexpected-response', (req: any, res: any) => {
-      console.error(`[FIREHOSE] Unexpected response from relay: ${res.statusCode}`);
-      logCollector.error(`Firehose unexpected response: ${res.statusCode}`, { url: this.url });
+      console.error(
+        `[FIREHOSE] Unexpected response from relay: ${res.statusCode}`
+      );
+      logCollector.error(`Firehose unexpected response: ${res.statusCode}`, {
+        url: this.url,
+      });
       this.isConnected = false;
       this.reconnect();
     });
-    
+
     // Send ping frames every 30s and check for pong responses
     this.pingInterval = setInterval(() => {
       if (!this.isConnected || !socket || socket.readyState !== 1) {
         return;
       }
-      
+
       // Check if we received a pong recently
       const timeSinceLastPong = Date.now() - this.lastPongTime;
-      
+
       if (timeSinceLastPong > this.PONG_TIMEOUT) {
         // No pong received within timeout - connection is dead (zombie)
-        console.error(`[FIREHOSE] WebSocket zombie detected - no pong for ${Math.floor(timeSinceLastPong / 1000)}s, reconnecting...`);
-        logCollector.error(`WebSocket keepalive failed - terminating zombie connection`, { 
-          timeSinceLastPong: Math.floor(timeSinceLastPong / 1000) 
-        });
-        
+        console.error(
+          `[FIREHOSE] WebSocket zombie detected - no pong for ${Math.floor(timeSinceLastPong / 1000)}s, reconnecting...`
+        );
+        logCollector.error(
+          `WebSocket keepalive failed - terminating zombie connection`,
+          {
+            timeSinceLastPong: Math.floor(timeSinceLastPong / 1000),
+          }
+        );
+
         // Force terminate the dead socket
         this.isConnected = false;
         try {
           socket.terminate();
         } catch (error) {
-          console.error("[FIREHOSE] Error terminating socket:", error);
+          console.error('[FIREHOSE] Error terminating socket:', error);
         }
-        
+
         // Reconnect
         this.reconnect();
         return;
       }
-      
+
       // Send ping frame to keep connection alive
       try {
         socket.ping();
         // Ping sent successfully (no log to avoid clutter - only log issues)
       } catch (error) {
-        console.error("[FIREHOSE] Error sending ping:", error);
+        console.error('[FIREHOSE] Error sending ping:', error);
         this.isConnected = false;
         this.reconnect();
       }
@@ -510,33 +550,37 @@ export class FirehoseClient {
     if (this.statusHeartbeat) {
       clearInterval(this.statusHeartbeat);
     }
-    
+
     // Update status every 5 seconds to keep Redis key alive (10s TTL)
     // Also check for stalled connection (no events received)
     this.statusHeartbeat = setInterval(() => {
       if (this.isConnected) {
         this.updateRedisStatus();
-        
+
         // Detect stalled connection: no events for STALL_THRESHOLD
         const timeSinceLastEvent = Date.now() - this.lastEventTime;
         if (timeSinceLastEvent > this.STALL_THRESHOLD) {
-          console.warn(`[FIREHOSE] Connection stalled - no events for ${Math.floor(timeSinceLastEvent / 1000)}s, reconnecting...`);
-          logCollector.error(`Firehose stalled - no events for ${Math.floor(timeSinceLastEvent / 60000)} minutes, auto-reconnecting`);
-          
+          console.warn(
+            `[FIREHOSE] Connection stalled - no events for ${Math.floor(timeSinceLastEvent / 1000)}s, reconnecting...`
+          );
+          logCollector.error(
+            `Firehose stalled - no events for ${Math.floor(timeSinceLastEvent / 60000)} minutes, auto-reconnecting`
+          );
+
           // Force reconnection
           this.isConnected = false;
           if (this.client) {
             try {
               this.client.close();
             } catch (error) {
-              console.error("[FIREHOSE] Error closing stalled client:", error);
+              console.error('[FIREHOSE] Error closing stalled client:', error);
             }
             this.client = null;
           }
-          
+
           // Reset last event time to prevent immediate re-trigger
           this.lastEventTime = Date.now();
-          
+
           // Reconnect
           this.reconnect();
         }
@@ -554,7 +598,7 @@ export class FirehoseClient {
       clearInterval(this.statusHeartbeat);
       this.statusHeartbeat = null;
     }
-    
+
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
@@ -564,32 +608,35 @@ export class FirehoseClient {
       try {
         this.client.close();
       } catch (error) {
-        console.error("[FIREHOSE] Error during disconnect:", error);
+        console.error('[FIREHOSE] Error during disconnect:', error);
       }
       this.client = null;
     }
 
     this.isConnected = false;
-    metricsService.updateFirehoseStatus("disconnected");
+    metricsService.updateFirehoseStatus('disconnected');
     this.updateRedisStatus();
   }
 
   private categorizeError(error: any): string {
-    const message = error?.message?.toLowerCase() || "";
-    
-    if (message.includes("econnrefused") || message.includes("enotfound")) {
-      return "network";
-    } else if (message.includes("timeout")) {
-      return "timeout";
-    } else if (message.includes("authentication") || message.includes("unauthorized")) {
-      return "auth";
-    } else if (message.includes("rate limit")) {
-      return "rate-limit";
-    } else if (message.includes("protocol") || message.includes("parse")) {
-      return "protocol";
+    const message = error?.message?.toLowerCase() || '';
+
+    if (message.includes('econnrefused') || message.includes('enotfound')) {
+      return 'network';
+    } else if (message.includes('timeout')) {
+      return 'timeout';
+    } else if (
+      message.includes('authentication') ||
+      message.includes('unauthorized')
+    ) {
+      return 'auth';
+    } else if (message.includes('rate limit')) {
+      return 'rate-limit';
+    } else if (message.includes('protocol') || message.includes('parse')) {
+      return 'protocol';
     }
-    
-    return "unknown";
+
+    return 'unknown';
   }
 
   async getStatus() {
@@ -621,7 +668,7 @@ export class FirehoseClient {
         };
       }
     } catch (error) {
-      console.error("[FIREHOSE] Error reading status from Redis:", error);
+      console.error('[FIREHOSE] Error reading status from Redis:', error);
     }
 
     // Fallback to local disconnected state

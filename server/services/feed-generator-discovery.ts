@@ -1,19 +1,19 @@
 /**
  * Feed Generator Discovery Service
- * 
+ *
  * Fetches feed generators that were created before this AppView started indexing,
  * providing an alternative to full relay backfill for discovering generators.
- * 
+ *
  * Methods:
  * 1. Query official Bluesky AppView for popular/suggested feed generators
  * 2. Scan repositories of known users for app.bsky.feed.generator records
  * 3. Accept manual feed URIs for indexing
  */
 
-import { didResolver } from "./did-resolver";
-import { eventProcessor } from "./event-processor";
-import { smartConsole } from "./console-wrapper";
-import { storage } from "../storage";
+import { didResolver } from './did-resolver';
+import { eventProcessor } from './event-processor';
+import { smartConsole } from './console-wrapper';
+import { storage } from '../storage';
 
 interface FeedGeneratorRecord {
   uri: string;
@@ -40,7 +40,7 @@ export class FeedGeneratorDiscovery {
     failed: 0,
     skipped: 0,
   };
-  
+
   // Track when we last scanned each user to avoid duplicate scans
   private lastScanned = new Map<string, number>();
   private readonly SCAN_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -52,10 +52,15 @@ export class FeedGeneratorDiscovery {
   async getKnownFeedGeneratorCreators(): Promise<string[]> {
     try {
       const creators = await storage.getDistinctFeedGeneratorCreators();
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${creators.length} known feed generator creators in database`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Found ${creators.length} known feed generator creators in database`
+      );
       return creators;
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error getting known creators:`, error);
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error getting known creators:`,
+        error
+      );
       return [];
     }
   }
@@ -64,14 +69,20 @@ export class FeedGeneratorDiscovery {
    * Discover feed generators by listing records from a specific user's repository
    * Uses com.atproto.repo.listRecords to enumerate all app.bsky.feed.generator records
    */
-  async discoverFromUserRepository(did: string): Promise<FeedGeneratorRecord[]> {
+  async discoverFromUserRepository(
+    did: string
+  ): Promise<FeedGeneratorRecord[]> {
     try {
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning repository ${did} for feed generators...`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Scanning repository ${did} for feed generators...`
+      );
 
       // Resolve the user's PDS endpoint
       const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
       if (!pdsEndpoint) {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`);
+        smartConsole.warn(
+          `[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`
+        );
         return [];
       }
 
@@ -89,17 +100,19 @@ export class FeedGeneratorDiscovery {
         }
 
         const response = await fetch(url.toString(), {
-          headers: { 'Accept': 'application/json' },
+          headers: { Accept: 'application/json' },
           signal: AbortSignal.timeout(10000),
         });
 
         if (!response.ok) {
-          smartConsole.warn(`[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${did}`);
+          smartConsole.warn(
+            `[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${did}`
+          );
           break;
         }
 
         const data = await response.json();
-        
+
         if (data.records && Array.isArray(data.records)) {
           for (const record of data.records) {
             feedGenerators.push({
@@ -117,10 +130,15 @@ export class FeedGeneratorDiscovery {
         cursor = data.cursor;
       } while (cursor);
 
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Found ${feedGenerators.length} feed generators from ${did}`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Found ${feedGenerators.length} feed generators from ${did}`
+      );
       return feedGenerators;
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error discovering from user ${did}:`, error);
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error discovering from user ${did}:`,
+        error
+      );
       return [];
     }
   }
@@ -128,12 +146,16 @@ export class FeedGeneratorDiscovery {
   /**
    * Fetch a specific feed generator by its AT URI
    */
-  async fetchFeedGeneratorByUri(uri: string): Promise<FeedGeneratorRecord | null> {
+  async fetchFeedGeneratorByUri(
+    uri: string
+  ): Promise<FeedGeneratorRecord | null> {
     try {
       // Parse the URI: at://did:plc:xxx/app.bsky.feed.generator/rkey
       const parts = uri.split('/');
       if (parts.length < 5) {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] Invalid feed generator URI: ${uri}`);
+        smartConsole.warn(
+          `[FEEDGEN_DISCOVERY] Invalid feed generator URI: ${uri}`
+        );
         return null;
       }
 
@@ -142,32 +164,38 @@ export class FeedGeneratorDiscovery {
       const rkey = parts[4];
 
       if (collection !== 'app.bsky.feed.generator') {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] URI is not a feed generator: ${uri}`);
+        smartConsole.warn(
+          `[FEEDGEN_DISCOVERY] URI is not a feed generator: ${uri}`
+        );
         return null;
       }
 
       // Resolve the PDS endpoint
       const pdsEndpoint = await didResolver.resolveDIDToPDS(did);
       if (!pdsEndpoint) {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`);
+        smartConsole.warn(
+          `[FEEDGEN_DISCOVERY] Could not resolve PDS for ${did}`
+        );
         return null;
       }
 
       // Fetch the record
       const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`;
-      
+
       const response = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
-        smartConsole.warn(`[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${uri}`);
+        smartConsole.warn(
+          `[FEEDGEN_DISCOVERY] PDS returned ${response.status} for ${uri}`
+        );
         return null;
       }
 
       const data = await response.json();
-      
+
       if (data.uri && data.cid && data.value) {
         return {
           uri: data.uri,
@@ -182,7 +210,10 @@ export class FeedGeneratorDiscovery {
 
       return null;
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error fetching feed generator ${uri}:`, error);
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error fetching feed generator ${uri}:`,
+        error
+      );
       return null;
     }
   }
@@ -190,12 +221,16 @@ export class FeedGeneratorDiscovery {
   /**
    * Index a feed generator into the database
    */
-  private async indexFeedGenerator(feedGen: FeedGeneratorRecord): Promise<boolean> {
+  private async indexFeedGenerator(
+    feedGen: FeedGeneratorRecord
+  ): Promise<boolean> {
     try {
       // Check if it already exists
       const existing = await storage.getFeedGenerator(feedGen.uri);
       if (existing) {
-        smartConsole.log(`[FEEDGEN_DISCOVERY] Feed generator already indexed: ${feedGen.uri}`);
+        smartConsole.log(
+          `[FEEDGEN_DISCOVERY] Feed generator already indexed: ${feedGen.uri}`
+        );
         this.stats.skipped++;
         return true;
       }
@@ -205,25 +240,25 @@ export class FeedGeneratorDiscovery {
       const creatorDid = parts[2];
 
       // Process the feed generator through the event processor
-      await eventProcessor.processRecord(
-        feedGen.uri,
-        feedGen.cid,
-        creatorDid,
-        {
-          $type: 'app.bsky.feed.generator',
-          did: feedGen.did,
-          displayName: feedGen.displayName,
-          description: feedGen.description,
-          avatar: feedGen.avatar,
-          createdAt: feedGen.createdAt,
-        }
-      );
+      await eventProcessor.processRecord(feedGen.uri, feedGen.cid, creatorDid, {
+        $type: 'app.bsky.feed.generator',
+        did: feedGen.did,
+        displayName: feedGen.displayName,
+        description: feedGen.description,
+        avatar: feedGen.avatar,
+        createdAt: feedGen.createdAt,
+      });
 
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Indexed feed generator: ${feedGen.uri} (${feedGen.displayName})`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Indexed feed generator: ${feedGen.uri} (${feedGen.displayName})`
+      );
       this.stats.indexed++;
       return true;
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error indexing feed generator ${feedGen.uri}:`, error);
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error indexing feed generator ${feedGen.uri}:`,
+        error
+      );
       this.stats.failed++;
       return false;
     }
@@ -232,13 +267,15 @@ export class FeedGeneratorDiscovery {
   /**
    * Run discovery from multiple sources
    */
-  async runDiscovery(options: {
-    fromKnownCreators?: boolean;
-    fromSpecificUsers?: string[];
-    specificUris?: string[];
-  } = {}): Promise<DiscoveryStats> {
+  async runDiscovery(
+    options: {
+      fromKnownCreators?: boolean;
+      fromSpecificUsers?: string[];
+      specificUris?: string[];
+    } = {}
+  ): Promise<DiscoveryStats> {
     if (this.isRunning) {
-      throw new Error("Discovery is already running");
+      throw new Error('Discovery is already running');
     }
 
     this.isRunning = true;
@@ -250,7 +287,9 @@ export class FeedGeneratorDiscovery {
     };
 
     try {
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Starting feed generator discovery...`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Starting feed generator discovery...`
+      );
 
       const allFeedGenerators: FeedGeneratorRecord[] = [];
 
@@ -258,8 +297,10 @@ export class FeedGeneratorDiscovery {
       // This refreshes their feeds to catch any new ones they've published
       if (options.fromKnownCreators) {
         const knownCreators = await this.getKnownFeedGeneratorCreators();
-        smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning ${knownCreators.length} known creators for new feeds...`);
-        
+        smartConsole.log(
+          `[FEEDGEN_DISCOVERY] Scanning ${knownCreators.length} known creators for new feeds...`
+        );
+
         for (const did of knownCreators) {
           const userFeeds = await this.discoverFromUserRepository(did);
           allFeedGenerators.push(...userFeeds);
@@ -268,8 +309,10 @@ export class FeedGeneratorDiscovery {
 
       // Discover from specific users' repositories (e.g., curated list of popular feed creators)
       if (options.fromSpecificUsers && options.fromSpecificUsers.length > 0) {
-        smartConsole.log(`[FEEDGEN_DISCOVERY] Scanning ${options.fromSpecificUsers.length} specific users...`);
-        
+        smartConsole.log(
+          `[FEEDGEN_DISCOVERY] Scanning ${options.fromSpecificUsers.length} specific users...`
+        );
+
         for (const did of options.fromSpecificUsers) {
           const userFeeds = await this.discoverFromUserRepository(did);
           allFeedGenerators.push(...userFeeds);
@@ -278,8 +321,10 @@ export class FeedGeneratorDiscovery {
 
       // Fetch specific feed URIs directly
       if (options.specificUris && options.specificUris.length > 0) {
-        smartConsole.log(`[FEEDGEN_DISCOVERY] Fetching ${options.specificUris.length} specific feed URIs...`);
-        
+        smartConsole.log(
+          `[FEEDGEN_DISCOVERY] Fetching ${options.specificUris.length} specific feed URIs...`
+        );
+
         for (const uri of options.specificUris) {
           const feedGen = await this.fetchFeedGeneratorByUri(uri);
           if (feedGen) {
@@ -289,7 +334,9 @@ export class FeedGeneratorDiscovery {
       }
 
       this.stats.discovered = allFeedGenerators.length;
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Discovered ${this.stats.discovered} feed generators total`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Discovered ${this.stats.discovered} feed generators total`
+      );
 
       // Index all discovered feed generators
       for (const feedGen of allFeedGenerators) {
@@ -336,21 +383,28 @@ export class FeedGeneratorDiscovery {
       // Mark as scanned
       this.lastScanned.set(creatorDid, Date.now());
 
-      smartConsole.log(`[FEEDGEN_DISCOVERY] Auto-discovering feeds from creator: ${creatorDid}`);
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Auto-discovering feeds from creator: ${creatorDid}`
+      );
 
       // Discover all feeds from this creator in the background
       const feeds = await this.discoverFromUserRepository(creatorDid);
-      
+
       // Index each discovered feed
       for (const feed of feeds) {
         await this.indexFeedGenerator(feed);
       }
 
       if (feeds.length > 0) {
-        smartConsole.log(`[FEEDGEN_DISCOVERY] Auto-discovered ${feeds.length} feeds from ${creatorDid}`);
+        smartConsole.log(
+          `[FEEDGEN_DISCOVERY] Auto-discovered ${feeds.length} feeds from ${creatorDid}`
+        );
       }
     } catch (error) {
-      smartConsole.error(`[FEEDGEN_DISCOVERY] Error auto-discovering from ${creatorDid}:`, error);
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error auto-discovering from ${creatorDid}:`,
+        error
+      );
     }
   }
 

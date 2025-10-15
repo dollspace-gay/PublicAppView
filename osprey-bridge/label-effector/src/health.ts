@@ -36,7 +36,10 @@ export class HealthServer {
     this.server = http.createServer(this.handleRequest.bind(this));
   }
 
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  private handleRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): void {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -51,23 +54,26 @@ export class HealthServer {
     if (req.url === '/health' || req.url === '/') {
       try {
         const status = this.getStatus();
-        
+
         const httpStatus = status.status === 'healthy' ? 200 : 503;
-        
+
         res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(status, null, 2));
       } catch (error) {
         console.error('[HEALTH] Error generating status:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: 'unhealthy',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        }));
+        res.end(
+          JSON.stringify({
+            status: 'unhealthy',
+            error: error instanceof Error ? error.message : 'Unknown error',
+          })
+        );
       }
     } else if (req.url === '/ready') {
       // Kubernetes-style readiness probe
       const status = this.getStatus();
-      const httpStatus = status.kafka.connected && status.database.connected ? 200 : 503;
+      const httpStatus =
+        status.kafka.connected && status.database.connected ? 200 : 503;
       res.writeHead(httpStatus, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ready: httpStatus === 200 }));
     } else {
@@ -78,7 +84,9 @@ export class HealthServer {
 
   start(): void {
     this.server.listen(this.port, '0.0.0.0', () => {
-      console.log(`[HEALTH] Health server listening on http://0.0.0.0:${this.port}`);
+      console.log(
+        `[HEALTH] Health server listening on http://0.0.0.0:${this.port}`
+      );
       console.log(`[HEALTH] Endpoints: /health, /ready`);
     });
   }
