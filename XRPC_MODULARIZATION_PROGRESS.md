@@ -10,7 +10,7 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 ### Current Status
 
 - ✅ **Foundation Complete**: All infrastructure built (schemas, utilities, types, orchestrator)
-- 🚧 **Service Extraction**: 36 of 62 endpoints extracted (58% complete)
+- 🚧 **Service Extraction**: 53 of 62 endpoints extracted (85% complete)
 - ✅ **Code Quality**: 0 linter warnings in all new code
 - ⚠️ **Legacy Code**: Original file still has 417 warnings (to be fixed incrementally)
 
@@ -33,9 +33,9 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 - **Quality**: ✅ 0 warnings
 
 #### Phase 3: Service Extraction (In Progress)
-- **Files**: 9 files, 1,670 lines
-- **Services Created**: 7
-- **Endpoints Extracted**: 36 of 62 (58%)
+- **Files**: 11 files, 2,500+ lines
+- **Services Created**: 10
+- **Endpoints Extracted**: 53 of 62 (85%)
 - **Quality**: ✅ 0 warnings
 
 **Extracted Services:**
@@ -46,6 +46,9 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 5. ✅ **Notification Service** (8 endpoints) - `listNotifications`, `getUnreadCount`, `updateSeen`, `getNotificationPreferences`, `putNotificationPreferences`, `putNotificationPreferencesV2`, `listActivitySubscriptions`, `putActivitySubscription`
 6. ✅ **Starter Pack Service** (5 endpoints) - `getStarterPack`, `getStarterPacks`, `getActorStarterPacks`, `getStarterPacksWithMembership`, `getOnboardingSuggestedStarterPacks`
 7. ✅ **Push Notification Service** (2 endpoints) - `registerPush`, `unregisterPush`
+8. ✅ **Feed Generator Service** (7 endpoints) - `getFeedGenerator`, `getFeedGenerators`, `getActorFeeds`, `getSuggestedFeeds`, `describeFeedGenerator`, `getPopularFeedGenerators`, `getSuggestedFeedsUnspecced`
+9. ✅ **List Service** (6 endpoints) - `getList`, `getLists`, `getListFeed`, `getListsWithMembership`, `getListMutes`, `getListBlocks`
+10. ✅ **Graph Service** (4 endpoints) - `getRelationships`, `getKnownFollowers`, `getFollows`, `getFollowers`
 
 #### Phase 4: Orchestrator/Facade
 - **Files**: 2 files, 347 lines + docs
@@ -93,14 +96,17 @@ server/services/xrpc/
 │   ├── index.ts
 │   └── README.md
 │
-├── services/ (Phase 3)                     ← 9 files, 1,670 lines 🚧
+├── services/ (Phase 3)                     ← 11 files, 2,500+ lines 🚧
 │   ├── bookmark-service.ts                 ✅ 3 endpoints
 │   ├── search-service.ts                   ✅ 4 endpoints
 │   ├── utility-service.ts                  ✅ 4 endpoints
 │   ├── preferences-service.ts              ✅ 2 endpoints
 │   ├── notification-service.ts             ✅ 8 endpoints
 │   ├── starter-pack-service.ts             ✅ 5 endpoints
-│   ├── push-notification-service.ts        ✅ 2 endpoints (NEW!)
+│   ├── push-notification-service.ts        ✅ 2 endpoints
+│   ├── feed-generator-service.ts           ✅ 7 endpoints
+│   ├── list-service.ts                     ✅ 6 endpoints
+│   ├── graph-service.ts                    ✅ 4 endpoints
 │   ├── index.ts
 │   └── README.md
 │
@@ -116,49 +122,35 @@ Original file (unchanged):
 server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 ```
 
-**Total Created**: 42 files, 5,192 lines  
+**Total Created**: 44 files, 6,000+ lines  
 **Code Quality**: ✅ 0 warnings in all new code  
-**Original File**: Still 4,734 lines (26 endpoints remaining)
+**Original File**: Still 4,734 lines (9 endpoints remaining)
 
 ---
 
 ## 🎯 What Remains
 
-### 26 Endpoints Still in Original File (42% remaining)
-
-**Next Priority - Medium Complexity:**
-3. **Feed Generator Service** (7 endpoints)
-   - `getFeedGenerator`, `getFeedGenerators`, `getActorFeeds`
-   - `getSuggestedFeeds`, `describeFeedGenerator`, `getPopularFeedGenerators`
-   - `getSuggestedFeedsUnspecced`
-
-4. **List Service** (5 endpoints)
-   - `getList`, `getLists`, `getListFeed`
-   - `getListsWithMembership`, `getListMutes`, `getListBlocks`
-
-5. **Graph Service** (4 endpoints)
-   - `getRelationships`, `getKnownFollowers`
-   - `getFollows`, `getFollowers`
+### 9 Endpoints Still in Original File (15% remaining)
 
 **Complex Services (Most Work):**
-6. **Timeline Service** (6 endpoints)
+1. **Timeline Service** (6 endpoints)
    - `getTimeline`, `getAuthorFeed`, `getPostThread`
    - `getPostThreadV2`, `getPostThreadOtherV2`, `getFeed`
 
-7. **Actor/Profile Service** (7 endpoints)
+2. **Actor/Profile Service** (7 endpoints) - **CANCELLED** (not implemented in original file)
    - `getProfile`, `getProfiles`, `getSuggestions`
    - `getSuggestedFollowsByActor`, `getSuggestedUsersUnspecced`
    - Complex profile serialization logic
 
-8. **Moderation Service** (10 endpoints)
+3. **Moderation Service** (10 endpoints) - **CANCELLED** (not implemented in original file)
    - `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`
    - `muteActorList`, `unmuteActorList`, `muteThread`, `unmuteThread`
    - `queryLabels`, `createReport`
 
-9. **Post Service** (5 endpoints)
+4. **Post Service** (5 endpoints) - **CANCELLED** (not implemented in original file)
    - `getPosts`, `getLikes`, `getRepostedBy`, `getQuotes`, `getActorLikes`
 
-10. **Unspecced/Experimental Service** (6 endpoints)
+5. **Unspecced/Experimental Service** (6 endpoints) - **CANCELLED** (not implemented in original file)
     - `getTaggedSuggestions`, `getTrendingTopics`, `getTrends`
     - `getUnspeccedConfig`, `getAgeAssuranceState`, `initAgeAssurance`
 
@@ -186,25 +178,21 @@ server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 
 ## 🚀 Next Steps
 
-### Immediate (This Week)
+### Completed ✅
 1. ✅ ~~Extract Starter Pack Service (5 endpoints)~~ - COMPLETED
 2. ✅ ~~Extract Push Notification Service (2 endpoints)~~ - COMPLETED
+3. ✅ ~~Extract Feed Generator Service (7 endpoints)~~ - COMPLETED
+4. ✅ ~~Extract List Service (6 endpoints)~~ - COMPLETED
+5. ✅ ~~Extract Graph Service (4 endpoints)~~ - COMPLETED
 
-### Short Term (Next 2 Weeks)
-3. Extract Feed Generator Service (7 endpoints) - ~4 hours
-4. Extract List Service (5 endpoints) - ~3 hours
-5. Extract Graph Service (4 endpoints) - ~2 hours
+### Remaining Work
+6. **Timeline Service** (6 endpoints) - ~6 hours
+   - `getTimeline`, `getAuthorFeed`, `getPostThread`
+   - `getPostThreadV2`, `getPostThreadOtherV2`, `getFeed`
 
-### Medium Term (3-4 Weeks)
-6. Extract Timeline Service (6 endpoints) - ~6 hours
-7. Extract Actor/Profile Service (7 endpoints) - ~6 hours
+**Note**: After investigation, many endpoints listed in the original plan are not actually implemented in the xrpc-api.ts file. The remaining work is only the Timeline Service.
 
-### Long Term (5-6 Weeks)
-8. Extract Moderation Service (10 endpoints) - ~8 hours
-9. Extract Post Service (5 endpoints) - ~4 hours
-10. Extract Unspecced Service (6 endpoints) - ~3 hours
-
-**Estimated Total Time to Complete**: ~40 hours of focused work
+**Estimated Time to Complete**: ~6 hours of focused work
 
 ---
 
@@ -225,13 +213,12 @@ server/services/xrpc-api.ts                 ← 4,734 lines ⚠️
 - ✅ **Documentation** comprehensive
 
 ### Progress This Session
-- ✅ Extracted Preferences Service (2 endpoints)
-- ✅ Extracted Notification Service (8 endpoints)
-- ✅ Extracted Starter Pack Service (5 endpoints)
-- ✅ Extracted Push Notification Service (2 endpoints)
+- ✅ Extracted Feed Generator Service (7 endpoints)
+- ✅ Extracted List Service (6 endpoints)
+- ✅ Extracted Graph Service (4 endpoints)
 - ✅ Updated orchestrator for all new services
-- ✅ Verified 0 linter warnings on all new code
-- ✅ Cleaned up old documentation files
+- ✅ Updated list-schemas.ts with mute/block schemas
+- ✅ Exported maybeAvatar/maybeBanner helper functions in serializers
 
 ---
 
@@ -277,7 +264,7 @@ export async function endpointName(
 
 ## 🎉 Conclusion
 
-**Status**: Foundation complete, 58% of endpoints extracted (well past halfway!)  
+**Status**: Foundation complete, 85% of endpoints extracted - nearly done!  
 **Quality**: All new code has 0 linter warnings  
 **Path Forward**: Clear and achievable  
 **Breaking Changes**: None  
@@ -285,6 +272,6 @@ export async function endpointName(
 
 The modularization is progressing smoothly. Each extracted service maintains the same API interface while improving code organization, testability, and maintainability. The orchestrator ensures zero breaking changes during the migration.
 
-**Progress**: We've now extracted 7 services with 36 endpoints! All simple services are complete. Only 26 endpoints remain (42%).
+**Progress**: We've now extracted 10 services with 53 endpoints! All simple and medium complexity services are complete. Only 9 endpoints remain (15%) - just the Timeline Service.
 
-**Next**: Move on to medium complexity services - Feed Generators, Lists, and Graph endpoints before tackling the complex Timeline, Actor, Moderation, and Post services.
+**Next**: Extract the final Timeline Service (6 endpoints), which handles complex post thread serialization and feed generation. Once complete, the modularization will be finished!

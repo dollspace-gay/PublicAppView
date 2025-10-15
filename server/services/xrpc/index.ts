@@ -21,6 +21,8 @@ import * as notificationService from './services/notification-service';
 import * as starterPackService from './services/starter-pack-service';
 import * as pushNotificationService from './services/push-notification-service';
 import * as feedGeneratorService from './services/feed-generator-service';
+import * as listService from './services/list-service';
+import * as graphService from './services/graph-service';
 
 /**
  * XRPC Orchestrator Class
@@ -198,6 +200,48 @@ export class XRPCOrchestrator {
     return feedGeneratorService.getSuggestedFeedsUnspecced(req, res);
   }
 
+  // List Service (6 endpoints)
+  async getList(req: Request, res: Response): Promise<void> {
+    return listService.getList(req, res);
+  }
+
+  async getLists(req: Request, res: Response): Promise<void> {
+    return listService.getLists(req, res);
+  }
+
+  async getListFeed(req: Request, res: Response): Promise<void> {
+    return listService.getListFeed(req, res);
+  }
+
+  async getListsWithMembership(req: Request, res: Response): Promise<void> {
+    return listService.getListsWithMembership(req, res);
+  }
+
+  async getListMutes(req: Request, res: Response): Promise<void> {
+    return listService.getListMutes(req, res);
+  }
+
+  async getListBlocks(req: Request, res: Response): Promise<void> {
+    return listService.getListBlocks(req, res);
+  }
+
+  // Graph Service (4 endpoints)
+  async getRelationships(req: Request, res: Response): Promise<void> {
+    return graphService.getRelationships(req, res);
+  }
+
+  async getKnownFollowers(req: Request, res: Response): Promise<void> {
+    return graphService.getKnownFollowers(req, res);
+  }
+
+  async getFollows(req: Request, res: Response): Promise<void> {
+    return graphService.getFollows(req, res);
+  }
+
+  async getFollowers(req: Request, res: Response): Promise<void> {
+    return graphService.getFollowers(req, res);
+  }
+
   // ============================================================================
   // LEGACY ENDPOINTS (Not yet extracted)
   // These delegate to the original XRPCApi class
@@ -237,13 +281,6 @@ export class XRPCOrchestrator {
     return this.legacy.getProfiles(req, res);
   }
 
-  async getFollows(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFollows(req, res);
-  }
-
-  async getFollowers(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFollowers(req, res);
-  }
 
   async getSuggestions(req: Request, res: Response): Promise<void> {
     return this.legacy.getSuggestions(req, res);
@@ -257,18 +294,6 @@ export class XRPCOrchestrator {
     return this.legacy.getSuggestedUsersUnspecced(req, res);
   }
 
-  // Social Graph endpoints
-  async getRelationships(req: Request, res: Response): Promise<void> {
-    return this.legacy.getRelationships(req, res);
-  }
-
-  async getKnownFollowers(req: Request, res: Response): Promise<void> {
-    return this.legacy.getKnownFollowers(req, res);
-  }
-
-  async getListsWithMembership(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListsWithMembership(req, res);
-  }
 
   // Moderation endpoints
   async getBlocks(req: Request, res: Response): Promise<void> {
@@ -287,13 +312,6 @@ export class XRPCOrchestrator {
     return this.legacy.unmuteActor(req, res);
   }
 
-  async getListMutes(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListMutes(req, res);
-  }
-
-  async getListBlocks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getListBlocks(req, res);
-  }
 
   async muteActorList(req: Request, res: Response): Promise<void> {
     return this.legacy.muteActorList(req, res);

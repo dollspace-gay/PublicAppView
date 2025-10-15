@@ -28,3 +28,13 @@ export const getListsWithMembershipSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
+
+export const getListMutesSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
+
+export const getListBlocksSchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});

@@ -63,3 +63,21 @@ export {
   getPopularFeedGenerators,
   getSuggestedFeedsUnspecced,
 } from './feed-generator-service';
+
+// List Service
+export {
+  getList,
+  getLists,
+  getListFeed,
+  getListsWithMembership,
+  getListMutes,
+  getListBlocks,
+} from './list-service';
+
+// Graph Service
+export {
+  getRelationships,
+  getKnownFollowers,
+  getFollows,
+  getFollowers,
+} from './graph-service';
