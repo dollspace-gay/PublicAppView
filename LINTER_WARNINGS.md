@@ -7,11 +7,11 @@
 ## Summary by Category
 
 ### Warning Types
-1. **`@typescript-eslint/no-explicit-any`**: 399 occurrences
+1. **`@typescript-eslint/no-explicit-any`**: 397 occurrences
    - Using `any` type instead of specific types
    - Reduces type safety
 
-2. **`@typescript-eslint/no-unused-vars`**: 81 occurrences
+2. **`@typescript-eslint/no-unused-vars`**: 93 occurrences
    - Variables, parameters, or imports defined but not used
    - Includes unused error variables in catch blocks
 
@@ -19,18 +19,11 @@
    - Files exporting both components and non-component values
    - Can break Fast Refresh in development
 
-4. **`react-hooks/exhaustive-deps`**: 11 occurrences
-   - Missing dependencies in React hooks dependency arrays
-   - Can lead to stale closures or missed updates
-
-5. **`no-useless-escape`**: 2 occurrences
+4. **`no-useless-escape`**: 3 occurrences
    - Unnecessary escape characters in strings/regex
 
-6. **`no-empty`**: 2 occurrences
+5. **`no-empty`**: 2 occurrences
    - Empty block statements
-
-7. **`prefer-const`**: 1 occurrence
-   - Variable should be declared with `const` instead of `let`
 
 ## Detailed Warnings by File
 
@@ -274,37 +267,29 @@
 
 ## Recommendations
 
-### Priority 1: Critical Issues
-1. **Fix React Hooks Dependencies** (11 warnings)
-   - Missing dependencies in useEffect/useCallback hooks can cause bugs
-   - Add missing dependencies or use ESLint disable comments with explanations
-
-### Priority 2: Code Quality
-1. **Replace `any` Types** (399 warnings)
+### Priority 1: Code Quality
+1. **Replace `any` Types** (397 warnings)
    - Define proper TypeScript interfaces and types
    - Consider using `unknown` for truly dynamic data
    - Use type guards for runtime type checking
 
-2. **Remove Unused Variables** (81 warnings)
+2. **Remove Unused Variables** (93 warnings)
    - Delete unused imports and variables
    - Prefix intentionally unused parameters with underscore (e.g., `_error`)
    - Consider if unused error variables should be logged
 
-### Priority 3: Developer Experience
+### Priority 2: Developer Experience
 1. **Fix Fast Refresh Issues** (6 warnings)
    - Split UI component files to separate component exports from utility exports
    - Create separate files for constants, variants, and helper functions
 
-### Priority 4: Minor Issues
-1. **Fix Escape Characters** (2 warnings)
+### Priority 3: Minor Issues
+1. **Fix Escape Characters** (3 warnings)
    - Remove unnecessary escape characters in regex/strings
 
 2. **Remove Empty Blocks** (2 warnings)
    - Add comments explaining why blocks are intentionally empty
    - Or remove empty catch/if blocks
-
-3. **Use `const` Instead of `let`** (1 warning)
-   - Change variable declarations to `const` where values aren't reassigned
 
 ## Files with Most Warnings
 
