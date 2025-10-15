@@ -1,31 +1,34 @@
 # ESLint Linter Warnings Report
 
 **Generated:** 2025-10-15  
-**Last Updated:** 2025-10-15 (After fixing trivial warnings)  
-**Total Warnings:** 422 ✅ (down from 432, -10 total)  
+**Last Updated:** 2025-10-15 (After fixing Fast Refresh warnings)  
+**Total Warnings:** 416 ✅ (down from 432, -16 total / 3.7% reduction)  
 **Total Errors:** 0
 
 ## Summary by Category
 
 ### Warning Types
-1. **`@typescript-eslint/no-explicit-any`**: 396 occurrences (93.8%)
+1. **`@typescript-eslint/no-explicit-any`**: 396 occurrences (95.2%)
    - Using `any` type instead of specific types
    - Reduces type safety and should be replaced with proper TypeScript interfaces
 
-2. **`react-refresh/only-export-components`**: 6 occurrences (1.4%)
-   - Files exporting both components and non-component values
-   - Can break Fast Refresh in development
-   - Affects UI component files in `client/src/components/ui/`
+2. **`@typescript-eslint/no-unused-vars`**: 20 occurrences (4.8%)
+   - Variables, parameters, or imports defined but not used
+   - Should be removed or prefixed with `_` if intentionally unused
 
-3. ✅ **`prettier/prettier`**: ~~5~~ **0 occurrences** - **ALL FIXED**
+3. ✅ **`react-refresh/only-export-components`**: ~~6~~ **0 occurrences** - **ALL FIXED**
+   - ~~Files exporting both components and non-component values~~
+   - ✅ **Fixed by extracting non-component exports to separate files**
+
+4. ✅ **`prettier/prettier`**: ~~5~~ **0 occurrences** - **ALL FIXED**
    - ~~Code formatting issues~~
    - ✅ **All automatically fixed with `npm run lint:fix`**
 
-4. ✅ **`no-useless-escape`**: ~~3~~ **0 occurrences** - **ALL FIXED**
+5. ✅ **`no-useless-escape`**: ~~3~~ **0 occurrences** - **ALL FIXED**
    - ~~Unnecessary escape characters in strings/regex~~
    - ✅ **Fixed manually in instance-moderation.ts and xrpc-api.ts**
 
-5. ✅ **`no-empty`**: ~~2~~ **0 occurrences** - **ALL FIXED**
+6. ✅ **`no-empty`**: ~~2~~ **0 occurrences** - **ALL FIXED**
    - ~~Empty block statements~~
    - ✅ **Fixed by adding explanatory comments in xrpc-api.ts**
 
@@ -33,29 +36,15 @@
 
 ### Client Components (UI)
 
-#### `/workspace/client/src/components/ui/badge.tsx`
-- **Line 36:17** - `react-refresh/only-export-components`
-  - Exports both components and non-component values (likely variants or utilities)
+✅ **All UI component warnings fixed** - No more `react-refresh/only-export-components` warnings!
 
-#### `/workspace/client/src/components/ui/button.tsx`
-- **Line 56:18** - `react-refresh/only-export-components`
-  - Exports both components and non-component values
-
-#### `/workspace/client/src/components/ui/form.tsx`
-- **Line 175:3** - `react-refresh/only-export-components`
-  - Exports both components and non-component values
-
-#### `/workspace/client/src/components/ui/navigation-menu.tsx`
-- **Line 119:3** - `react-refresh/only-export-components`
-  - Exports both components and non-component values
-
-#### `/workspace/client/src/components/ui/sidebar.tsx`
-- **Line 770:3** - `react-refresh/only-export-components`
-  - Exports both components and non-component values
-
-#### `/workspace/client/src/components/ui/toggle.tsx`
-- **Line 43:18** - `react-refresh/only-export-components`
-  - Exports both components and non-component values
+The following files were refactored to separate components from non-component exports:
+- ~~`badge.tsx`~~ → Created `badge-variants.ts`
+- ~~`button.tsx`~~ → Created `button-variants.ts`
+- ~~`toggle.tsx`~~ → Created `toggle-variants.ts`
+- ~~`form.tsx`~~ → Created `form-hooks.ts`
+- ~~`navigation-menu.tsx`~~ → Created `navigation-menu-styles.ts`
+- ~~`sidebar.tsx`~~ → Created `sidebar-context.ts`
 
 ---
 
@@ -298,8 +287,9 @@
 
 ### Quick Wins (All Completed! ✅)
 1. ✅ ~~**Run `npm run lint:fix`**~~ - **COMPLETED** - Fixed 5 prettier warnings automatically
-2. ✅ ~~**Fix `no-useless-escape`**~~ - **COMPLETED** - Fixed 3 unnecessary escapes (instance-moderation.ts, xrpc-api.ts)
-3. ✅ ~~**Fix `no-empty`**~~ - **COMPLETED** - Added explanatory comments to 2 empty catch blocks (xrpc-api.ts)
+2. ✅ ~~**Fix `no-useless-escape`**~~ - **COMPLETED** - Fixed 3 unnecessary escapes
+3. ✅ ~~**Fix `no-empty`**~~ - **COMPLETED** - Added explanatory comments to 2 empty catch blocks
+4. ✅ ~~**Fix `react-refresh/only-export-components`**~~ - **COMPLETED** - Extracted 6 non-component exports to separate files
 
 ### High Value Fixes (Type Safety Improvements)
 1. **Define ATProto Record Types** - Create proper interfaces for:
@@ -340,16 +330,18 @@ All warnings are currently set to "warn" level rather than "error", which allows
 ## Progress Tracking
 
 ### Current Status
-- **Total Warnings:** 422 ⬇️ (reduced from 432, **-10 total / 2.3% reduction**)
+- **Total Warnings:** 416 ⬇️ (reduced from 432, **-16 total / 3.7% reduction**)
 - **Total Errors:** 0
 - **Build Status:** ⚠️ Fails `--max-warnings 0` check
 - **Recent Actions:** 
   - ✅ Ran `npm run lint:fix` - Fixed 5 prettier warnings
   - ✅ Fixed 5 trivial warnings manually (2 no-empty, 3 no-useless-escape)
+  - ✅ Fixed 6 Fast Refresh warnings by extracting non-component exports
 
 ### Breakdown by Type
-- `@typescript-eslint/no-explicit-any`: 396 (93.8%)
-- `react-refresh/only-export-components`: 6 (1.4%)
+- `@typescript-eslint/no-explicit-any`: 396 (95.2%)
+- `@typescript-eslint/no-unused-vars`: 20 (4.8%)
+- ~~`react-refresh/only-export-components`: 6~~ → **0** ✅ **ALL FIXED**
 - ~~`prettier/prettier`: 5~~ → **0** ✅ **ALL FIXED**
 - ~~`no-empty`: 2~~ → **0** ✅ **ALL FIXED**
 - ~~`no-useless-escape`: 3~~ → **0** ✅ **ALL FIXED**
@@ -357,8 +349,10 @@ All warnings are currently set to "warn" level rather than "error", which allows
 ### Resolution Strategy
 1. ~~**Phase 1**: Fix all auto-fixable issues (5 prettier warnings)~~ ✅ **COMPLETED**
 2. ~~**Phase 2**: Fix trivial issues (5 no-empty/no-useless-escape)~~ ✅ **COMPLETED**
-3. **Phase 3**: Fix Fast Refresh issues (6 react-refresh warnings) - **NEXT**
-4. **Phase 4**: Type safety improvements (396 any warnings)
+3. ~~**Phase 3**: Fix Fast Refresh issues (6 react-refresh warnings)~~ ✅ **COMPLETED**
+4. **Phase 4**: Type safety improvements (416 remaining warnings) - **NEXT**
+   - Fix unused variables (20 warnings)
+   - Replace `any` types with proper TypeScript interfaces (396 warnings)
    - Start with test files (low risk)
    - Then utilities and helpers
    - Then services (highest impact)
@@ -379,6 +373,29 @@ All warnings are currently set to "warn" level rather than "error", which allows
   - Added explanatory comments to empty catch blocks (lines 643, 3892)
   - Removed unnecessary forward slash escape in regex (line 4700)
   - Changed `/^at:\/\/(did:[^\/]+)/` to `/^at:\/\/(did:[^/]+)/`
+
+#### Refactored (Fast Refresh Warnings)
+Extracted non-component exports to separate files to fix Fast Refresh compatibility:
+
+- `client/src/components/ui/badge.tsx`
+  - Created `badge-variants.ts` for `badgeVariants` constant
+  
+- `client/src/components/ui/button.tsx`
+  - Created `button-variants.ts` for `buttonVariants` constant
+  - Updated imports in: `pagination.tsx`, `calendar.tsx`, `alert-dialog.tsx`
+  
+- `client/src/components/ui/toggle.tsx`
+  - Created `toggle-variants.ts` for `toggleVariants` constant
+  - Updated imports in: `toggle-group.tsx`
+  
+- `client/src/components/ui/form.tsx`
+  - Created `form-hooks.ts` for `useFormField` hook and form contexts
+  
+- `client/src/components/ui/navigation-menu.tsx`
+  - Created `navigation-menu-styles.ts` for `navigationMenuTriggerStyle` constant
+  
+- `client/src/components/ui/sidebar.tsx`
+  - Created `sidebar-context.ts` for `useSidebar` hook, `SidebarContext`, and sidebar constants
 
 ---
 
@@ -424,10 +441,11 @@ npm run lint:fix  # ✅ COMPLETED
 
 ### Total Progress
 - **Starting Warnings**: 432
-- **Current Warnings**: 422
-- **Warnings Fixed**: 10
-- **Percentage Reduction**: 2.3%
+- **Current Warnings**: 416
+- **Warnings Fixed**: 16
+- **Percentage Reduction**: 3.7%
 
 ### Remaining Work
-- **Phase 3**: 6 react-refresh warnings (requires file refactoring)
-- **Phase 4**: 396 @typescript-eslint/no-explicit-any warnings (requires type definitions)
+- **Phase 4**: 416 warnings remaining
+  - 20 `@typescript-eslint/no-unused-vars` warnings
+  - 396 `@typescript-eslint/no-explicit-any` warnings (requires type definitions)
