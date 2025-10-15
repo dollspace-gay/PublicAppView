@@ -15,24 +15,25 @@ import {
   searchActorsTypeaheadSchema,
 } from '../schemas/actor-schemas';
 import { searchStarterPacksSchema } from '../schemas/starter-pack-schemas';
+import type { PostModel, PostView, UserModel } from '../types';
 
 /**
  * Serialize posts with optional enhanced hydration
  */
 async function serializePosts(
-  posts: unknown[],
+  posts: PostModel[],
   viewerDid?: string,
   req?: Request
-): Promise<unknown[]> {
+): Promise<PostView[]> {
   const useEnhancedHydration =
     process.env.ENHANCED_HYDRATION_ENABLED === 'true';
 
   if (useEnhancedHydration) {
-    return serializePostsEnhanced(posts, viewerDid, req);
+    return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
   }
 
   // For now, use enhanced serialization as default
-  return serializePostsEnhanced(posts, viewerDid, req);
+  return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
 }
 
 /**
@@ -74,14 +75,15 @@ export async function searchActors(req: Request, res: Response): Promise<void> {
       params.cursor
     );
 
-    const dids = actors.map((a) => (a as { did: string }).did);
-    const users = await storage.getUsers(dids);
+    type ActorSearchResult = { did: string };
+    const actorResults = actors as ActorSearchResult[];
+    const dids = actorResults.map((a) => a.did);
+    const users: UserModel[] = await storage.getUsers(dids);
     const userMap = new Map(users.map((u) => [u.did, u]));
 
-    const results = actors
+    const results = actorResults
       .map((a) => {
-        const actor = a as { did: string };
-        const u = userMap.get(actor.did);
+        const u = userMap.get(a.did);
         if (!u) return null;
         return {
           did: u.did,

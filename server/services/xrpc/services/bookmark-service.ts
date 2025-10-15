@@ -8,26 +8,27 @@ import { storage } from '../../storage';
 import { requireAuthDid, getAuthenticatedDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
 import { serializePostsEnhanced } from '../utils/serializers';
+import type { PostModel, PostView } from '../types';
 
 /**
  * Serialize posts with optional enhanced hydration
  * Uses environment flag to determine which serialization method to use
  */
 async function serializePosts(
-  posts: unknown[],
+  posts: PostModel[],
   viewerDid?: string,
   req?: Request
-): Promise<unknown[]> {
+): Promise<PostView[]> {
   const useEnhancedHydration =
     process.env.ENHANCED_HYDRATION_ENABLED === 'true';
 
   if (useEnhancedHydration) {
-    return serializePostsEnhanced(posts, viewerDid, req);
+    return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
   }
 
   // For now, we'll use enhanced serialization as the default
   // The legacy serialization is complex and will be extracted later
-  return serializePostsEnhanced(posts, viewerDid, req);
+  return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
 }
 
 /**
@@ -133,29 +134,27 @@ export async function getBookmarks(req: Request, res: Response): Promise<void> {
       cursor
     );
 
-    const postUris = bookmarks.map((b) => (b as { postUri: string }).postUri);
+    type BookmarkRecord = {
+      uri: string;
+      postUri: string;
+      createdAt: Date;
+    };
+
+    const bookmarkRecords = bookmarks as BookmarkRecord[];
+    const postUris = bookmarkRecords.map((b) => b.postUri);
     const viewerDid = (await getAuthenticatedDid(req)) || undefined;
-    const posts = await storage.getPosts(postUris);
+    const posts: PostModel[] = await storage.getPosts(postUris);
     const serialized = await serializePosts(posts, viewerDid, req);
-    const byUri = new Map(
-      serialized.map((p) => [(p as { uri: string }).uri, p])
-    );
+    const byUri = new Map(serialized.map((p) => [p.uri, p]));
 
     res.json({
       cursor: nextCursor,
-      bookmarks: bookmarks
-        .map((b) => {
-          const bookmark = b as {
-            uri: string;
-            postUri: string;
-            createdAt: Date;
-          };
-          return {
-            uri: bookmark.uri,
-            createdAt: bookmark.createdAt.toISOString(),
-            post: byUri.get(bookmark.postUri),
-          };
-        })
+      bookmarks: bookmarkRecords
+        .map((b) => ({
+          uri: b.uri,
+          createdAt: b.createdAt.toISOString(),
+          post: byUri.get(b.postUri),
+        }))
         .filter((b) => !!b.post),
     });
   } catch (error) {
