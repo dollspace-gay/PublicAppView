@@ -4,8 +4,8 @@
  */
 
 import type { Response } from 'express';
-import { storage } from '../../storage';
-import { isUrlSafeToFetch } from '../../utils/security';
+import { storage } from '../../../storage';
+import { isUrlSafeToFetch } from '../../../utils/security';
 import { cacheManager } from './cache';
 
 /**

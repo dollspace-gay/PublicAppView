@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { storage } from '../../storage';
+import { storage } from '../../../storage';
 import { handleError } from '../utils/error-handler';
 import { maybeAvatar } from '../utils/serializers';
 import { z } from 'zod';

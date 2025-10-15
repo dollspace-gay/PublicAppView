@@ -4,9 +4,9 @@
  */
 
 import type { Request } from 'express';
-import { optimizedHydrator } from '../hydration/index';
-import { dataLoaderHydrator } from '../hydration/dataloader-hydrator';
-import { getRequestDataLoader } from '../../middleware/dataloader';
+import { optimizedHydrator } from '../../hydration/index';
+import { dataLoaderHydrator } from '../../hydration/dataloader-hydrator';
+import { getRequestDataLoader } from '../../../middleware/dataloader';
 
 /**
  * Get the base URL from the request
