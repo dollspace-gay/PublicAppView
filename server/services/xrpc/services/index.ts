@@ -124,3 +124,12 @@ export {
   getAgeAssuranceState,
   initAgeAssurance,
 } from './unspecced-service';
+
+// Post Interaction Service
+export {
+  getPosts,
+  getLikes,
+  getRepostedBy,
+  getQuotes,
+  getActorLikes,
+} from './post-interaction-service';

@@ -27,7 +27,7 @@ import * as timelineService from './services/timeline-service';
 import * as actorService from './services/actor-service';
 import * as moderationService from './services/moderation-service';
 import * as unspeccedService from './services/unspecced-service';
-import * as timelineService from './services/timeline-service';
+import * as postInteractionService from './services/post-interaction-service';
 
 /**
  * XRPC Orchestrator Class
@@ -357,6 +357,27 @@ export class XRPCOrchestrator {
 
   async initAgeAssurance(req: Request, res: Response): Promise<void> {
     return unspeccedService.initAgeAssurance(req, res);
+  }
+
+  // Post Interaction Service (5 endpoints)
+  async getPosts(req: Request, res: Response): Promise<void> {
+    return postInteractionService.getPosts(req, res);
+  }
+
+  async getLikes(req: Request, res: Response): Promise<void> {
+    return postInteractionService.getLikes(req, res);
+  }
+
+  async getRepostedBy(req: Request, res: Response): Promise<void> {
+    return postInteractionService.getRepostedBy(req, res);
+  }
+
+  async getQuotes(req: Request, res: Response): Promise<void> {
+    return postInteractionService.getQuotes(req, res);
+  }
+
+  async getActorLikes(req: Request, res: Response): Promise<void> {
+    return postInteractionService.getActorLikes(req, res);
   }
 
   // ============================================================================

@@ -5,7 +5,7 @@ import { Readable } from 'stream';
 import { firehoseClient } from './services/firehose';
 import { metricsService } from './services/metrics';
 import { lexiconValidator } from './services/lexicon-validator';
-import { xrpcApi } from './services/xrpc-api';
+import { xrpcOrchestrator } from './services/xrpc/index';
 import { storage } from './storage';
 import {
   authService,
@@ -2911,300 +2911,300 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // XRPC API Endpoints
-  app.get('/xrpc/app.bsky.feed.getTimeline', xrpcApi.getTimeline.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.feed.getTimeline', xrpcOrchestrator.getTimeline.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.feed.getAuthorFeed',
-    xrpcApi.getAuthorFeed.bind(xrpcApi)
+    xrpcOrchestrator.getAuthorFeed.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.feed.getPostThread',
-    xrpcApi.getPostThread.bind(xrpcApi)
+    xrpcOrchestrator.getPostThread.bind(xrpcOrchestrator)
   );
-  app.get('/xrpc/app.bsky.actor.getProfile', xrpcApi.getProfile.bind(xrpcApi));
-  app.get('/xrpc/app.bsky.graph.getFollows', xrpcApi.getFollows.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.actor.getProfile', xrpcOrchestrator.getProfile.bind(xrpcOrchestrator));
+  app.get('/xrpc/app.bsky.graph.getFollows', xrpcOrchestrator.getFollows.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.graph.getFollowers',
-    xrpcApi.getFollowers.bind(xrpcApi)
+    xrpcOrchestrator.getFollowers.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/com.atproto.label.queryLabels',
-    xrpcApi.queryLabels.bind(xrpcApi)
+    xrpcOrchestrator.queryLabels.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.moderation.createReport',
-    xrpcApi.createReport.bind(xrpcApi)
+    xrpcOrchestrator.createReport.bind(xrpcOrchestrator)
   );
 
   // Search endpoints
-  app.get('/xrpc/app.bsky.feed.searchPosts', xrpcApi.searchPosts.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.feed.searchPosts', xrpcOrchestrator.searchPosts.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.actor.searchActors',
-    xrpcApi.searchActors.bind(xrpcApi)
+    xrpcOrchestrator.searchActors.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.actor.searchActorsTypeahead',
-    xrpcApi.searchActorsTypeahead.bind(xrpcApi)
+    xrpcOrchestrator.searchActorsTypeahead.bind(xrpcOrchestrator)
   );
 
   // Notification endpoints
   app.get(
     '/xrpc/app.bsky.notification.listNotifications',
-    xrpcApi.listNotifications.bind(xrpcApi)
+    xrpcOrchestrator.listNotifications.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.notification.getUnreadCount',
-    xrpcApi.getUnreadCount.bind(xrpcApi)
+    xrpcOrchestrator.getUnreadCount.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.updateSeen',
-    xrpcApi.updateSeen.bind(xrpcApi)
+    xrpcOrchestrator.updateSeen.bind(xrpcOrchestrator)
   );
   // Additional notification endpoints for parity
   app.get(
     '/xrpc/app.bsky.notification.getPreferences',
-    xrpcApi.getNotificationPreferences.bind(xrpcApi)
+    xrpcOrchestrator.getNotificationPreferences.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.notification.listActivitySubscriptions',
-    xrpcApi.listActivitySubscriptions.bind(xrpcApi)
+    xrpcOrchestrator.listActivitySubscriptions.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.putActivitySubscription',
-    xrpcApi.putActivitySubscription.bind(xrpcApi)
+    xrpcOrchestrator.putActivitySubscription.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.putPreferencesV2',
-    xrpcApi.putNotificationPreferencesV2.bind(xrpcApi)
+    xrpcOrchestrator.putNotificationPreferencesV2.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.unregisterPush',
-    xrpcApi.unregisterPush.bind(xrpcApi)
+    xrpcOrchestrator.unregisterPush.bind(xrpcOrchestrator)
   );
 
   // List endpoints
-  app.get('/xrpc/app.bsky.graph.getList', xrpcApi.getList.bind(xrpcApi));
-  app.get('/xrpc/app.bsky.graph.getLists', xrpcApi.getLists.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.graph.getList', xrpcOrchestrator.getList.bind(xrpcOrchestrator));
+  app.get('/xrpc/app.bsky.graph.getLists', xrpcOrchestrator.getLists.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.graph.getListFeed',
-    xrpcApi.getListFeed.bind(xrpcApi)
+    xrpcOrchestrator.getListFeed.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getListMutes',
-    xrpcApi.getListMutes.bind(xrpcApi)
+    xrpcOrchestrator.getListMutes.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getListBlocks',
-    xrpcApi.getListBlocks.bind(xrpcApi)
+    xrpcOrchestrator.getListBlocks.bind(xrpcOrchestrator)
   );
   // Additional graph endpoints for parity
   app.get(
     '/xrpc/app.bsky.graph.getActorStarterPacks',
-    xrpcApi.getActorStarterPacks.bind(xrpcApi)
+    xrpcOrchestrator.getActorStarterPacks.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getListsWithMembership',
-    xrpcApi.getListsWithMembership.bind(xrpcApi)
+    xrpcOrchestrator.getListsWithMembership.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getStarterPacksWithMembership',
-    xrpcApi.getStarterPacksWithMembership.bind(xrpcApi)
+    xrpcOrchestrator.getStarterPacksWithMembership.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.searchStarterPacks',
-    xrpcApi.searchStarterPacks.bind(xrpcApi)
+    xrpcOrchestrator.searchStarterPacks.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.graph.unmuteThread',
-    xrpcApi.unmuteThread.bind(xrpcApi)
+    xrpcOrchestrator.unmuteThread.bind(xrpcOrchestrator)
   );
 
   // Post interaction endpoints
-  app.get('/xrpc/app.bsky.feed.getPosts', xrpcApi.getPosts.bind(xrpcApi));
-  app.get('/xrpc/app.bsky.feed.getLikes', xrpcApi.getLikes.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.feed.getPosts', xrpcOrchestrator.getPosts.bind(xrpcOrchestrator));
+  app.get('/xrpc/app.bsky.feed.getLikes', xrpcOrchestrator.getLikes.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.feed.getRepostedBy',
-    xrpcApi.getRepostedBy.bind(xrpcApi)
+    xrpcOrchestrator.getRepostedBy.bind(xrpcOrchestrator)
   );
-  app.get('/xrpc/app.bsky.feed.getQuotes', xrpcApi.getQuotes.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.feed.getQuotes', xrpcOrchestrator.getQuotes.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.feed.getActorLikes',
-    xrpcApi.getActorLikes.bind(xrpcApi)
+    xrpcOrchestrator.getActorLikes.bind(xrpcOrchestrator)
   );
   // Additional feed endpoint
   app.post(
     '/xrpc/app.bsky.feed.sendInteractions',
-    xrpcApi.sendInteractions.bind(xrpcApi)
+    xrpcOrchestrator.sendInteractions.bind(xrpcOrchestrator)
   );
 
   // Enhanced profile endpoints
   app.get(
     '/xrpc/app.bsky.actor.getProfiles',
-    xrpcApi.getProfiles.bind(xrpcApi)
+    xrpcOrchestrator.getProfiles.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.actor.getSuggestions',
-    xrpcApi.getSuggestions.bind(xrpcApi)
+    xrpcOrchestrator.getSuggestions.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.actor.getPreferences',
-    xrpcApi.getPreferences.bind(xrpcApi)
+    xrpcOrchestrator.getPreferences.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.actor.putPreferences',
-    xrpcApi.putPreferences.bind(xrpcApi)
+    xrpcOrchestrator.putPreferences.bind(xrpcOrchestrator)
   );
   app.put(
     '/xrpc/app.bsky.actor.putPreferences',
-    xrpcApi.putPreferences.bind(xrpcApi)
+    xrpcOrchestrator.putPreferences.bind(xrpcOrchestrator)
   );
 
   // Graph endpoints
-  app.get('/xrpc/app.bsky.graph.getBlocks', xrpcApi.getBlocks.bind(xrpcApi));
-  app.get('/xrpc/app.bsky.graph.getMutes', xrpcApi.getMutes.bind(xrpcApi));
-  app.post('/xrpc/app.bsky.graph.muteActor', xrpcApi.muteActor.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.graph.getBlocks', xrpcOrchestrator.getBlocks.bind(xrpcOrchestrator));
+  app.get('/xrpc/app.bsky.graph.getMutes', xrpcOrchestrator.getMutes.bind(xrpcOrchestrator));
+  app.post('/xrpc/app.bsky.graph.muteActor', xrpcOrchestrator.muteActor.bind(xrpcOrchestrator));
   app.post(
     '/xrpc/app.bsky.graph.unmuteActor',
-    xrpcApi.unmuteActor.bind(xrpcApi)
+    xrpcOrchestrator.unmuteActor.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getRelationships',
-    xrpcApi.getRelationships.bind(xrpcApi)
+    xrpcOrchestrator.getRelationships.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getKnownFollowers',
-    xrpcApi.getKnownFollowers.bind(xrpcApi)
+    xrpcOrchestrator.getKnownFollowers.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getSuggestedFollowsByActor',
-    xrpcApi.getSuggestedFollowsByActor.bind(xrpcApi)
+    xrpcOrchestrator.getSuggestedFollowsByActor.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.graph.muteActorList',
-    xrpcApi.muteActorList.bind(xrpcApi)
+    xrpcOrchestrator.muteActorList.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.graph.unmuteActorList',
-    xrpcApi.unmuteActorList.bind(xrpcApi)
+    xrpcOrchestrator.unmuteActorList.bind(xrpcOrchestrator)
   );
-  app.post('/xrpc/app.bsky.graph.muteThread', xrpcApi.muteThread.bind(xrpcApi));
+  app.post('/xrpc/app.bsky.graph.muteThread', xrpcOrchestrator.muteThread.bind(xrpcOrchestrator));
 
   // Feed Generator endpoints
-  app.get('/xrpc/app.bsky.feed.getFeed', xrpcApi.getFeed.bind(xrpcApi));
+  app.get('/xrpc/app.bsky.feed.getFeed', xrpcOrchestrator.getFeed.bind(xrpcOrchestrator));
   app.get(
     '/xrpc/app.bsky.feed.getFeedGenerator',
-    xrpcApi.getFeedGenerator.bind(xrpcApi)
+    xrpcOrchestrator.getFeedGenerator.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.feed.getFeedGenerators',
-    xrpcApi.getFeedGenerators.bind(xrpcApi)
+    xrpcOrchestrator.getFeedGenerators.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.feed.getActorFeeds',
-    xrpcApi.getActorFeeds.bind(xrpcApi)
+    xrpcOrchestrator.getActorFeeds.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.feed.getSuggestedFeeds',
-    xrpcApi.getSuggestedFeeds.bind(xrpcApi)
+    xrpcOrchestrator.getSuggestedFeeds.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.feed.describeFeedGenerator',
-    xrpcApi.describeFeedGenerator.bind(xrpcApi)
+    xrpcOrchestrator.describeFeedGenerator.bind(xrpcOrchestrator)
   );
 
   // Starter Pack endpoints
   app.get(
     '/xrpc/app.bsky.graph.getStarterPack',
-    xrpcApi.getStarterPack.bind(xrpcApi)
+    xrpcOrchestrator.getStarterPack.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.graph.getStarterPacks',
-    xrpcApi.getStarterPacks.bind(xrpcApi)
+    xrpcOrchestrator.getStarterPacks.bind(xrpcOrchestrator)
   );
 
   // Labeler APIs
   app.get(
     '/xrpc/app.bsky.labeler.getServices',
-    xrpcApi.getServices.bind(xrpcApi)
+    xrpcOrchestrator.getServices.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.registerPush',
-    xrpcApi.registerPush.bind(xrpcApi)
+    xrpcOrchestrator.registerPush.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.notification.putPreferences',
-    xrpcApi.putNotificationPreferences.bind(xrpcApi)
+    xrpcOrchestrator.putNotificationPreferences.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.video.getJobStatus',
-    xrpcApi.getJobStatus.bind(xrpcApi)
+    xrpcOrchestrator.getJobStatus.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.video.getUploadLimits',
-    xrpcApi.getUploadLimits.bind(xrpcApi)
+    xrpcOrchestrator.getUploadLimits.bind(xrpcOrchestrator)
   );
 
   // Bookmark endpoints
   app.post(
     '/xrpc/app.bsky.bookmark.createBookmark',
-    xrpcApi.createBookmark.bind(xrpcApi)
+    xrpcOrchestrator.createBookmark.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.bookmark.deleteBookmark',
-    xrpcApi.deleteBookmark.bind(xrpcApi)
+    xrpcOrchestrator.deleteBookmark.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.bookmark.getBookmarks',
-    xrpcApi.getBookmarks.bind(xrpcApi)
+    xrpcOrchestrator.getBookmarks.bind(xrpcOrchestrator)
   );
 
   // Unspecced endpoints used by first-party clients
   app.get(
     '/xrpc/app.bsky.unspecced.getPostThreadV2',
-    xrpcApi.getPostThreadV2.bind(xrpcApi)
+    xrpcOrchestrator.getPostThreadV2.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getPostThreadOtherV2',
-    xrpcApi.getPostThreadOtherV2.bind(xrpcApi)
+    xrpcOrchestrator.getPostThreadOtherV2.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getSuggestedUsers',
-    xrpcApi.getSuggestedUsersUnspecced.bind(xrpcApi)
+    xrpcOrchestrator.getSuggestedUsersUnspecced.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getSuggestedFeeds',
-    xrpcApi.getSuggestedFeedsUnspecced.bind(xrpcApi)
+    xrpcOrchestrator.getSuggestedFeedsUnspecced.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getPopularFeedGenerators',
-    xrpcApi.getPopularFeedGenerators.bind(xrpcApi)
+    xrpcOrchestrator.getPopularFeedGenerators.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getOnboardingSuggestedStarterPacks',
-    xrpcApi.getOnboardingSuggestedStarterPacks.bind(xrpcApi)
+    xrpcOrchestrator.getOnboardingSuggestedStarterPacks.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getTaggedSuggestions',
-    xrpcApi.getTaggedSuggestions.bind(xrpcApi)
+    xrpcOrchestrator.getTaggedSuggestions.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getTrendingTopics',
-    xrpcApi.getTrendingTopics.bind(xrpcApi)
+    xrpcOrchestrator.getTrendingTopics.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getTrends',
-    xrpcApi.getTrends.bind(xrpcApi)
+    xrpcOrchestrator.getTrends.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getConfig',
-    xrpcApi.getUnspeccedConfig.bind(xrpcApi)
+    xrpcOrchestrator.getUnspeccedConfig.bind(xrpcOrchestrator)
   );
   app.get(
     '/xrpc/app.bsky.unspecced.getAgeAssuranceState',
-    xrpcApi.getAgeAssuranceState.bind(xrpcApi)
+    xrpcOrchestrator.getAgeAssuranceState.bind(xrpcOrchestrator)
   );
   app.post(
     '/xrpc/app.bsky.unspecced.initAgeAssurance',
-    xrpcApi.initAgeAssurance.bind(xrpcApi)
+    xrpcOrchestrator.initAgeAssurance.bind(xrpcOrchestrator)
   );
 
   // XRPC Proxy Middleware - catch-all for unhandled authenticated requests

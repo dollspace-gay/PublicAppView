@@ -1,3 +1,24 @@
+/**
+ * ⚠️ LEGACY FILE - BEING PHASED OUT
+ * 
+ * This file is the old monolithic XRPC API implementation.
+ * All endpoints have been extracted to modular services in server/services/xrpc/services/
+ * 
+ * Current Status:
+ * - ✅ All 77 endpoints extracted to modular services
+ * - ✅ Routes.ts now uses the new XRPCOrchestrator
+ * - ⚠️ This file remains for legacy utility methods:
+ *   - serializePosts() - Complex post serialization logic
+ *   - _getProfiles() - Profile hydration logic
+ *   - Cache management methods
+ * 
+ * Future Work:
+ * - Extract remaining utility methods to dedicated modules
+ * - Eventually deprecate and remove this file
+ * 
+ * See: server/services/xrpc/index.ts for the new orchestrator
+ */
+
 import type { Request, Response } from 'express';
 import { storage } from '../storage';
 import { authService, validateAndRefreshSession } from './auth';
