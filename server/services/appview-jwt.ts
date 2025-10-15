@@ -404,7 +404,7 @@ export class AppViewJWTService {
         'raw',
         'pem'
       );
-      
+
       const { createPublicKey, verify } = require('crypto');
       const key = createPublicKey({ format: 'pem', key: pemKey });
 
@@ -424,7 +424,10 @@ export class AppViewJWTService {
 
       return true;
     } catch (error) {
-      console.error('[AppViewJWT] ES256K signature verification failed:', error);
+      console.error(
+        '[AppViewJWT] ES256K signature verification failed:',
+        error
+      );
       return false;
     }
   }
@@ -471,7 +474,7 @@ export class AppViewJWTService {
         }
         throw new Error('No supported key format found for ES256');
       };
-      
+
       await jose.jwtVerify(token, getKey);
       return true;
     } catch (error) {

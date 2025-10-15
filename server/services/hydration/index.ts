@@ -1,9 +1,5 @@
 import { db } from '../../db';
-import {
-  posts,
-  users,
-  postAggregations,
-} from '../../../shared/schema';
+import { posts, users, postAggregations } from '../../../shared/schema';
 import { inArray } from 'drizzle-orm';
 import { ViewerContextBuilder, ViewerContext } from './viewer-context';
 import { EmbedResolver } from './embed-resolver';

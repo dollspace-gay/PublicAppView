@@ -640,7 +640,9 @@ export class XRPCApi {
           );
           return null;
         }
-      } catch {}
+      } catch {
+        // Ignore JWT parsing errors - will return null below
+      }
 
       return payload.did;
     } catch (error) {
@@ -3889,7 +3891,9 @@ export class XRPCApi {
             '../services/pds-data-fetcher'
           );
           pdsDataFetcher.markIncomplete('post', userDid, postUri);
-        } catch {}
+        } catch {
+          // Ignore errors if pdsDataFetcher is unavailable
+        }
       }
       await storage.createBookmark({
         uri,
@@ -4697,7 +4701,7 @@ export class XRPCApi {
 
         // Queue missing posts for PDS fetching
         for (const missingUri of missingUris) {
-          const didMatch = missingUri.match(/^at:\/\/(did:[^\/]+)/);
+          const didMatch = missingUri.match(/^at:\/\/(did:[^/]+)/);
           if (didMatch) {
             pdsDataFetcher.markIncomplete('post', didMatch[1], missingUri);
           }
