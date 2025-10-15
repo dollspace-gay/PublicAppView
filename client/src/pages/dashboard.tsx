@@ -13,8 +13,8 @@ import InstancePolicyPage from '@/pages/instance-policy';
 import AdminControlPanel from '@/pages/admin-moderation';
 import UserPanel from '@/pages/user-panel';
 import LoginPage from '@/pages/login';
-import { useLocation, useSearch } from 'wouter';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldAlert } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -49,8 +49,7 @@ interface MetricsData {
 }
 
 export default function Dashboard() {
-  const [location, setLocation] = useLocation();
-  const queryClient = useQueryClient();
+  const [location] = useLocation();
 
   // SECURITY: We now use HttpOnly cookies for authentication
   // No need to handle tokens in URL or localStorage
@@ -79,7 +78,13 @@ export default function Dashboard() {
     lastUpdate: new Date().toISOString(),
   });
 
-  const [events, setEvents] = useState<any[]>([]);
+  interface EventData {
+    type: string;
+    timestamp: string;
+    [key: string]: unknown;
+  }
+
+  const [events, setEvents] = useState<EventData[]>([]);
 
   // Initial metrics fetch (SSE stream will update in real-time after connection)
   useEffect(() => {
@@ -97,13 +102,13 @@ export default function Dashboard() {
 
   // Real-time event stream via Server-Sent Events (SSE)
   useEffect(() => {
-    const recentEvents: any[] = [];
+    const recentEvents: EventData[] = [];
     let eventSource: EventSource | null = null;
 
     // Fetch initial events from API
     const fetchInitialEvents = async () => {
       try {
-        const data = await api.get<any[]>('/api/events/recent');
+        const data = await api.get<EventData[]>('/api/events/recent');
         recentEvents.push(...data);
         setEvents([...data.slice(0, 10)]);
       } catch (error) {

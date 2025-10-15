@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
 // Sanitize user input to prevent XSS attacks
 function sanitizeText(text: string): string {
   return text
-    .replace(/[<>\"']/g, '') // Remove potentially dangerous characters
+    .replace(/[<>"']/g, '') // Remove potentially dangerous characters
     .substring(0, 500); // Limit length to prevent abuse
 }
 

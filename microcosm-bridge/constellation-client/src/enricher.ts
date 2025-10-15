@@ -5,7 +5,7 @@
  * Includes Redis caching to minimize API calls and improve performance.
  */
 
-import { ConstellationAPIClient, LinksCounts } from './api-client.js';
+import { ConstellationAPIClient } from './api-client.js';
 import Redis from 'ioredis';
 
 interface PostStats {
@@ -94,7 +94,7 @@ export class StatsEnricher {
   /**
    * Set value in cache
    */
-  private async setInCache(key: string, value: any): Promise<void> {
+  private async setInCache(key: string, value: unknown): Promise<void> {
     if (!this.cache || !this.cacheEnabled) {
       return;
     }

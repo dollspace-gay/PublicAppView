@@ -3,7 +3,6 @@ import {
   Activity,
   Database,
   Terminal,
-  Settings,
   FileText,
   Zap,
   BookOpen,

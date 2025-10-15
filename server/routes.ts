@@ -38,7 +38,6 @@ import {
   authLimiter,
   oauthLimiter,
   writeLimiter,
-  searchLimiter,
   apiLimiter,
   xrpcLimiter,
   adminLimiter,
@@ -69,7 +68,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const originalSend = res.send;
 
-      res.send = function (data: any) {
+      res.send = function (data: unknown) {
         const duration = Date.now() - startTime;
         const success = res.statusCode >= 200 && res.statusCode < 400;
         metricsService.recordEndpointRequest(req.path, duration, success);
@@ -120,7 +119,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `);
 
       if (stats.rows.length > 0) {
-        const row: any = stats.rows[0];
+        const row = stats.rows[0] as {
+          users?: string;
+          posts?: string;
+          likes?: string;
+          reposts?: string;
+          follows?: string;
+          blocks?: string;
+        };
         await Promise.all([
           redisQueue.incrementRecordCount('users', parseInt(row.users || '0')),
           redisQueue.incrementRecordCount('posts', parseInt(row.posts || '0')),
@@ -199,7 +205,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { eventProcessor } = await import('./services/event-processor');
     const PARALLEL_PIPELINES = 5; // Run 5 concurrent consumer loops per worker
 
-    const processEvent = async (event: any) => {
+    interface RedisEvent {
+      type: string;
+      data: unknown;
+    }
+    const processEvent = async (event: RedisEvent) => {
       let success = false;
       try {
         if (event.type === 'commit') {
@@ -210,8 +220,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await eventProcessor.processAccount(event.data);
         }
         success = true;
-      } catch (error: any) {
-        if (error?.code === '23505' || error?.code === '23503') {
+      } catch (error: unknown) {
+        const err = error as { code?: string };
+        if (err?.code === '23505' || err?.code === '23503') {
           // Duplicate key or foreign key violation - treat as success
           success = true;
         } else {
@@ -337,7 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.setHeader('Pragma', 'no-cache');
       res.send(didDoc);
-    } catch (error) {
+    } catch {
       // If DID document doesn't exist, return a basic one based on APPVIEW_DID
       const appviewDid = process.env.APPVIEW_DID;
       if (!appviewDid) {
@@ -345,7 +356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const domain = appviewDid.replace('did:web:', '');
       const verificationKey = process.env.APPVIEW_ATPROTO_PUBKEY_MULTIBASE;
-      const basicDidDoc: any = {
+      const basicDidDoc: Record<string, unknown> = {
         '@context': [
           'https://www.w3.org/ns/did/v1',
           'https://w3id.org/security/multikey/v1',
@@ -795,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.deleteSession(req.session.sessionId);
         }
         res.json({ success: true });
-      } catch (error) {
+      } catch {
         res.status(500).json({ error: 'Failed to logout' });
       }
     }
@@ -820,7 +831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = await adminAuthService.isAdmin(session.userDid);
 
       res.json({ session, user, isAdmin });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to get session' });
     }
   });
@@ -1555,7 +1566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[API] Deleted like ${uri} for ${session.userDid}`);
 
         res.json({ success: true });
-      } catch (error) {
+      } catch {
         res.status(400).json({ error: 'Failed to delete like' });
       }
     }
@@ -1719,7 +1730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[API] Deleted follow ${uri} for ${session.userDid}`);
 
         res.json({ success: true });
-      } catch (error) {
+      } catch {
         res.status(400).json({ error: 'Failed to delete follow' });
       }
     }
@@ -1747,7 +1758,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json({ settings });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to get settings' });
     }
   });
@@ -1874,7 +1885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         res.json({ settings: updated });
-      } catch (error) {
+      } catch {
         res.status(400).json({ error: 'Failed to unblock keyword' });
       }
     }
@@ -1960,7 +1971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         res.json({ settings: updated });
-      } catch (error) {
+      } catch {
         res.status(400).json({ error: 'Failed to unmute user' });
       }
     }
@@ -2058,7 +2069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         await labelService.removeLabel(uri);
         res.json({ success: true });
-      } catch (error) {
+      } catch {
         res.status(400).json({ error: 'Failed to remove label' });
       }
     }
@@ -2068,7 +2079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const definitions = await labelService.getAllLabelDefinitions();
       res.json({ definitions });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to get label definitions' });
     }
   });
@@ -2118,7 +2129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const labels = await labelService.queryLabels(params);
 
       res.json({ labels });
-    } catch (error) {
+    } catch {
       res.status(400).json({ error: 'Failed to query labels' });
     }
   });
@@ -2368,7 +2379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       const policy = instanceModerationService.getPublicPolicy();
       res.json(policy);
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to retrieve instance policy' });
     }
   });
@@ -2381,7 +2392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       const stats = await instanceModerationService.getStatistics();
       res.json(stats);
-    } catch (error) {
+    } catch {
       res
         .status(500)
         .json({ error: 'Failed to retrieve moderation statistics' });
@@ -2464,7 +2475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         timestamp: new Date().toISOString(),
       });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to check Osprey status' });
     }
   });
@@ -2482,10 +2493,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         database: metrics,
         connectionPool: poolStatus,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error;
       res.status(500).json({
         error: 'Health check failed',
-        message: error.message,
+        message: err.message,
       });
     }
   });
@@ -3271,7 +3283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({
         version: '0.0.1',
       });
-    } catch (error) {
+    } catch {
       res.status(503).json({
         error: 'Service unavailable',
       });
@@ -3297,7 +3309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         inviteCodeRequired: false,
         phoneVerificationRequired: false,
       });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to describe server' });
     }
   });
@@ -3966,20 +3978,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const xrpcRoutes: Array<{ method: string; path: string }> = [];
 
     // Access the Express router stack to find all XRPC routes
-    app._router.stack.forEach((middleware: any) => {
-      if (middleware.route) {
-        const path = middleware.route.path;
-        if (path.startsWith('/xrpc/')) {
-          const methods = Object.keys(middleware.route.methods);
-          methods.forEach((method) => {
-            xrpcRoutes.push({
-              method: method.toUpperCase(),
-              path,
+    app._router.stack.forEach(
+      (middleware: {
+        route?: { path: string; methods: Record<string, boolean> };
+      }) => {
+        if (middleware.route) {
+          const path = middleware.route.path;
+          if (path.startsWith('/xrpc/')) {
+            const methods = Object.keys(middleware.route.methods);
+            methods.forEach((method) => {
+              xrpcRoutes.push({
+                method: method.toUpperCase(),
+                path,
+              });
             });
-          });
+          }
         }
       }
-    });
+    );
 
     // Build endpoint list from discovered routes
     const endpoints = xrpcRoutes.map((route) => {
@@ -4068,7 +4084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
 
     // Subscribe to Redis event broadcasts (works on ALL workers)
-    const eventHandler = (event: any) => {
+    const eventHandler = (event: unknown) => {
       if (res.writable) {
         try {
           res.write(
@@ -4176,7 +4192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stats = contentFilter.getFilterStats(recentPosts, settings || null);
 
       res.json({ stats });
-    } catch (error) {
+    } catch {
       res.status(500).json({ error: 'Failed to get filter stats' });
     }
   });
@@ -4349,7 +4365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // Subscribe to firehose events for this connection
-    const firehoseEventHandler = (event: any) => {
+    const firehoseEventHandler = (event: unknown) => {
       if (ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(
@@ -4442,7 +4458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Listen for label events from label service and broadcast to all connected clients
-  const broadcastLabelToClients = (label: any, eventId: number) => {
+  const broadcastLabelToClients = (label: unknown, eventId: number) => {
     const message = JSON.stringify({
       seq: eventId,
       labels: [

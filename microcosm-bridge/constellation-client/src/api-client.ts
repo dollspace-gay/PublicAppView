@@ -120,7 +120,7 @@ export class ConstellationAPIClient {
         } else {
           throw new Error('JSON response missing total field');
         }
-      } catch (jsonError) {
+      } catch {
         // Fall back to plain text number (old API format)
         count = parseInt(text.trim(), 10);
       }
