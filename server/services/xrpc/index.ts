@@ -20,6 +20,7 @@ import * as preferencesService from './services/preferences-service';
 import * as notificationService from './services/notification-service';
 import * as starterPackService from './services/starter-pack-service';
 import * as pushNotificationService from './services/push-notification-service';
+import * as feedGeneratorService from './services/feed-generator-service';
 
 /**
  * XRPC Orchestrator Class
@@ -168,6 +169,35 @@ export class XRPCOrchestrator {
     return pushNotificationService.unregisterPush(req, res);
   }
 
+  // Feed Generator Service (7 endpoints)
+  async getFeedGenerator(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getFeedGenerator(req, res);
+  }
+
+  async getFeedGenerators(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getFeedGenerators(req, res);
+  }
+
+  async getActorFeeds(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getActorFeeds(req, res);
+  }
+
+  async getSuggestedFeeds(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getSuggestedFeeds(req, res);
+  }
+
+  async describeFeedGenerator(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.describeFeedGenerator(req, res);
+  }
+
+  async getPopularFeedGenerators(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getPopularFeedGenerators(req, res);
+  }
+
+  async getSuggestedFeedsUnspecced(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getSuggestedFeedsUnspecced(req, res);
+  }
+
   // ============================================================================
   // LEGACY ENDPOINTS (Not yet extracted)
   // These delegate to the original XRPCApi class
@@ -287,35 +317,6 @@ export class XRPCOrchestrator {
 
   async createReport(req: Request, res: Response): Promise<void> {
     return this.legacy.createReport(req, res);
-  }
-
-  // Feed Generator endpoints
-  async getFeedGenerator(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeedGenerator(req, res);
-  }
-
-  async getFeedGenerators(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeedGenerators(req, res);
-  }
-
-  async getActorFeeds(req: Request, res: Response): Promise<void> {
-    return this.legacy.getActorFeeds(req, res);
-  }
-
-  async getSuggestedFeeds(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedFeeds(req, res);
-  }
-
-  async describeFeedGenerator(req: Request, res: Response): Promise<void> {
-    return this.legacy.describeFeedGenerator(req, res);
-  }
-
-  async getPopularFeedGenerators(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPopularFeedGenerators(req, res);
-  }
-
-  async getSuggestedFeedsUnspecced(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedFeedsUnspecced(req, res);
   }
 
   // Unspecced/misc endpoints

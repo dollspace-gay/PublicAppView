@@ -52,3 +52,14 @@ export {
 
 // Push Notification Service
 export { registerPush, unregisterPush } from './push-notification-service';
+
+// Feed Generator Service
+export {
+  getFeedGenerator,
+  getFeedGenerators,
+  getActorFeeds,
+  getSuggestedFeeds,
+  describeFeedGenerator,
+  getPopularFeedGenerators,
+  getSuggestedFeedsUnspecced,
+} from './feed-generator-service';
