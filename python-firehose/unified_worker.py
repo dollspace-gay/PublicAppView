@@ -354,7 +354,10 @@ class EventProcessor:
                         op['created_at'],
                         op.get('cid'),
                         op.get('subject_cid'),
-                        op.get('via')
+                        op.get('via'),
+                        op.get('commit_time'),
+                        op.get('commit_seq'),
+                        op.get('commit_rev')
                     )
                 elif op['type'] == 'repost':
                     await self._create_repost_internal(
@@ -365,7 +368,10 @@ class EventProcessor:
                         op.get('cid', op['uri']), 
                         op['created_at'],
                         op.get('subject_cid'),
-                        op.get('via')
+                        op.get('via'),
+                        op.get('commit_time'),
+                        op.get('commit_seq'),
+                        op.get('commit_rev')
                     )
                 
                 self.pending_op_index.pop(op['uri'], None)
@@ -522,7 +528,7 @@ class EventProcessor:
                         
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_like(conn, uri, repo, post_uri, created_at, cid, subject_cid, via_json)
+                            await self.process_like(conn, uri, repo, post_uri, created_at, cid, subject_cid, via_json, None, None, None)
                     
                     elif record_type == "app.bsky.graph.follow":
                         following_did = getattr(record, 'subject', None)
@@ -796,7 +802,10 @@ class EventProcessor:
         uri: str,
         cid: str,
         author_did: str,
-        record: Any
+        record: Any,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Process post creation with full feature parity"""
         await self.ensure_user(conn, author_did)
@@ -863,11 +872,11 @@ class EventProcessor:
         try:
             await conn.execute(
                 """
-                INSERT INTO posts (uri, cid, author_did, text, langs, parent_uri, parent_cid, root_uri, root_cid, embed, facets, created_at)
-                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
+                INSERT INTO posts (uri, cid, author_did, text, langs, parent_uri, parent_cid, root_uri, root_cid, embed, facets, created_at, commit_time, commit_seq, commit_rev)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13, $14, $15)
                 ON CONFLICT (uri) DO NOTHING
                 """,
-                uri, cid, author_did, text, langs_json, parent_uri, parent_cid, root_uri, root_cid, embed_json, facets_json, created_at
+                uri, cid, author_did, text, langs_json, parent_uri, parent_cid, root_uri, root_cid, embed_json, facets_json, created_at, commit_time, commit_seq, commit_rev
             )
             
             # Create post aggregation
@@ -997,16 +1006,19 @@ class EventProcessor:
         created_at: datetime,
         cid: Optional[str] = None,
         subject_cid: Optional[str] = None,
-        via: Optional[str] = None
+        via: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Internal method to create like (used by both direct and pending processing)"""
         await conn.execute(
             """
-            INSERT INTO likes (uri, user_did, post_uri, created_at, subject_cid, via)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            INSERT INTO likes (uri, user_did, post_uri, created_at, subject_cid, via, commit_time, commit_seq, commit_rev)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, user_did, post_uri, created_at, subject_cid, via
+            uri, user_did, post_uri, created_at, subject_cid, via, commit_time, commit_seq, commit_rev
         )
         
         # Increment like count
@@ -1034,6 +1046,9 @@ class EventProcessor:
         cid: Optional[str] = None,
         subject_cid: Optional[str] = None,
         via: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None,
         repo: Optional[str] = None,
         op: Optional[Any] = None
     ):
@@ -1051,7 +1066,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_like_internal(conn, uri, user_did, post_uri, created_at, cid, subject_cid, via)
+            await self._create_like_internal(conn, uri, user_did, post_uri, created_at, cid, subject_cid, via, commit_time, commit_seq, commit_rev)
             logger.debug(f"Created like: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1066,6 +1081,9 @@ class EventProcessor:
                 'cid': cid,
                 'subject_cid': subject_cid,
                 'via': via,
+                'commit_time': commit_time,
+                'commit_seq': commit_seq,
+                'commit_rev': commit_rev,
                 'enqueued_at': time.time() * 1000
             })
         except Exception as e:
@@ -1080,16 +1098,19 @@ class EventProcessor:
         cid: str,
         created_at: datetime,
         subject_cid: Optional[str] = None,
-        via: Optional[str] = None
+        via: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Internal method to create repost"""
         await conn.execute(
             """
-            INSERT INTO reposts (uri, user_did, post_uri, created_at, subject_cid, via)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            INSERT INTO reposts (uri, user_did, post_uri, created_at, subject_cid, via, commit_time, commit_seq, commit_rev)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, user_did, post_uri, created_at, subject_cid, via
+            uri, user_did, post_uri, created_at, subject_cid, via, commit_time, commit_seq, commit_rev
         )
         
         # Increment repost count
@@ -1126,7 +1147,10 @@ class EventProcessor:
         cid: str,
         created_at: datetime,
         subject_cid: Optional[str] = None,
-        via: Optional[str] = None
+        via: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Process repost creation"""
         await self.ensure_user(conn, user_did)
@@ -1136,7 +1160,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_repost_internal(conn, uri, user_did, post_uri, cid, created_at, subject_cid, via)
+            await self._create_repost_internal(conn, uri, user_did, post_uri, cid, created_at, subject_cid, via, commit_time, commit_seq, commit_rev)
             logger.debug(f"Created repost: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1150,6 +1174,9 @@ class EventProcessor:
                 'cid': cid,
                 'subject_cid': subject_cid,
                 'via': via,
+                'commit_time': commit_time,
+                'commit_seq': commit_seq,
+                'commit_rev': commit_rev,
                 'created_at': created_at,
                 'enqueued_at': time.time() * 1000
             })
@@ -1163,16 +1190,19 @@ class EventProcessor:
         follower_did: str,
         following_did: str,
         created_at: datetime,
-        cid: Optional[str] = None
+        cid: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Internal method to create follow"""
         await conn.execute(
             """
-            INSERT INTO follows (uri, follower_did, following_did, created_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO follows (uri, follower_did, following_did, created_at, commit_time, commit_seq, commit_rev)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, follower_did, following_did, created_at
+            uri, follower_did, following_did, created_at, commit_time, commit_seq, commit_rev
         )
         
         # Create follow notification
@@ -1187,6 +1217,9 @@ class EventProcessor:
         following_did: str,
         created_at: datetime,
         cid: Optional[str] = None,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None,
         repo: Optional[str] = None,
         op: Optional[Any] = None
     ):
@@ -1206,7 +1239,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_follow_internal(conn, uri, follower_did, following_did, created_at, cid)
+            await self._create_follow_internal(conn, uri, follower_did, following_did, created_at, cid, commit_time, commit_seq, commit_rev)
             logger.debug(f"Created follow: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1219,16 +1252,19 @@ class EventProcessor:
         uri: str,
         blocker_did: str,
         blocked_did: str,
-        created_at: datetime
+        created_at: datetime,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Internal method to create block"""
         await conn.execute(
             """
-            INSERT INTO blocks (uri, blocker_did, blocked_did, created_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO blocks (uri, blocker_did, blocked_did, created_at, commit_time, commit_seq, commit_rev)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (uri) DO NOTHING
             """,
-            uri, blocker_did, blocked_did, created_at
+            uri, blocker_did, blocked_did, created_at, commit_time, commit_seq, commit_rev
         )
     
     async def process_block(
@@ -1237,7 +1273,10 @@ class EventProcessor:
         uri: str,
         blocker_did: str,
         blocked_did: str,
-        created_at: datetime
+        created_at: datetime,
+        commit_time: Optional[datetime] = None,
+        commit_seq: Optional[str] = None,
+        commit_rev: Optional[str] = None
     ):
         """Process block creation"""
         await self.ensure_user(conn, blocker_did)
@@ -1248,7 +1287,7 @@ class EventProcessor:
             return
         
         try:
-            await self._create_block_internal(conn, uri, blocker_did, blocked_did, created_at)
+            await self._create_block_internal(conn, uri, blocker_did, blocked_did, created_at, commit_time, commit_seq, commit_rev)
             logger.debug(f"Created block: {uri}")
         except asyncpg.exceptions.UniqueViolationError:
             pass
@@ -1708,7 +1747,7 @@ class EventProcessor:
                         
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_like(conn, uri, author_did, post_uri, created_at, cid, subject_cid, via_json)
+                            await self.process_like(conn, uri, author_did, post_uri, created_at, cid, subject_cid, via_json, None, None, None)
                     
                     elif record_type == "app.bsky.feed.repost":
                         subject = getattr(record, 'subject', None)
@@ -1730,19 +1769,19 @@ class EventProcessor:
                         
                         if post_uri:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_repost(conn, uri, author_did, post_uri, cid, created_at, subject_cid, via_json)
+                            await self.process_repost(conn, uri, author_did, post_uri, cid, created_at, subject_cid, via_json, None, None, None)
                     
                     elif record_type == "app.bsky.graph.follow":
                         following_did = getattr(record, 'subject', None)
                         if following_did:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_follow(conn, uri, author_did, following_did, created_at, cid)
+                            await self.process_follow(conn, uri, author_did, following_did, created_at, cid, None, None, None)
                     
                     elif record_type == "app.bsky.graph.block":
                         blocked_did = getattr(record, 'subject', None)
                         if blocked_did:
                             created_at = self.safe_date(getattr(record, 'createdAt', None))
-                            await self.process_block(conn, uri, author_did, blocked_did, created_at)
+                            await self.process_block(conn, uri, author_did, blocked_did, created_at, None, None, None)
                     
                     elif record_type == "app.bsky.graph.list":
                         await self.process_list(conn, uri, cid, author_did, record)
@@ -1946,6 +1985,11 @@ class EventProcessor:
         """Process a commit event with full feature parity"""
         repo = commit.repo
         
+        # Extract commit metadata
+        commit_time = self.safe_date(commit.time) if hasattr(commit, 'time') and commit.time else None
+        commit_seq = str(commit.seq) if hasattr(commit, 'seq') and commit.seq else None
+        commit_rev = commit.rev if hasattr(commit, 'rev') and commit.rev else None
+        
         # Parse CAR blocks if available
         car = None
         if commit.blocks:
@@ -1989,19 +2033,19 @@ class EventProcessor:
                                 
                                 # Route to appropriate handler
                                 if record_type == "app.bsky.feed.post":
-                                    await self.process_post(conn, uri, cid, repo, record)
+                                    await self.process_post(conn, uri, cid, repo, record, commit_time, commit_seq, commit_rev)
                                 
                                 elif record_type == "app.bsky.feed.like":
                                     post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
                                     if post_uri:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_like(conn, uri, repo, post_uri, created_at, cid, repo, op)
+                                        await self.process_like(conn, uri, repo, post_uri, created_at, cid, None, None, commit_time, commit_seq, commit_rev, repo, op)
                                 
                                 elif record_type == "app.bsky.feed.repost":
                                     post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
                                     if post_uri:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_repost(conn, uri, repo, post_uri, cid, created_at)
+                                        await self.process_repost(conn, uri, repo, post_uri, cid, created_at, None, None, commit_time, commit_seq, commit_rev)
                                 
                                 elif record_type == "app.bsky.bookmark":
                                     post_uri = getattr(getattr(record, 'subject', None), 'uri', None)
@@ -2013,13 +2057,13 @@ class EventProcessor:
                                     following_did = getattr(record, 'subject', None)
                                     if following_did:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_follow(conn, uri, repo, following_did, created_at, cid, repo, op)
+                                        await self.process_follow(conn, uri, repo, following_did, created_at, cid, commit_time, commit_seq, commit_rev, repo, op)
                                 
                                 elif record_type == "app.bsky.graph.block":
                                     blocked_did = getattr(record, 'subject', None)
                                     if blocked_did:
                                         created_at = self.safe_date(getattr(record, 'createdAt', None))
-                                        await self.process_block(conn, uri, repo, blocked_did, created_at)
+                                        await self.process_block(conn, uri, repo, blocked_did, created_at, commit_time, commit_seq, commit_rev)
                                 
                                 elif record_type == "app.bsky.actor.profile":
                                     await self.process_profile(conn, repo, record)

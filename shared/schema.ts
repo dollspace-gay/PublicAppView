@@ -78,6 +78,9 @@ export const posts = pgTable(
     searchVector: tsvector('search_vector'),
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
+    commitTime: timestamp('commit_time'), // Time from the firehose commit event
+    commitSeq: varchar('commit_seq', { length: 32 }), // Sequence number from firehose
+    commitRev: varchar('commit_rev', { length: 64 }), // Revision identifier
   },
   (table) => ({
     authorIdx: index('idx_posts_author_did').on(table.authorDid),
@@ -199,6 +202,9 @@ export const likes = pgTable(
     via: jsonb('via'), // Optional: {cid, uri} of item that led to this like (e.g., from a repost)
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
+    commitTime: timestamp('commit_time'), // Time from the firehose commit event
+    commitSeq: varchar('commit_seq', { length: 32 }), // Sequence number from firehose
+    commitRev: varchar('commit_rev', { length: 64 }), // Revision identifier
   },
   (table) => ({
     userIdx: index('idx_likes_user_did').on(table.userDid),
@@ -221,6 +227,9 @@ export const reposts = pgTable(
     via: jsonb('via'), // Optional: {cid, uri} of item that led to this repost
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
+    commitTime: timestamp('commit_time'), // Time from the firehose commit event
+    commitSeq: varchar('commit_seq', { length: 32 }), // Sequence number from firehose
+    commitRev: varchar('commit_rev', { length: 64 }), // Revision identifier
   },
   (table) => ({
     userIdx: index('idx_reposts_user_did').on(table.userDid),
@@ -283,6 +292,9 @@ export const follows = pgTable(
     followingDid: varchar('following_did', { length: 255 }).notNull(), // No FK - can reference external users
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
+    commitTime: timestamp('commit_time'), // Time from the firehose commit event
+    commitSeq: varchar('commit_seq', { length: 32 }), // Sequence number from firehose
+    commitRev: varchar('commit_rev', { length: 64 }), // Revision identifier
   },
   (table) => ({
     followerIdx: index('idx_follows_follower').on(table.followerDid),
@@ -303,6 +315,9 @@ export const blocks = pgTable(
     blockedDid: varchar('blocked_did', { length: 255 }).notNull(), // No FK - can reference external users
     createdAt: timestamp('created_at').notNull(),
     indexedAt: timestamp('indexed_at').defaultNow().notNull(),
+    commitTime: timestamp('commit_time'), // Time from the firehose commit event
+    commitSeq: varchar('commit_seq', { length: 32 }), // Sequence number from firehose
+    commitRev: varchar('commit_rev', { length: 64 }), // Revision identifier
   },
   (table) => ({
     blockerIdx: index('idx_blocks_blocker').on(table.blockerDid),
