@@ -16,6 +16,11 @@ import { xrpcApi } from '../xrpc-api';
 import * as bookmarkService from './services/bookmark-service';
 import * as searchService from './services/search-service';
 import * as utilityService from './services/utility-service';
+import * as preferencesService from './services/preferences-service';
+import * as notificationService from './services/notification-service';
+import * as starterPackService from './services/starter-pack-service';
+import * as pushNotificationService from './services/push-notification-service';
+import * as feedGeneratorService from './services/feed-generator-service';
 
 /**
  * XRPC Orchestrator Class
@@ -79,6 +84,120 @@ export class XRPCOrchestrator {
     return utilityService.sendInteractions(req, res);
   }
 
+  // Preferences Service (2 endpoints)
+  async getPreferences(req: Request, res: Response): Promise<void> {
+    return preferencesService.getPreferences(req, res);
+  }
+
+  async putPreferences(req: Request, res: Response): Promise<void> {
+    return preferencesService.putPreferences(req, res);
+  }
+
+  // Notification Service (8 endpoints)
+  async listNotifications(req: Request, res: Response): Promise<void> {
+    return notificationService.listNotifications(req, res);
+  }
+
+  async getUnreadCount(req: Request, res: Response): Promise<void> {
+    return notificationService.getUnreadCount(req, res);
+  }
+
+  async updateSeen(req: Request, res: Response): Promise<void> {
+    return notificationService.updateSeen(req, res);
+  }
+
+  async updateNotificationSeen(req: Request, res: Response): Promise<void> {
+    return notificationService.updateSeen(req, res);
+  }
+
+  async getNotificationPreferences(req: Request, res: Response): Promise<void> {
+    return notificationService.getNotificationPreferences(req, res);
+  }
+
+  async putNotificationPreferences(req: Request, res: Response): Promise<void> {
+    return notificationService.putNotificationPreferences(req, res);
+  }
+
+  async putNotificationPreferencesV2(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return notificationService.putNotificationPreferencesV2(req, res);
+  }
+
+  async listActivitySubscriptions(req: Request, res: Response): Promise<void> {
+    return notificationService.listActivitySubscriptions(req, res);
+  }
+
+  async putActivitySubscription(req: Request, res: Response): Promise<void> {
+    return notificationService.putActivitySubscription(req, res);
+  }
+
+  // Starter Pack Service (5 endpoints)
+  async getStarterPack(req: Request, res: Response): Promise<void> {
+    return starterPackService.getStarterPack(req, res);
+  }
+
+  async getStarterPacks(req: Request, res: Response): Promise<void> {
+    return starterPackService.getStarterPacks(req, res);
+  }
+
+  async getActorStarterPacks(req: Request, res: Response): Promise<void> {
+    return starterPackService.getActorStarterPacks(req, res);
+  }
+
+  async getStarterPacksWithMembership(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return starterPackService.getStarterPacksWithMembership(req, res);
+  }
+
+  async getOnboardingSuggestedStarterPacks(
+    req: Request,
+    res: Response
+  ): Promise<void> {
+    return starterPackService.getOnboardingSuggestedStarterPacks(req, res);
+  }
+
+  // Push Notification Service (2 endpoints)
+  async registerPush(req: Request, res: Response): Promise<void> {
+    return pushNotificationService.registerPush(req, res);
+  }
+
+  async unregisterPush(req: Request, res: Response): Promise<void> {
+    return pushNotificationService.unregisterPush(req, res);
+  }
+
+  // Feed Generator Service (7 endpoints)
+  async getFeedGenerator(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getFeedGenerator(req, res);
+  }
+
+  async getFeedGenerators(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getFeedGenerators(req, res);
+  }
+
+  async getActorFeeds(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getActorFeeds(req, res);
+  }
+
+  async getSuggestedFeeds(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getSuggestedFeeds(req, res);
+  }
+
+  async describeFeedGenerator(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.describeFeedGenerator(req, res);
+  }
+
+  async getPopularFeedGenerators(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getPopularFeedGenerators(req, res);
+  }
+
+  async getSuggestedFeedsUnspecced(req: Request, res: Response): Promise<void> {
+    return feedGeneratorService.getSuggestedFeedsUnspecced(req, res);
+  }
+
   // ============================================================================
   // LEGACY ENDPOINTS (Not yet extracted)
   // These delegate to the original XRPCApi class
@@ -136,15 +255,6 @@ export class XRPCOrchestrator {
 
   async getSuggestedUsersUnspecced(req: Request, res: Response): Promise<void> {
     return this.legacy.getSuggestedUsersUnspecced(req, res);
-  }
-
-  // Preferences endpoints
-  async getPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPreferences(req, res);
-  }
-
-  async putPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.putPreferences(req, res);
   }
 
   // Social Graph endpoints
@@ -209,107 +319,7 @@ export class XRPCOrchestrator {
     return this.legacy.createReport(req, res);
   }
 
-  // Feed Generator endpoints
-  async getFeedGenerator(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeedGenerator(req, res);
-  }
-
-  async getFeedGenerators(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeedGenerators(req, res);
-  }
-
-  async getActorFeeds(req: Request, res: Response): Promise<void> {
-    return this.legacy.getActorFeeds(req, res);
-  }
-
-  async getSuggestedFeeds(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedFeeds(req, res);
-  }
-
-  async describeFeedGenerator(req: Request, res: Response): Promise<void> {
-    return this.legacy.describeFeedGenerator(req, res);
-  }
-
-  async getPopularFeedGenerators(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPopularFeedGenerators(req, res);
-  }
-
-  async getSuggestedFeedsUnspecced(req: Request, res: Response): Promise<void> {
-    return this.legacy.getSuggestedFeedsUnspecced(req, res);
-  }
-
-  // Starter Pack endpoints
-  async getStarterPack(req: Request, res: Response): Promise<void> {
-    return this.legacy.getStarterPack(req, res);
-  }
-
-  async getStarterPacks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getStarterPacks(req, res);
-  }
-
-  async getActorStarterPacks(req: Request, res: Response): Promise<void> {
-    return this.legacy.getActorStarterPacks(req, res);
-  }
-
-  async getStarterPacksWithMembership(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.getStarterPacksWithMembership(req, res);
-  }
-
-  // Notification endpoints
-  async registerPush(req: Request, res: Response): Promise<void> {
-    return this.legacy.registerPush(req, res);
-  }
-
-  async unregisterPush(req: Request, res: Response): Promise<void> {
-    return this.legacy.unregisterPush(req, res);
-  }
-
-  async getNotificationPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.getNotificationPreferences(req, res);
-  }
-
-  async putNotificationPreferences(req: Request, res: Response): Promise<void> {
-    return this.legacy.putNotificationPreferences(req, res);
-  }
-
-  async putNotificationPreferencesV2(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.putNotificationPreferencesV2(req, res);
-  }
-
-  async listActivitySubscriptions(req: Request, res: Response): Promise<void> {
-    return this.legacy.listActivitySubscriptions(req, res);
-  }
-
-  async putActivitySubscription(req: Request, res: Response): Promise<void> {
-    return this.legacy.putActivitySubscription(req, res);
-  }
-
-  async listNotifications(req: Request, res: Response): Promise<void> {
-    return this.legacy.listNotifications(req, res);
-  }
-
-  async updateNotificationSeen(req: Request, res: Response): Promise<void> {
-    return this.legacy.updateNotificationSeen(req, res);
-  }
-
-  async getUnreadCount(req: Request, res: Response): Promise<void> {
-    return this.legacy.getUnreadCount(req, res);
-  }
-
   // Unspecced/misc endpoints
-  async getOnboardingSuggestedStarterPacks(
-    req: Request,
-    res: Response
-  ): Promise<void> {
-    return this.legacy.getOnboardingSuggestedStarterPacks(req, res);
-  }
-
   async getTaggedSuggestions(req: Request, res: Response): Promise<void> {
     return this.legacy.getTaggedSuggestions(req, res);
   }
