@@ -197,8 +197,8 @@ export class EmbedResolver {
           } else {
             avatarUri = this.directCidToCdnUrl(author.avatarUrl, author.did, 'avatar');
           }
-          // Only include avatar field if we got a valid URI
-          if (avatarUri) {
+          // Only include avatar field if we got a valid non-empty string URI
+          if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
             authorView.avatar = avatarUri;
           }
         }

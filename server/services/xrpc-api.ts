@@ -738,8 +738,14 @@ export class XRPCApi {
         transformed.record.embeds = transformed.record.embeds.map((e: any) => this.transformEmbedUrls(e, req));
       }
       // Transform author avatar if it's a relative URL
-      if (transformed.record.author?.avatar?.startsWith('/')) {
-        transformed.record.author.avatar = `${baseUrl}${transformed.record.author.avatar}`;
+      if (transformed.record.author?.avatar) {
+        if (transformed.record.author.avatar.startsWith('/')) {
+          transformed.record.author.avatar = `${baseUrl}${transformed.record.author.avatar}`;
+        }
+        // Validate and remove invalid avatar URIs
+        if (typeof transformed.record.author.avatar !== 'string' || transformed.record.author.avatar.trim() === '') {
+          delete transformed.record.author.avatar;
+        }
       }
     } else if (transformed.$type === 'app.bsky.embed.recordWithMedia#view') {
       if (transformed.media) {
@@ -759,14 +765,16 @@ export class XRPCApi {
   private maybeAvatar(avatarCid: string | null | undefined, did: string, req?: Request): { avatar: string } | {} {
     if (!avatarCid) return {};
     const url = this.transformBlobToCdnUrl(avatarCid, did, 'avatar', req);
-    return url ? { avatar: url } : {};
+    // Ensure the URL is a valid non-empty string before including it
+    return url && typeof url === 'string' && url.trim() !== '' ? { avatar: url } : {};
   }
 
   // Helper to conditionally include banner field only if URL is valid
   private maybeBanner(bannerCid: string | null | undefined, did: string, req?: Request): { banner: string } | {} {
     if (!bannerCid) return {};
     const url = this.transformBlobToCdnUrl(bannerCid, did, 'banner', req);
-    return url ? { banner: url } : {};
+    // Ensure the URL is a valid non-empty string before including it
+    return url && typeof url === 'string' && url.trim() !== '' ? { banner: url } : {};
   }
 
   private createAuthorViewerState(authorDid: string, listMutes: Map<string, any>, listBlocks: Map<string, any>, listData?: Map<string, any>): any {
@@ -934,7 +942,7 @@ export class XRPCApi {
           handle: authorHandle,
           displayName: displayName,
           pronouns: author?.pronouns,
-          ...(avatarCdn && { avatar: avatarCdn }),
+          ...(avatarCdn && typeof avatarCdn === 'string' && avatarCdn.trim() !== '' && { avatar: avatarCdn }),
           viewer: actorViewerState || {},
           labels: authorLabels,
           createdAt: author?.createdAt?.toISOString(),
@@ -1197,7 +1205,7 @@ export class XRPCApi {
             handle: authorHandle,
             displayName: displayName,
             pronouns: author?.pronouns,
-            ...(avatarUrl && { avatar: avatarUrl }),
+            ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
             associated: {
             $type: 'app.bsky.actor.defs#profileAssociated',
             lists: authorCounts.get(post.authorDid)?.lists || 0,
@@ -1680,9 +1688,13 @@ export class XRPCApi {
                 if (f.displayName) follower.displayName = f.displayName;
                 // Only include avatar if it exists (avatarUrl is a CID string from database)
                 if (f.avatarUrl) {
-                  follower.avatar = f.avatarUrl.startsWith('http')
+                  const avatarUri = f.avatarUrl.startsWith('http')
                     ? f.avatarUrl
                     : this.directCidToCdnUrl(f.avatarUrl, f.did, 'avatar', req);
+                  // Only set avatar if we got a valid non-empty string
+                  if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+                    follower.avatar = avatarUri;
+                  }
                 }
                 return follower;
               }),
@@ -2588,7 +2600,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const view: any = {
             uri: generator.uri,
@@ -2600,7 +2617,12 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+          if (generator.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              view.avatar = avatarUri;
+            }
+          }
 
           return view;
         }),
@@ -2646,7 +2668,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const view: any = {
             uri: generator.uri,
@@ -2658,7 +2685,12 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+          if (generator.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              view.avatar = avatarUri;
+            }
+          }
 
           return view;
         }),
@@ -2697,7 +2729,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const view: any = {
             uri: generator.uri,
@@ -2709,7 +2746,12 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+          if (generator.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              view.avatar = avatarUri;
+            }
+          }
 
           return view;
         }),
@@ -2790,7 +2832,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const view: any = {
             uri: generator.uri,
@@ -2802,7 +2849,12 @@ export class XRPCApi {
             indexedAt: generator.indexedAt.toISOString(),
           };
           if (generator.description) view.description = generator.description;
-          if (generator.avatarUrl) view.avatar = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+          if (generator.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(generator.avatarUrl, generator.creatorDid, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              view.avatar = avatarUri;
+            }
+          }
 
           return view;
         }),
@@ -2909,7 +2961,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const record: any = {
             name: pack.name,
@@ -2982,7 +3039,12 @@ export class XRPCApi {
           };
           if (creator?.displayName)
             creatorView.displayName = creator.displayName;
-          if (creator?.avatarUrl) creatorView.avatar = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+          if (creator?.avatarUrl) {
+            const avatarUri = this.transformBlobToCdnUrl(creator.avatarUrl, creator.did, 'avatar', req);
+            if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
+              creatorView.avatar = avatarUri;
+            }
+          }
 
           const view: any = {
             uri: service.uri,

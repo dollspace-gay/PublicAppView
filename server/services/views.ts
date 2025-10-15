@@ -130,7 +130,7 @@ export class Views {
         handle: authorProfile.handle,
         displayName: displayName,
         pronouns: authorProfile.pronouns,
-        ...(avatarUrl && { avatar: avatarUrl }),
+        ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
@@ -183,7 +183,7 @@ export class Views {
         handle: reposterProfile.handle,
         displayName: displayName,
         pronouns: reposterProfile.pronouns,
-        ...(avatarUrl && { avatar: avatarUrl }),
+        ...(avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '' && { avatar: avatarUrl }),
         associated: {
           $type: 'app.bsky.actor.defs#profileAssociated',
           lists: 0,
