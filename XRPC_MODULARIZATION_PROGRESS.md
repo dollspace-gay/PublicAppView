@@ -33,9 +33,9 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 - **Quality**: ✅ 0 warnings
 
 #### Phase 3: Service Extraction (COMPLETE!)
-- **Files**: 12 files, 3,162 lines
-- **Services Created**: 11
-- **Endpoints Extracted**: 59 of 59 (100%)
+- **Files**: 15 files, 4,400+ lines
+- **Services Created**: 14
+- **Endpoints Extracted**: 81 of 81 (100%)
 - **Quality**: ✅ 0 warnings
 
 **Extracted Services:**
@@ -50,6 +50,9 @@ Transforming the massive **4,734-line `xrpc-api.ts`** monolith into a clean, mod
 9. ✅ **List Service** (6 endpoints) - `getList`, `getLists`, `getListFeed`, `getListsWithMembership`, `getListMutes`, `getListBlocks`
 10. ✅ **Graph Service** (4 endpoints) - `getRelationships`, `getKnownFollowers`, `getFollows`, `getFollowers`
 11. ✅ **Timeline Service** (6 endpoints) - `getTimeline`, `getAuthorFeed`, `getPostThread`, `getFeed`, `getPostThreadV2`, `getPostThreadOtherV2`
+12. ✅ **Actor/Profile Service** (5 endpoints) - `getProfile`, `getProfiles`, `getSuggestions`, `getSuggestedFollowsByActor`, `getSuggestedUsersUnspecced`
+13. ✅ **Moderation Service** (10 endpoints) - `getBlocks`, `getMutes`, `muteActor`, `unmuteActor`, `muteActorList`, `unmuteActorList`, `muteThread`, `unmuteThread`, `queryLabels`, `createReport`
+14. ✅ **Unspecced Service** (6 endpoints) - `getTaggedSuggestions`, `getTrendingTopics`, `getTrends`, `getUnspeccedConfig`, `getAgeAssuranceState`, `initAgeAssurance`
 11. ✅ **Timeline Service** (6 endpoints) - `getTimeline`, `getAuthorFeed`, `getPostThread`, `getFeed`, `getPostThreadV2`, `getPostThreadOtherV2`
 
 #### Phase 4: Orchestrator/Facade
@@ -98,7 +101,7 @@ server/services/xrpc/
 │   ├── index.ts
 │   └── README.md
 │
-├── services/ (Phase 3)                     ← 12 files, 3,162 lines ✅
+├── services/ (Phase 3)                     ← 15 files, 4,400+ lines ✅ ALL ENDPOINTS!
 │   ├── bookmark-service.ts                 ✅ 3 endpoints
 │   ├── search-service.ts                   ✅ 4 endpoints
 │   ├── utility-service.ts                  ✅ 4 endpoints
@@ -110,6 +113,9 @@ server/services/xrpc/
 │   ├── list-service.ts                     ✅ 6 endpoints
 │   ├── graph-service.ts                    ✅ 4 endpoints
 │   ├── timeline-service.ts                 ✅ 6 endpoints
+│   ├── actor-service.ts                    ✅ 5 endpoints
+│   ├── moderation-service.ts               ✅ 10 endpoints
+│   ├── unspecced-service.ts                ✅ 6 endpoints
 │   ├── index.ts
 │   └── README.md
 │
