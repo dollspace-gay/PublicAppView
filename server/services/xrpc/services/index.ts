@@ -81,3 +81,23 @@ export {
   getFollows,
   getFollowers,
 } from './graph-service';
+
+// Timeline Service
+export {
+  getTimeline,
+  getAuthorFeed,
+  getPostThread,
+  getFeed,
+  getPostThreadV2,
+  getPostThreadOtherV2,
+} from './timeline-service';
+
+// Timeline Service
+export {
+  getTimeline,
+  getAuthorFeed,
+  getPostThread,
+  getFeed,
+  getPostThreadV2,
+  getPostThreadOtherV2,
+} from './timeline-service';

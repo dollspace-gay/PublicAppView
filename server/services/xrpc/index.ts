@@ -23,6 +23,8 @@ import * as pushNotificationService from './services/push-notification-service';
 import * as feedGeneratorService from './services/feed-generator-service';
 import * as listService from './services/list-service';
 import * as graphService from './services/graph-service';
+import * as timelineService from './services/timeline-service';
+import * as timelineService from './services/timeline-service';
 
 /**
  * XRPC Orchestrator Class
@@ -242,35 +244,35 @@ export class XRPCOrchestrator {
     return graphService.getFollowers(req, res);
   }
 
+  // Timeline Service (6 endpoints)
+  async getTimeline(req: Request, res: Response): Promise<void> {
+    return timelineService.getTimeline(req, res);
+  }
+
+  async getAuthorFeed(req: Request, res: Response): Promise<void> {
+    return timelineService.getAuthorFeed(req, res);
+  }
+
+  async getPostThread(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThread(req, res);
+  }
+
+  async getFeed(req: Request, res: Response): Promise<void> {
+    return timelineService.getFeed(req, res);
+  }
+
+  async getPostThreadV2(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThreadV2(req, res);
+  }
+
+  async getPostThreadOtherV2(req: Request, res: Response): Promise<void> {
+    return timelineService.getPostThreadOtherV2(req, res);
+  }
+
   // ============================================================================
   // LEGACY ENDPOINTS (Not yet extracted)
   // These delegate to the original XRPCApi class
   // ============================================================================
-
-  // Timeline & Feed endpoints
-  async getTimeline(req: Request, res: Response): Promise<void> {
-    return this.legacy.getTimeline(req, res);
-  }
-
-  async getAuthorFeed(req: Request, res: Response): Promise<void> {
-    return this.legacy.getAuthorFeed(req, res);
-  }
-
-  async getPostThread(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThread(req, res);
-  }
-
-  async getFeed(req: Request, res: Response): Promise<void> {
-    return this.legacy.getFeed(req, res);
-  }
-
-  async getPostThreadV2(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThreadV2(req, res);
-  }
-
-  async getPostThreadOtherV2(req: Request, res: Response): Promise<void> {
-    return this.legacy.getPostThreadOtherV2(req, res);
-  }
 
   // Actor/Profile endpoints
   async getProfile(req: Request, res: Response): Promise<void> {
