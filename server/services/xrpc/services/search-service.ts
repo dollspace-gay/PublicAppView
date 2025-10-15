@@ -4,16 +4,16 @@
  */
 
 import type { Request, Response } from 'express';
-import { storage } from '../../storage';
+import { storage } from '../../../storage';
 import { searchService } from '../../search';
 import { getAuthenticatedDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
 import { maybeAvatar, serializePostsEnhanced } from '../utils/serializers';
 import {
-  searchPostsSchema,
   searchActorsSchema,
   searchActorsTypeaheadSchema,
 } from '../schemas/actor-schemas';
+import { searchPostsSchema } from '../schemas/search-schemas';
 import { searchStarterPacksSchema } from '../schemas/starter-pack-schemas';
 import type { PostModel, PostView, UserModel } from '../types';
 

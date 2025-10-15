@@ -110,7 +110,7 @@ import {
   type InsertGenericRecord,
 } from '@shared/schema';
 import { db, type DbConnection } from './db';
-import { eq, desc, and, or, sql, inArray, isNull } from 'drizzle-orm';
+import { eq, desc, and, or, sql, inArray, isNull, type SQL } from 'drizzle-orm';
 import { encryptionService } from './services/encryption';
 import { sanitizeObject } from './utils/sanitize';
 import { cacheService } from './services/cache';
@@ -1064,7 +1064,6 @@ export class DatabaseStorage implements IStorage {
     feedType?: string
   ): Promise<{ items: FeedItem[]; cursor?: string }> {
     // Build all conditions to apply them together with AND
-    import type { SQL } from 'drizzle-orm';
     const conditions: SQL[] = [eq(feedItems.originatorDid, actorDid)];
 
     // Apply feed type filtering
@@ -3309,7 +3308,6 @@ export class DatabaseStorage implements IStorage {
     limit = 50,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    import type { SQL } from 'drizzle-orm';
     const conditions: SQL[] = [];
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
@@ -3333,7 +3331,6 @@ export class DatabaseStorage implements IStorage {
     limit = 50,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    import type { SQL } from 'drizzle-orm';
     const conditions: SQL[] = [eq(starterPacks.creatorDid, creatorDid)];
     if (cursor) {
       conditions.push(sql`${starterPacks.indexedAt} < ${new Date(cursor)}`);
@@ -3357,7 +3354,6 @@ export class DatabaseStorage implements IStorage {
     limit = 25,
     cursor?: string
   ): Promise<{ starterPacks: StarterPack[]; cursor?: string }> {
-    import type { SQL } from 'drizzle-orm';
     const conditions: SQL[] = [
       sql`${starterPacks.name} ILIKE ${'%' + q + '%'}`,
     ];

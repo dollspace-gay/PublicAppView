@@ -4,8 +4,8 @@
  */
 
 import type { Request, Response } from 'express';
-import { storage } from '../../storage';
-import { authService, validateAndRefreshSession } from '../auth';
+import { storage } from '../../../storage';
+import { authService, validateAndRefreshSession } from '../../auth';
 
 /**
  * Get user session for PDS communication by DID

@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { storage } from '../../storage';
+import { storage } from '../../../storage';
 import { requireAuthDid, getAuthenticatedDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
 import { resolveActor } from '../utils/resolvers';
