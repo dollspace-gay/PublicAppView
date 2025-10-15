@@ -89,7 +89,7 @@ export function isUrlSafeToFetch(url: string): boolean {
     }
 
     return true;
-  } catch (error) {
+  } catch {
     // Invalid URL format
     return false;
   }
@@ -291,7 +291,7 @@ export function buildSafeBlobUrl(
     blobUrl.searchParams.set('cid', cid);
 
     return blobUrl.toString();
-  } catch (error) {
+  } catch {
     return null;
   }
 }

@@ -60,6 +60,8 @@ async function testDataLoader() {
     const duration2 = performance.now() - startTime2;
 
     console.log(`✅ Re-hydration complete in ${duration2.toFixed(2)}ms`);
+    console.log(`- Posts hydrated: ${result2.posts.size}`);
+    console.log(`- DataLoader batches: ${result2.stats.dataLoaderBatches}`);
     console.log(
       `Cache hit improvement: ${(((duration - duration2) / duration) * 100).toFixed(1)}% faster`
     );

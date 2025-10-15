@@ -63,7 +63,7 @@ async function backfillHandles() {
         } else {
           failed++;
         }
-      } catch (error) {
+      } catch {
         // Skip users that fail resolution (deleted accounts, etc.)
         failed++;
       }

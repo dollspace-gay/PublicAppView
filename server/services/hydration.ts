@@ -2,9 +2,6 @@ import { db } from '../db';
 import {
   posts,
   reposts,
-  likes,
-  bookmarks,
-  users,
   blocks,
   mutes,
 } from '../../shared/schema';

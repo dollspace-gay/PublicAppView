@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { randomBytes, createPublicKey, verify } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import * as jose from 'jose';
-import type { KeyObject, JWSHeaderParameters } from 'jose';
+import type { JWSHeaderParameters } from 'jose';
 import KeyEncoder from 'key-encoder';
 import { fromString, toString, concat } from 'uint8arrays';
 import { base58btc } from 'multiformats/bases/base58';
@@ -51,7 +51,6 @@ if (!process.env.SESSION_SECRET) {
 
 const JWT_SECRET = process.env.SESSION_SECRET;
 const JWT_EXPIRY = '7d';
-const MAX_SESSION_EXPIRY_DAYS = 30;
 
 export interface SessionPayload {
   did: string;
@@ -120,7 +119,6 @@ export class AuthService {
         return null;
       }
 
-      const header = decoded.header;
       const payload = decoded.payload;
 
       // AT Protocol supports two token formats:

@@ -3,7 +3,6 @@ import {
   getLabelConfig,
   shouldDeleteReference,
   INSTANCE_CONFIG,
-  type InstanceLabel,
 } from '../config/instance-moderation';
 import { labelService } from './label';
 import { storage } from '../storage';

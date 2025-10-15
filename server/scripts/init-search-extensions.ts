@@ -51,7 +51,7 @@ export async function initSearchExtensions() {
         $$ LANGUAGE plpgsql;
       `);
       console.log('[SEARCH_INIT] ✓ Search vector function created');
-    } catch (error: any) {
+    } catch {
       console.log('[SEARCH_INIT] ✓ Search vector function already exists');
     }
 
@@ -73,7 +73,7 @@ export async function initSearchExtensions() {
         END $$;
       `);
       console.log('[SEARCH_INIT] ✓ Search vector trigger created');
-    } catch (error: any) {
+    } catch {
       console.log('[SEARCH_INIT] ✓ Search vector trigger already exists');
     }
 

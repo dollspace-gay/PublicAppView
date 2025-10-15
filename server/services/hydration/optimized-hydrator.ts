@@ -9,11 +9,9 @@ import {
   bookmarks,
   threadGates,
   postGates,
-  listMembers,
-  listMutes,
   feedGenerators,
 } from '../../../shared/schema';
-import { eq, inArray, sql, and } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import { ViewerContextBuilder, ViewerContext } from './viewer-context';
 import { EmbedResolver } from './embed-resolver';
 import { LabelPropagator, Label } from './label-propagator';

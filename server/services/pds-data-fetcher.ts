@@ -6,7 +6,6 @@
  */
 
 import { didResolver } from './did-resolver';
-import { pdsClient } from './pds-client';
 import { storage } from '../storage';
 import { eventProcessor } from './event-processor';
 import { CID } from 'multiformats/cid';
@@ -384,7 +383,7 @@ export class PDSDataFetcher {
           const errorBody = await profileResponse.text();
           errorDetails = errorBody.substring(0, 200);
           isRecordNotFound = errorBody.includes('RecordNotFound');
-        } catch (e) {
+        } catch {
           // Ignore
         }
 
@@ -583,7 +582,7 @@ export class PDSDataFetcher {
           const errorBody = await recordResponse.text();
           errorDetails = errorBody.substring(0, 200);
           isRecordNotFound = errorBody.includes('RecordNotFound');
-        } catch (e) {
+        } catch {
           // Ignore
         }
 
@@ -679,7 +678,7 @@ export class PDSDataFetcher {
           const errorBody = await recordResponse.text();
           errorDetails = errorBody.substring(0, 200);
           isRecordNotFound = errorBody.includes('RecordNotFound');
-        } catch (e) {
+        } catch {
           // Ignore
         }
 

@@ -1,19 +1,20 @@
 # ESLint Linter Warnings Report
 
 **Generated:** 2025-10-15  
-**Total Warnings:** 502  
+**Last Updated:** 2025-10-15 (After fixing unused variables)  
+**Total Warnings:** 432 ⬇️ (down from 502)  
 **Total Errors:** 0
 
 ## Summary by Category
 
 ### Warning Types
-1. **`@typescript-eslint/no-explicit-any`**: 397 occurrences
+1. **`@typescript-eslint/no-explicit-any`**: 399 occurrences
    - Using `any` type instead of specific types
    - Reduces type safety
 
-2. **`@typescript-eslint/no-unused-vars`**: 93 occurrences
+2. **`@typescript-eslint/no-unused-vars`**: 20 occurrences ✅ (down from 93)
    - Variables, parameters, or imports defined but not used
-   - Includes unused error variables in catch blocks
+   - Remaining issues are mostly intentional placeholders for future features
 
 3. **`react-refresh/only-export-components`**: 6 occurrences
    - Files exporting both components and non-component values
@@ -24,6 +25,35 @@
 
 5. **`no-empty`**: 2 occurrences
    - Empty block statements
+
+## Recent Fixes (73 unused variables fixed)
+
+### Implemented Features
+1. **JWT Signature Verification** (`server/services/appview-jwt.ts`)
+   - Implemented ES256K signature verification using secp256k1
+   - Implemented ES256 signature verification using jose library
+   - These were stub methods that now provide proper cryptographic verification
+
+### Removed Unused Imports
+- `lexiconValidator`, `logAggregator` from event-processor.ts
+- `eventProcessor` from firehose.ts
+- `storage` from feed-algorithm.ts
+- `didResolver` from pds-client.ts
+- `pdsClient`, `moderationService`, `UserSettings` from xrpc-api.ts
+- `enhancedHydrator`, `Hydrator`, `Views` from xrpc-api.ts
+- Various schema imports from hydration services
+- `InstanceLabel` from instance-moderation.ts
+
+### Removed Unused Variables
+- Removed unused schema `getUploadLimitsSchema` from xrpc-api.ts
+- Removed unused constants (`MAX_SESSION_EXPIRY_DAYS` from auth.ts)
+- Cleaned up unused `header` variables in JWT parsing
+- Prefixed intentionally unused function parameters with `_` (e.g., `_cid`, `_repo`, `_record`)
+
+### Fixed Error Handling
+- Removed unused error parameters from 30+ catch blocks where errors were intentionally ignored
+- Changed from `catch (_error)` to `catch` (no parameter) for better clarity
+- Fixed error variables that should have been logged but weren't
 
 ## Detailed Warnings by File
 
@@ -314,3 +344,35 @@ The project uses the following linting rules (from `eslint.config.js`):
 - **Max Warnings**: Set to 0 (no warnings allowed in CI)
 
 All warnings are currently set to "warn" level rather than "error", which allows the build to proceed but should be addressed to meet the `--max-warnings 0` requirement.
+
+---
+
+## Progress Summary
+
+### Before Fixes
+- **Total Warnings:** 502
+- **Unused Variables:** 93
+- **Total Errors:** 0
+
+### After Fixes
+- **Total Warnings:** 432 ⬇️ **(-70 warnings, 14% reduction)**
+- **Unused Variables:** 20 ⬇️ **(-73 warnings, 78% reduction)**
+- **Total Errors:** 0 ✅
+
+### Key Achievements
+1. ✅ **Implemented missing JWT verification features** - Added ES256K and ES256 signature verification methods
+2. ✅ **Cleaned up imports** - Removed 15+ unused imports across the codebase
+3. ✅ **Fixed error handling** - Improved 30+ catch blocks by removing unused error parameters
+4. ✅ **Added test output** - Enhanced test-dataloader.ts to use result2 for cache verification
+5. ✅ **Removed dead code** - Deleted unused schemas, constants, and variables
+
+### Remaining Work
+The 20 remaining unused variable warnings are mostly:
+- Intentional placeholders for future features (e.g., `viewerContext`, `relationship`, `state` parameters in stub methods)
+- Variables assigned for debugging/logging that could be removed or utilized
+- Loop variables and intermediate results that might indicate incomplete implementations
+
+These should be evaluated individually to determine if they represent:
+- Features that should be implemented
+- Debug code that should be removed
+- API compatibility placeholders that should stay
