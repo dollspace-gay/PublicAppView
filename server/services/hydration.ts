@@ -1,10 +1,5 @@
 import { db } from '../db';
-import {
-  posts,
-  reposts,
-  blocks,
-  mutes,
-} from '../../shared/schema';
+import { posts, reposts, blocks, mutes } from '../../shared/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { HydrationState, ProfileViewerState, FeedItem } from '../types/feed';
 
