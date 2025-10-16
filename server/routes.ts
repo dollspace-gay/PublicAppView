@@ -795,6 +795,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiresAt,
       });
 
+      // Trigger automatic backfill of liked posts in background (non-blocking)
+      import('./services/auto-backfill-likes').then(
+        ({ autoBackfillLikesService }) => {
+          autoBackfillLikesService.checkAndBackfill(data.did).catch((err) => {
+            console.error('[AUTO_BACKFILL] Error:', err);
+          });
+        }
+      );
+
       const token = authService.createSessionToken(data.did, sessionId);
 
       res.json({ token, session });
