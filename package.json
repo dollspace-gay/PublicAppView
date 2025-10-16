@@ -5,8 +5,12 @@
   "license": "MIT",
   "scripts": {
     "dev": "./start-with-redis.sh",
-    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "dev:data-plane": "tsx data-plane/server/index.ts",
+    "dev:appview": "DATA_PLANE_URL=http://localhost:5001 tsx server/index.ts",
+    "build": "vite build && esbuild server/index.ts data-plane/server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "npm run build && NODE_ENV=production node dist/index.js",
+    "start:data-plane": "NODE_ENV=production DATA_PLANE_PORT=5001 node dist/data-plane/server/index.js",
+    "start:appview": "NODE_ENV=production DATA_PLANE_URL=http://localhost:5001 PORT=5000 node dist/server/index.js",
     "check": "tsc",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",

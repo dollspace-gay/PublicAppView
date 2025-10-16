@@ -4,6 +4,7 @@ import { didResolver } from './did-resolver';
 import { pdsDataFetcher } from './pds-data-fetcher';
 import { smartConsole } from './console-wrapper';
 import { sanitizeObject } from '../utils/sanitize';
+import { cacheService } from '../../data-plane/server/services/cache';
 import type {
   InsertPost,
   InsertLike,
@@ -1351,6 +1352,16 @@ export class EventProcessor {
 
     // Flush any pending operations for this post
     await this.flushPending(uri);
+
+    // Invalidate caches for this post and affected threads
+    await cacheService.invalidatePost(uri);
+    await cacheService.invalidateThread(uri);
+    if (record.reply?.parent.uri) {
+      await cacheService.invalidateThread(record.reply.parent.uri);
+    }
+    if (record.reply?.root.uri && record.reply.root.uri !== record.reply.parent.uri) {
+      await cacheService.invalidateThread(record.reply.root.uri);
+    }
   }
 
   private async processLike(repo: string, op: any) {
@@ -1659,6 +1670,9 @@ export class EventProcessor {
     try {
       await this.storage.createFollow(follow);
 
+      // Invalidate following list cache for the follower
+      await cacheService.invalidateUserFollowing(followerDid);
+
       // Try to create notification if target user exists locally
       const followingUser = await this.storage.getUser(followingDid);
       if (followingUser) {
@@ -1730,6 +1744,9 @@ export class EventProcessor {
     // Insert block directly - foreign key constraints removed for federated data
     try {
       await this.storage.createBlock(block);
+
+      // Invalidate viewer relationships cache for the blocker
+      await cacheService.invalidateViewerRelationships(blockerDid);
     } catch (error: any) {
       // Ignore duplicate key errors (23505)
       if (error.code === '23505') {
@@ -1820,6 +1837,9 @@ export class EventProcessor {
 
     try {
       await this.storage.createListItem(listItem);
+
+      // Invalidate list members cache for this list
+      await cacheService.invalidateListMembers(record.list);
     } catch (error: any) {
       // Fallback: if FK error still happens (race condition), queue it
       if (error.code === '23503') {
@@ -2063,6 +2083,10 @@ export class EventProcessor {
       case 'app.bsky.feed.post':
         await this.storage.deletePost(uri);
         await this.storage.deleteFeedItem(uri); // Delete corresponding feed item
+
+        // Invalidate post and thread caches
+        await cacheService.invalidatePost(uri);
+        await cacheService.invalidateThread(uri);
         break;
       case 'app.bsky.feed.like': {
         const like = await this.storage.getLike(uri);
@@ -2115,6 +2139,9 @@ export class EventProcessor {
           const follow = await this.storage.getFollow(uri);
           if (follow) {
             await this.storage.deleteFollow(uri, follow.followerDid);
+
+            // Invalidate following list cache for the follower
+            await cacheService.invalidateUserFollowing(follow.followerDid);
           }
         } catch {
           // Fallback: extract followerDid from URI (at://did/collection/rkey)
@@ -2123,6 +2150,9 @@ export class EventProcessor {
             const followerDid = uriParts[0];
             try {
               await this.storage.deleteFollow(uri, followerDid);
+
+              // Invalidate following list cache for the follower
+              await cacheService.invalidateUserFollowing(followerDid);
             } catch (deleteError: any) {
               smartConsole.error(
                 `[EVENT_PROCESSOR] Error deleting follow ${uri}:`,
@@ -2132,15 +2162,36 @@ export class EventProcessor {
           }
         }
         break;
-      case 'app.bsky.graph.block':
+      case 'app.bsky.graph.block': {
+        // Extract blockerDid from URI (at://did/collection/rkey)
+        const uriParts = uri.replace('at://', '').split('/');
+        const blockerDid = uriParts.length >= 1 ? uriParts[0] : null;
+
         await this.storage.deleteBlock(uri);
+
+        // Invalidate viewer relationships cache for the blocker
+        if (blockerDid) {
+          await cacheService.invalidateViewerRelationships(blockerDid);
+        }
         break;
+      }
       case 'app.bsky.graph.list':
         await this.storage.deleteList(uri);
         break;
-      case 'app.bsky.graph.listitem':
+      case 'app.bsky.graph.listitem': {
+        // Query the list item to get the listUri before deletion
+        const listItem = await this.storage.db.query.listItems.findFirst({
+          where: this.storage.eq(this.storage.schema.listItems.uri, uri),
+        });
+
         await this.storage.deleteListItem(uri);
+
+        // Invalidate list members cache for this list
+        if (listItem?.listUri) {
+          await cacheService.invalidateListMembers(listItem.listUri);
+        }
         break;
+      }
       case 'app.bsky.feed.generator':
         await this.storage.deleteFeedGenerator(uri);
         break;
@@ -2156,13 +2207,22 @@ export class EventProcessor {
       case 'app.bsky.feed.postgate':
         await this.storage.deletePostGate(uri);
         break;
-      case 'app.bsky.feed.threadgate':
-        // Thread gates are stored as metadata on posts, not in a separate table
-        // The hasThreadGate flag on posts will be updated when the post is re-indexed
+      case 'app.bsky.feed.threadgate': {
+        // Extract the post URI from the thread gate URI
+        const postUri = uri.replace('/app.bsky.feed.threadgate/', '/app.bsky.feed.post/');
+
+        // Delete thread gate record
+        await this.storage.db.delete(this.storage.schema.threadGates)
+          .where(this.storage.eq(this.storage.schema.threadGates.postUri, postUri));
+
+        // Invalidate thread gate cache for this post
+        await cacheService.invalidateThreadGate(postUri);
+
         smartConsole.log(
-          `[EVENT_PROCESSOR] Thread gate deletion requested for ${uri} - handled via post metadata`
+          `[EVENT_PROCESSOR] Thread gate deleted for ${uri} (post: ${postUri})`
         );
         break;
+      }
       case 'app.bsky.graph.listblock':
         await this.storage.deleteListBlock(uri);
         break;
@@ -2196,12 +2256,51 @@ export class EventProcessor {
   private async processThreadGate(
     uri: string,
     _cid: string,
-    _repo: string,
-    _record: any
+    repo: string,
+    record: any
   ) {
-    // Thread gates are typically stored as metadata on posts
-    // For now, we'll just log them as they're not critical for basic functionality
-    smartConsole.log(`[EVENT_PROCESSOR] Thread gate processed: ${uri}`);
+    try {
+      // Thread gate URI format: at://did:plc:xxx/app.bsky.feed.threadgate/rkey
+      // The post URI is: at://did:plc:xxx/app.bsky.feed.post/rkey
+      // Extract the post URI from the thread gate URI
+      const postUri = uri.replace('/app.bsky.feed.threadgate/', '/app.bsky.feed.post/');
+
+      // Extract rules from the thread gate record
+      const allowMentions = record.allow?.some((rule: any) => rule.$type === 'app.bsky.feed.threadgate#mentionRule') || false;
+      const allowFollowing = record.allow?.some((rule: any) => rule.$type === 'app.bsky.feed.threadgate#followingRule') || false;
+      const listRules = record.allow?.filter((rule: any) => rule.$type === 'app.bsky.feed.threadgate#listRule') || [];
+      const allowListMembers = listRules.length > 0;
+      const allowListUris = listRules.map((rule: any) => rule.list);
+
+      // Store thread gate in database
+      await this.storage.db.insert(this.storage.schema.threadGates)
+        .values({
+          postUri,
+          ownerDid: repo,
+          allowMentions,
+          allowFollowing,
+          allowListMembers,
+          allowListUris: allowListUris.length > 0 ? allowListUris : [],
+          createdAt: this.safeDate(record.createdAt),
+        })
+        .onConflictDoUpdate({
+          target: this.storage.schema.threadGates.postUri,
+          set: {
+            allowMentions,
+            allowFollowing,
+            allowListMembers,
+            allowListUris: allowListUris.length > 0 ? allowListUris : [],
+            createdAt: this.safeDate(record.createdAt),
+          },
+        });
+
+      // Invalidate thread gate cache for this post
+      await cacheService.invalidateThreadGate(postUri);
+
+      smartConsole.log(`[EVENT_PROCESSOR] Thread gate processed: ${uri} for post ${postUri}`);
+    } catch (error) {
+      smartConsole.error(`[EVENT_PROCESSOR] Error processing thread gate ${uri}:`, error);
+    }
   }
 
   /**
