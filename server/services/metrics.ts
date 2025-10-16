@@ -45,10 +45,16 @@ export class MetricsService {
   private previousCpuTimes: NodeJS.CpuUsage | null = null;
   private previousCpuTimestamp: number = Date.now();
 
-  // Network tracking
+  // Network tracking with rolling window for better accuracy
   private networkBytesReceived = 0;
   private networkBytesSent = 0;
   private previousNetworkTime = Date.now();
+  private networkHistory: Array<{
+    timestamp: number;
+    received: number;
+    sent: number;
+  }> = [];
+  private readonly NETWORK_WINDOW = 10000; // 10 second rolling window
 
   // 24-hour activity tracking (store events by minute for smooth chart)
   private activityHistory: Array<{
@@ -263,8 +269,22 @@ export class MetricsService {
   }
 
   trackNetworkBytes(received: number, sent: number) {
+    const now = Date.now();
     this.networkBytesReceived += received;
     this.networkBytesSent += sent;
+
+    // Add to rolling history
+    this.networkHistory.push({
+      timestamp: now,
+      received,
+      sent,
+    });
+
+    // Clean old entries outside the window
+    const cutoff = now - this.NETWORK_WINDOW;
+    this.networkHistory = this.networkHistory.filter(
+      (entry) => entry.timestamp > cutoff
+    );
   }
 
   async getSystemHealth(): Promise<SystemHealth> {
@@ -300,24 +320,32 @@ export class MetricsService {
       Math.round((processMemMB / totalMemMB) * 100 * 10)
     ); // Scale up for visibility
 
-    // Network throughput (bytes/sec)
-    const networkTimeDiff = (currentTime - this.previousNetworkTime) / 1000; // seconds
-    const receivedRate =
-      networkTimeDiff > 0
-        ? Math.round(this.networkBytesReceived / networkTimeDiff / 1024)
-        : 0; // KB/s
-    const sentRate =
-      networkTimeDiff > 0
-        ? Math.round(this.networkBytesSent / networkTimeDiff / 1024)
-        : 0; // KB/s
+    // Network throughput using rolling window for better accuracy
+    const cutoff = currentTime - this.NETWORK_WINDOW;
+    const recentBytes = this.networkHistory.filter(
+      (entry) => entry.timestamp > cutoff
+    );
 
-    // Format network string
-    const network = `↓ ${receivedRate} KB/s ↑ ${sentRate} KB/s`;
+    const totalReceived = recentBytes.reduce((sum, entry) => sum + entry.received, 0);
+    const totalSent = recentBytes.reduce((sum, entry) => sum + entry.sent, 0);
 
-    // Reset network counters
-    this.networkBytesReceived = 0;
-    this.networkBytesSent = 0;
-    this.previousNetworkTime = currentTime;
+    // Calculate rate over the window (10 seconds)
+    const windowSeconds = this.NETWORK_WINDOW / 1000;
+    const receivedRate = totalReceived / windowSeconds; // bytes/sec
+    const sentRate = totalSent / windowSeconds; // bytes/sec
+
+    // Format with adaptive units (B/s, KB/s, MB/s)
+    const formatRate = (bytesPerSec: number): string => {
+      if (bytesPerSec >= 1024 * 1024) {
+        return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
+      } else if (bytesPerSec >= 1024) {
+        return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+      } else {
+        return `${Math.round(bytesPerSec)} B/s`;
+      }
+    };
+
+    const network = `↓ ${formatRate(receivedRate)} ↑ ${formatRate(sentRate)}`;
 
     return {
       cpu,
