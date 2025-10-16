@@ -14,7 +14,7 @@ const BATCH_SIZE = 100;
 const CONCURRENT_FETCHES = 10;
 const PDS_HOST = process.env.PDS_HOST || 'https://bsky.network';
 const MIN_MISSING_THRESHOLD = 10; // Only backfill if at least 10 posts are missing
-const BACKFILL_COOLDOWN_HOURS = 24; // Don't re-backfill more than once per day
+const BACKFILL_COOLDOWN_HOURS = 1; // Cooldown before re-running automatic backfill
 
 // Track ongoing backfills to prevent duplicates
 const ongoingBackfills = new Set<string>();
