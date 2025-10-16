@@ -2,6 +2,7 @@ import { db } from '../../db';
 import { posts, users, postAggregations } from '../../../shared/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { VideoUriBuilder } from './video-uri-builder';
+import { multihashToCid } from '../xrpc/utils/serializers';
 
 export interface ResolvedEmbed {
   $type: string;
@@ -419,10 +420,20 @@ export class EmbedResolver {
       | 'banner' = 'feed_thumbnail'
   ): string | undefined {
     if (!blob || !blob.ref) return undefined;
-    const cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
+    let cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
 
     // Check for the string "undefined" which can happen with improper data extraction
     if (!cid || cid === 'undefined') return undefined;
+
+    // Convert multihash to proper CID if needed
+    if (!cid.startsWith('baf')) {
+      const converted = multihashToCid(cid);
+      if (!converted) {
+        console.error(`[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`);
+        return undefined;
+      }
+      cid = converted;
+    }
 
     // Use local image proxy to fetch from Bluesky CDN
     return `/img/${preset}/plain/${did}/${cid}@jpeg`;
@@ -441,8 +452,19 @@ export class EmbedResolver {
     // Check for falsy values and the literal string "undefined"
     if (!cid || cid === 'undefined') return undefined;
 
+    // Convert multihash to proper CID if needed
+    let finalCid = cid;
+    if (!cid.startsWith('baf')) {
+      const converted = multihashToCid(cid);
+      if (!converted) {
+        console.error(`[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`);
+        return undefined;
+      }
+      finalCid = converted;
+    }
+
     // Use local image proxy to fetch from Bluesky CDN
-    return `/img/${preset}/plain/${did}/${cid}@jpeg`;
+    return `/img/${preset}/plain/${did}/${finalCid}@jpeg`;
   }
 
   /**

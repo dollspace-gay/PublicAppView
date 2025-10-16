@@ -1253,20 +1253,20 @@ export class DatabaseStorage implements IStorage {
     const conditions = [eq(likes.userDid, userDid)];
 
     if (cursor) {
-      conditions.push(sql`${likes.indexedAt} < ${cursor}`);
+      conditions.push(sql`${likes.createdAt} < ${cursor}`);
     }
 
     const results = await db
       .select()
       .from(likes)
       .where(and(...conditions))
-      .orderBy(desc(likes.indexedAt))
+      .orderBy(desc(likes.createdAt))
       .limit(limit + 1);
 
     const hasMore = results.length > limit;
     const items = hasMore ? results.slice(0, limit) : results;
     const nextCursor = hasMore
-      ? items[items.length - 1].indexedAt.toISOString()
+      ? items[items.length - 1].createdAt.toISOString()
       : undefined;
 
     return { likes: items, cursor: nextCursor };
