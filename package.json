@@ -58,15 +58,12 @@
     "@skyware/firehose": "^0.5.2",
     "@tanstack/react-query": "^5.60.5",
     "@types/jsonwebtoken": "^9.0.10",
-    "atproto-firehose": "^0.2.2",
-    "build": "^0.1.4",
     "cbor-x": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.7",
-    "csurf": "^1.11.0",
     "dataloader": "^2.2.3",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.39.1",
@@ -143,7 +140,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.6",
     "typescript": "^5.6.3",
-    "vite": "^5.4.20"
+    "vite": "^6.0.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

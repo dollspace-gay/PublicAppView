@@ -9,7 +9,9 @@
       "Bash(npm run check:*)",
       "Bash(npm run lint:fix:*)",
       "Bash(npm run db:generate:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm install)"
     ],
     "deny": [],
     "ask": []
