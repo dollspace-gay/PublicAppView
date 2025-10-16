@@ -15,7 +15,6 @@ import type {
   GetPostsRequest,
   FeedItemRecord,
   PostRecord,
-  ThreadRecord,
   PaginatedResponse,
 } from '../types';
 
@@ -28,7 +27,7 @@ router.post('/getAuthorFeed', async (req, res) => {
   try {
     const {
       actor,
-      filter = 'posts_with_replies',
+      filter: _filter = 'posts_with_replies',
       limit = 50,
       cursor,
     } = req.body as GetAuthorFeedRequest;
@@ -131,7 +130,7 @@ router.post('/getAuthorFeed', async (req, res) => {
  */
 router.post('/getTimeline', async (req, res) => {
   try {
-    const { actor, limit = 50, cursor } = req.body as GetTimelineRequest;
+    const { actor, limit: _limit = 50, cursor: _cursor } = req.body as GetTimelineRequest;
 
     if (!actor) {
       return res.status(400).json({ error: 'actor is required' });

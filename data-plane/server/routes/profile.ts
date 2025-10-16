@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../../../server/db';
-import { users, follows } from '../../../shared/schema';
+import { users } from '../../../shared/schema';
 import { eq, or, sql, ilike, and, desc } from 'drizzle-orm';
 import type {
   GetProfileRequest,

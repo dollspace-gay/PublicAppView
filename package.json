@@ -59,6 +59,7 @@
     "@tanstack/react-query": "^5.60.5",
     "@types/jsonwebtoken": "^9.0.10",
     "atproto-firehose": "^0.2.2",
+    "build": "^0.1.4",
     "cbor-x": "^1.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

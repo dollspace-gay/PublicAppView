@@ -1,12 +1,12 @@
 import type {
-  GetProfileRequest,
-  GetProfilesRequest,
-  SearchActorsRequest,
-  GetAuthorFeedRequest,
-  GetTimelineRequest,
-  GetPostThreadRequest,
-  GetPostRequest,
-  GetPostsRequest,
+  GetProfileRequest as _GetProfileRequest,
+  GetProfilesRequest as _GetProfilesRequest,
+  SearchActorsRequest as _SearchActorsRequest,
+  GetAuthorFeedRequest as _GetAuthorFeedRequest,
+  GetTimelineRequest as _GetTimelineRequest,
+  GetPostThreadRequest as _GetPostThreadRequest,
+  GetPostRequest as _GetPostRequest,
+  GetPostsRequest as _GetPostsRequest,
   ProfileRecord,
   FeedItemRecord,
   PostRecord,
@@ -39,6 +39,7 @@ export class DataPlaneClient {
    */
   private async request<T>(
     endpoint: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     body: any,
     options: { timeout?: number; retries?: number } = {}
   ): Promise<T> {
@@ -175,6 +176,7 @@ export class DataPlaneClient {
 
   // Graph queries (placeholders - to be implemented)
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFollowers(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -182,6 +184,7 @@ export class DataPlaneClient {
     return this.request('/internal/getFollowers', { actor, ...options });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFollows(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -189,10 +192,12 @@ export class DataPlaneClient {
     return this.request('/internal/getFollows', { actor, ...options });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getRelationships(actor: string, others: string[]): Promise<any> {
     return this.request('/internal/getRelationships', { actor, others });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getBlocks(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -200,6 +205,7 @@ export class DataPlaneClient {
     return this.request('/internal/getBlocks', { actor, ...options });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getMutes(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -209,6 +215,7 @@ export class DataPlaneClient {
 
   // Search queries (placeholders)
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async searchPosts(
     query: string,
     options: {
@@ -225,6 +232,7 @@ export class DataPlaneClient {
 
   // Notification queries (placeholders)
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async listNotifications(
     actor: string,
     options: { limit?: number; cursor?: string; seenAt?: string } = {}
@@ -244,10 +252,12 @@ export class DataPlaneClient {
 
   // Feed generator queries (placeholders)
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFeedGenerators(uris: string[]): Promise<any> {
     return this.request('/internal/getFeedGenerators', { uris });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFeedGenerator(feed: string): Promise<any> {
     return this.request('/internal/getFeedGenerator', { feed });
   }
