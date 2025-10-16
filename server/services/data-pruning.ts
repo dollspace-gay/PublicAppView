@@ -7,30 +7,18 @@ export class DataPruningService {
   private pruneInterval: NodeJS.Timeout | null = null;
   private readonly retentionDays: number;
   private readonly PRUNE_CHECK_INTERVAL = 24 * 60 * 60 * 1000; // Run once per day
-  private readonly MIN_RETENTION_DAYS = 7; // Safety: Don't allow pruning data newer than 7 days
   private readonly MAX_DELETION_PER_RUN = 10000; // Safety: Limit deletions per run
 
   constructor() {
     // 0 = keep forever, >0 = prune after X days
     const retentionDaysRaw = parseInt(process.env.DATA_RETENTION_DAYS || '0');
-    let requestedDays =
+    const requestedDays =
       !isNaN(retentionDaysRaw) && retentionDaysRaw >= 0 ? retentionDaysRaw : 0;
 
     if (process.env.DATA_RETENTION_DAYS && isNaN(retentionDaysRaw)) {
       console.warn(
         `[DATA_PRUNING] Invalid DATA_RETENTION_DAYS value "${process.env.DATA_RETENTION_DAYS}" - using default (0)`
       );
-    }
-
-    // Safety check: Enforce minimum retention period
-    if (requestedDays > 0 && requestedDays < this.MIN_RETENTION_DAYS) {
-      console.warn(
-        `[DATA_PRUNING] Safety limit enforced: ${requestedDays} days increased to minimum ${this.MIN_RETENTION_DAYS} days`
-      );
-      logCollector.info(
-        `Data retention too low, enforcing minimum ${this.MIN_RETENTION_DAYS} days`
-      );
-      requestedDays = this.MIN_RETENTION_DAYS;
     }
 
     this.retentionDays = requestedDays;
