@@ -7,7 +7,9 @@
       "Bash(git push)",
       "Bash(npm run lint:*)",
       "Bash(npm run check:*)",
-      "Bash(npm run lint:fix:*)"
+      "Bash(npm run lint:fix:*)",
+      "Bash(npm run db:generate:*)",
+      "Bash(npm run:*)"
     ],
     "deny": [],
     "ask": []

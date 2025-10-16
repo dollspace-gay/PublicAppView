@@ -689,7 +689,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       import('./services/auto-backfill-likes').then(
         ({ autoBackfillLikesService }) => {
           autoBackfillLikesService.checkAndBackfill(did).catch((err) => {
-            console.error('[AUTO_BACKFILL] Error:', err);
+            console.error('[AUTO_BACKFILL_LIKES] Error:', err);
+          });
+        }
+      );
+
+      // Trigger automatic backfill of follows/followers and profiles in background (non-blocking)
+      import('./services/auto-backfill-follows').then(
+        ({ autoBackfillFollowsService }) => {
+          autoBackfillFollowsService.checkAndBackfill(did).catch((err) => {
+            console.error('[AUTO_BACKFILL_FOLLOWS] Error:', err);
           });
         }
       );
@@ -799,7 +808,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       import('./services/auto-backfill-likes').then(
         ({ autoBackfillLikesService }) => {
           autoBackfillLikesService.checkAndBackfill(data.did).catch((err) => {
-            console.error('[AUTO_BACKFILL] Error:', err);
+            console.error('[AUTO_BACKFILL_LIKES] Error:', err);
+          });
+        }
+      );
+
+      // Trigger automatic backfill of follows/followers and profiles in background (non-blocking)
+      import('./services/auto-backfill-follows').then(
+        ({ autoBackfillFollowsService }) => {
+          autoBackfillFollowsService.checkAndBackfill(data.did).catch((err) => {
+            console.error('[AUTO_BACKFILL_FOLLOWS] Error:', err);
           });
         }
       );
@@ -3655,7 +3673,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             autoBackfillLikesService
               .checkAndBackfill(result.data.did)
               .catch((err) => {
-                console.error('[AUTO_BACKFILL] Error:', err);
+                console.error('[AUTO_BACKFILL_LIKES] Error:', err);
+              });
+          }
+        );
+
+        // Trigger automatic backfill of follows/followers and profiles in background (non-blocking)
+        import('./services/auto-backfill-follows').then(
+          ({ autoBackfillFollowsService }) => {
+            autoBackfillFollowsService
+              .checkAndBackfill(result.data.did)
+              .catch((err) => {
+                console.error('[AUTO_BACKFILL_FOLLOWS] Error:', err);
               });
           }
         );
@@ -3740,7 +3769,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               autoBackfillLikesService
                 .checkAndBackfill(result.data.did)
                 .catch((err) => {
-                  console.error('[AUTO_BACKFILL] Error:', err);
+                  console.error('[AUTO_BACKFILL_LIKES] Error:', err);
+                });
+            }
+          );
+
+          // Trigger automatic backfill of follows/followers and profiles in background (non-blocking)
+          import('./services/auto-backfill-follows').then(
+            ({ autoBackfillFollowsService }) => {
+              autoBackfillFollowsService
+                .checkAndBackfill(result.data.did)
+                .catch((err) => {
+                  console.error('[AUTO_BACKFILL_FOLLOWS] Error:', err);
                 });
             }
           );
