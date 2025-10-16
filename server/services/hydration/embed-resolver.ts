@@ -2,7 +2,8 @@ import { db } from '../../db';
 import { posts, users, postAggregations } from '../../../shared/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { VideoUriBuilder } from './video-uri-builder';
-import { multihashToCid } from '../xrpc/utils/serializers';
+import { CID } from 'multiformats/cid';
+import * as Digest from 'multiformats/hashes/digest';
 
 export interface ResolvedEmbed {
   $type: string;
@@ -16,6 +17,44 @@ export class EmbedResolver {
 
   constructor() {
     this.videoUriBuilder = new VideoUriBuilder();
+  }
+
+  /**
+   * Convert raw multihash hex string to proper CID
+   * Handles the avatar/banner CIDs stored as multihashes in the database
+   */
+  private multihashToCid(multihash: string): string | null {
+    try {
+      // If it's already a proper CID (starts with 'baf'), return as-is
+      if (multihash.startsWith('baf')) {
+        return multihash;
+      }
+
+      // Convert hex string to Uint8Array
+      const bytes = new Uint8Array(multihash.length / 2);
+      for (let i = 0; i < multihash.length; i += 2) {
+        bytes[i / 2] = parseInt(multihash.substr(i, 2), 16);
+      }
+
+      // Parse the multihash to get code and digest
+      const code = bytes[0];
+      const digestLength = bytes[1];
+      const digestBytes = bytes.slice(2, 2 + digestLength);
+
+      // Create proper multihash digest
+      const multihashDigest = Digest.create(code, digestBytes);
+
+      // Create CID (version 1, codec 0x55 for raw, multihash)
+      const cidObj = CID.create(1, 0x55, multihashDigest);
+
+      return cidObj.toString();
+    } catch (error) {
+      console.error(
+        `[EMBED_RESOLVER] Error converting multihash: ${multihash}`,
+        error
+      );
+      return null;
+    }
   }
 
   /**
@@ -427,7 +466,7 @@ export class EmbedResolver {
 
     // Convert multihash to proper CID if needed
     if (!cid.startsWith('baf')) {
-      const converted = multihashToCid(cid);
+      const converted = this.multihashToCid(cid);
       if (!converted) {
         console.error(
           `[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`
@@ -457,7 +496,7 @@ export class EmbedResolver {
     // Convert multihash to proper CID if needed
     let finalCid = cid;
     if (!cid.startsWith('baf')) {
-      const converted = multihashToCid(cid);
+      const converted = this.multihashToCid(cid);
       if (!converted) {
         console.error(
           `[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`
