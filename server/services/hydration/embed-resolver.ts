@@ -469,7 +469,32 @@ export class EmbedResolver {
       | 'banner' = 'feed_thumbnail'
   ): string | undefined {
     if (!blob || !blob.ref) return undefined;
-    let cid = typeof blob.ref === 'string' ? blob.ref : blob.ref.$link;
+
+    let cid: string;
+
+    // Handle different blob ref formats
+    if (typeof blob.ref === 'string') {
+      cid = blob.ref;
+    } else if (blob.ref.$link) {
+      cid = blob.ref.$link;
+    } else if (blob.ref.code && blob.ref.bytes) {
+      // Handle Uint8Array serialized as object from database
+      // Convert bytes object to Uint8Array
+      const bytesObj = blob.ref.bytes;
+      const bytesArray = new Uint8Array(Object.keys(bytesObj).map(k => bytesObj[k]));
+
+      try {
+        // Parse the bytes as a CID
+        const cidObj = CID.decode(bytesArray);
+        cid = cidObj.toString();
+      } catch (error) {
+        console.error(`[EMBED_RESOLVER] Failed to decode CID from bytes:`, error);
+        return undefined;
+      }
+    } else {
+      console.error(`[EMBED_RESOLVER] Unknown blob ref format:`, blob.ref);
+      return undefined;
+    }
 
     // Check for the string "undefined" which can happen with improper data extraction
     if (!cid || cid === 'undefined') return undefined;
