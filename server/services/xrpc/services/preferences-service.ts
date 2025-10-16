@@ -43,13 +43,26 @@ export async function getPreferences(
         return res.json({ preferences: [] });
       }
 
-      // Get user's PDS access token from session
-      const { storage } = await import('../../../storage');
-      const session = await storage.getSession(userDid);
+      // Extract the token from the request - for third-party clients (Bluesky app),
+      // they send the PDS token directly. For web UI users, try to get from session.
+      const authHeader = req.headers.authorization;
+      let pdsToken: string | undefined;
 
-      if (!session?.accessToken) {
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        // Client is already sending a PDS token (app password or OAuth token)
+        pdsToken = authHeader.substring(7);
+      } else {
+        // Fallback: try to get PDS token from session (for web UI users)
+        const { storage } = await import('../../../storage');
+        const session = await storage.getSession(userDid);
+        if (session?.accessToken) {
+          pdsToken = session.accessToken;
+        }
+      }
+
+      if (!pdsToken) {
         console.warn(
-          `[PREFERENCES] No valid session/token found for ${userDid}, returning empty preferences`
+          `[PREFERENCES] No PDS token found for ${userDid}, returning empty preferences`
         );
         return res.json({ preferences: [] });
       }
@@ -59,7 +72,7 @@ export async function getPreferences(
         `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
         {
           headers: {
-            Authorization: `Bearer ${session.accessToken}`,
+            Authorization: `Bearer ${pdsToken}`,
             'Content-Type': 'application/json',
           },
         }
@@ -122,14 +135,27 @@ export async function putPreferences(
         });
       }
 
-      // Get user's PDS access token from session
-      const { storage } = await import('../../../storage');
-      const session = await storage.getSession(userDid);
+      // Extract the token from the request - for third-party clients (Bluesky app),
+      // they send the PDS token directly. For web UI users, try to get from session.
+      const authHeader = req.headers.authorization;
+      let pdsToken: string | undefined;
 
-      if (!session?.accessToken) {
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        // Client is already sending a PDS token (app password or OAuth token)
+        pdsToken = authHeader.substring(7);
+      } else {
+        // Fallback: try to get PDS token from session (for web UI users)
+        const { storage } = await import('../../../storage');
+        const session = await storage.getSession(userDid);
+        if (session?.accessToken) {
+          pdsToken = session.accessToken;
+        }
+      }
+
+      if (!pdsToken) {
         return res.status(401).json({
           error: 'AuthMissing',
-          message: 'No valid session found for user',
+          message: 'No PDS token found',
         });
       }
 
@@ -139,7 +165,7 @@ export async function putPreferences(
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${session.accessToken}`,
+            Authorization: `Bearer ${pdsToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
