@@ -247,8 +247,10 @@ export class AutoBackfillLikesService {
                 } catch (error: any) {
                   if (
                     error.status === 404 ||
-                    error.message?.includes('not found')
+                    error.message?.includes('not found') ||
+                    error.message?.includes('Could not locate record')
                   ) {
+                    // Post was deleted, skip silently
                     skippedCount++;
                   } else {
                     console.error(

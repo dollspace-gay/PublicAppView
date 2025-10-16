@@ -276,6 +276,15 @@ export async function getPostThread(
 ): Promise<void> {
   try {
     const params = getPostThreadSchema.parse(req.query);
+
+    // Trigger thread context backfill in background (non-blocking)
+    const { threadContextBackfillService } = await import(
+      '../../thread-context-backfill'
+    );
+    threadContextBackfillService.backfillPostContext(params.uri).catch((err) => {
+      console.error('[THREAD_CONTEXT] Error backfilling context:', err);
+    });
+
     const allThreadPosts = await storage.getPostThread(params.uri);
 
     if (allThreadPosts.length === 0) {

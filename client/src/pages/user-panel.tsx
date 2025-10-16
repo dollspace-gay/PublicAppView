@@ -22,6 +22,7 @@ import {
   LogOut,
   Heart,
   Users,
+  MessageCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -129,6 +130,27 @@ export default function UserPanel() {
       toast({
         title: 'Follows Backfill Failed',
         description: error.message || 'Failed to start follows backfill',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Thread context backfill mutation
+  const backfillThreadContextMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/user/backfill-thread-context', {}),
+    onSuccess: (data) => {
+      toast({
+        title: 'Thread Context Scan Started',
+        description:
+          data.message ||
+          'Scanning for missing thread context in the background...',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Thread Context Scan Failed',
+        description: error.message || 'Failed to start thread context scan',
         variant: 'destructive',
       });
     },
@@ -368,7 +390,7 @@ export default function UserPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 bg-muted/50 rounded-lg space-y-3">
               <div className="flex items-center space-x-2">
                 <Heart className="h-5 w-5 text-pink-500" />
@@ -401,8 +423,7 @@ export default function UserPanel() {
                 <h3 className="font-semibold">Follows & Followers</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Backfill who you follow and who follows you. Discovers followers
-                via Bluesky's public AppView, then fetches records from each PDS.
+                Backfill who you follow and who follows you via Bluesky AppView
               </p>
               <Button
                 onClick={() => backfillFollowsMutation.mutate()}
@@ -416,7 +437,33 @@ export default function UserPanel() {
                 ) : (
                   <>
                     <Users className="h-4 w-4 mr-2" />
-                    Backfill Follows & Followers
+                    Backfill Follows
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+              <div className="flex items-center space-x-2">
+                <MessageCircle className="h-5 w-5 text-green-500" />
+                <h3 className="font-semibold">Thread Context</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Scan and fix missing parent/root posts in conversations
+              </p>
+              <Button
+                onClick={() => backfillThreadContextMutation.mutate()}
+                disabled={backfillThreadContextMutation.isPending}
+                className="w-full"
+                variant="outline"
+                data-testid="button-backfill-thread-context"
+              >
+                {backfillThreadContextMutation.isPending ? (
+                  'Scanning...'
+                ) : (
+                  <>
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Scan Threads
                   </>
                 )}
               </Button>

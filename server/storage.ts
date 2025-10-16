@@ -2223,13 +2223,15 @@ export class DatabaseStorage implements IStorage {
         description: row.description,
         profileRecord: row.profile_record,
         searchVector: null,
-        createdAt: row.created_at,
-        indexedAt: row.indexed_at,
+        createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+        indexedAt: row.indexed_at instanceof Date ? row.indexed_at : new Date(row.indexed_at),
       })
     );
 
     const nextCursor = hasMore
-      ? followers[followers.length - 1].indexedAt.toISOString()
+      ? (followers[followers.length - 1].indexedAt instanceof Date
+          ? followers[followers.length - 1].indexedAt.toISOString()
+          : new Date(followers[followers.length - 1].indexedAt).toISOString())
       : undefined;
 
     return { followers, cursor: nextCursor, count: totalCount };

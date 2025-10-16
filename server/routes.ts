@@ -1314,6 +1314,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Manual thread context backfill trigger
+  app.post(
+    '/api/user/backfill-thread-context',
+    csrfProtection.validateToken,
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.session?.did) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        console.log(
+          `[THREAD_CONTEXT] Manual scan requested by ${req.session.did}`
+        );
+
+        // Send immediate response
+        res.json({
+          success: true,
+          message:
+            'Thread context scan started in the background. This may take several minutes.',
+        });
+
+        // Run backfill in background
+        (async () => {
+          try {
+            const { threadContextBackfillService } = await import(
+              './services/thread-context-backfill'
+            );
+            const result =
+              await threadContextBackfillService.backfillMissingThreadContext();
+            console.log(
+              `[THREAD_CONTEXT] Manual scan complete: checked ${result.checked}, fetched ${result.fetched}`
+            );
+          } catch (error) {
+            console.error('[THREAD_CONTEXT] Error during manual scan:', error);
+          }
+        })();
+      } catch (error) {
+        console.error('[THREAD_CONTEXT] Error starting scan:', error);
+        res.status(500).json({
+          error: 'Failed to start thread context scan',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  );
+
   app.post(
     '/api/user/delete-data',
     deletionLimiter,
