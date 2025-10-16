@@ -57,6 +57,43 @@ export async function listNotifications(
       `[listNotifications] Found ${notificationsList.length} notifications`
     );
 
+    // Collect all reasonSubject URIs (posts being interacted with)
+    const postUris = notificationsList
+      .map((n) => (n as { reasonSubject?: string }).reasonSubject)
+      .filter((uri): uri is string => !!uri);
+
+    if (postUris.length > 0) {
+      // Check which posts exist
+      const existingPosts = await storage.getPosts(postUris);
+      const existingUris = new Set(existingPosts.map((p) => p.uri));
+      const missingUris = postUris.filter((uri) => !existingUris.has(uri));
+
+      if (missingUris.length > 0) {
+        console.log(
+          `[listNotifications] ${missingUris.length} notification posts not in database, triggering backfill`
+        );
+
+        // Trigger background backfill for missing posts
+        import('../../auto-backfill-likes')
+          .then(({ autoBackfillLikesService }) => {
+            autoBackfillLikesService
+              .checkAndBackfill(userDid)
+              .catch((err) =>
+                console.error(
+                  '[listNotifications] Error triggering backfill:',
+                  err
+                )
+              );
+          })
+          .catch((err) =>
+            console.error(
+              '[listNotifications] Error importing backfill:',
+              err
+            )
+          );
+      }
+    }
+
     const authorDids = Array.from(
       new Set(
         notificationsList.map((n) => (n as { authorDid: string }).authorDid)
