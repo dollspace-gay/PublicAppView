@@ -3579,6 +3579,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Trigger automatic backfill of liked posts in background (non-blocking)
+      if (result.data.did) {
+        import('./services/auto-backfill-likes').then(
+          ({ autoBackfillLikesService }) => {
+            autoBackfillLikesService.checkAndBackfill(result.data.did).catch((err) => {
+              console.error('[AUTO_BACKFILL] Error:', err);
+            });
+          }
+        );
+      }
+
       // Return the session data from the PDS
       res.json(result.data);
     } catch (error) {
@@ -3649,6 +3660,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             error: 'AuthenticationFailed',
             message: result.error || 'Failed to refresh session',
           });
+        }
+
+        // Trigger automatic backfill of liked posts in background (non-blocking)
+        if (result.data.did) {
+          import('./services/auto-backfill-likes').then(
+            ({ autoBackfillLikesService }) => {
+              autoBackfillLikesService.checkAndBackfill(result.data.did).catch((err) => {
+                console.error('[AUTO_BACKFILL] Error:', err);
+              });
+            }
+          );
         }
 
         res.json(result.data);
