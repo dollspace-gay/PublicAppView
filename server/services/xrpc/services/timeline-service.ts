@@ -285,6 +285,14 @@ export async function getPostThread(
       console.error('[THREAD_CONTEXT] Error backfilling context:', err);
     });
 
+    // Trigger quote posts backfill in background (non-blocking)
+    const { quotePostsBackfillService } = await import(
+      '../../quote-posts-backfill'
+    );
+    quotePostsBackfillService.fetchQuotesForPost(params.uri).catch((err) => {
+      console.error('[QUOTE_POSTS] Error backfilling quotes:', err);
+    });
+
     const allThreadPosts = await storage.getPostThread(params.uri);
 
     if (allThreadPosts.length === 0) {

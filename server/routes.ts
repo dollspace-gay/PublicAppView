@@ -1361,6 +1361,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Manual quote posts backfill trigger
+  app.post(
+    '/api/user/backfill-quote-posts',
+    csrfProtection.validateToken,
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.session?.did) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        console.log(
+          `[QUOTE_POSTS] Manual scan requested by ${req.session.did}`
+        );
+
+        // Send immediate response
+        res.json({
+          success: true,
+          message:
+            'Quote posts scan started in the background. This may take several minutes.',
+        });
+
+        // Run backfill in background
+        (async () => {
+          try {
+            const { quotePostsBackfillService } = await import(
+              './services/quote-posts-backfill'
+            );
+            const result = await quotePostsBackfillService.backfillQuotePosts();
+            console.log(
+              `[QUOTE_POSTS] Manual scan complete: checked ${result.checked}, found ${result.quotes} quotes, fetched ${result.fetched}`
+            );
+          } catch (error) {
+            console.error('[QUOTE_POSTS] Error during manual scan:', error);
+          }
+        })();
+      } catch (error) {
+        console.error('[QUOTE_POSTS] Error starting scan:', error);
+        res.status(500).json({
+          error: 'Failed to start quote posts scan',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  );
+
   app.post(
     '/api/user/delete-data',
     deletionLimiter,

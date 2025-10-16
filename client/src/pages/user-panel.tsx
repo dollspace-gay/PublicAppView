@@ -23,6 +23,7 @@ import {
   Heart,
   Users,
   MessageCircle,
+  Quote,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -151,6 +152,27 @@ export default function UserPanel() {
       toast({
         title: 'Thread Context Scan Failed',
         description: error.message || 'Failed to start thread context scan',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Quote posts backfill mutation
+  const backfillQuotePostsMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/user/backfill-quote-posts', {}),
+    onSuccess: (data) => {
+      toast({
+        title: 'Quote Posts Scan Started',
+        description:
+          data.message ||
+          'Scanning for quote posts in the background...',
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Quote Posts Scan Failed',
+        description: error.message || 'Failed to start quote posts scan',
         variant: 'destructive',
       });
     },
@@ -390,7 +412,7 @@ export default function UserPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 bg-muted/50 rounded-lg space-y-3">
               <div className="flex items-center space-x-2">
                 <Heart className="h-5 w-5 text-pink-500" />
@@ -464,6 +486,32 @@ export default function UserPanel() {
                   <>
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Scan Threads
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+              <div className="flex items-center space-x-2">
+                <Quote className="h-5 w-5 text-purple-500" />
+                <h3 className="font-semibold">Quote Posts</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Scan and backfill posts that quote existing posts
+              </p>
+              <Button
+                onClick={() => backfillQuotePostsMutation.mutate()}
+                disabled={backfillQuotePostsMutation.isPending}
+                className="w-full"
+                variant="outline"
+                data-testid="button-backfill-quote-posts"
+              >
+                {backfillQuotePostsMutation.isPending ? (
+                  'Scanning...'
+                ) : (
+                  <>
+                    <Quote className="h-4 w-4 mr-2" />
+                    Scan Quotes
                   </>
                 )}
               </Button>
