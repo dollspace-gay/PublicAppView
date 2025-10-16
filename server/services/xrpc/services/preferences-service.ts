@@ -43,12 +43,23 @@ export async function getPreferences(
         return res.json({ preferences: [] });
       }
 
-      // Forward request to user's PDS
+      // Get user's PDS access token from session
+      const { storage } = await import('../../../storage');
+      const session = await storage.getSession(userDid);
+
+      if (!session?.accessToken) {
+        console.warn(
+          `[PREFERENCES] No valid session/token found for ${userDid}, returning empty preferences`
+        );
+        return res.json({ preferences: [] });
+      }
+
+      // Forward request to user's PDS with their PDS token
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
         {
           headers: {
-            Authorization: req.headers.authorization || '',
+            Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
           },
         }
@@ -111,13 +122,24 @@ export async function putPreferences(
         });
       }
 
-      // Forward request to user's PDS (let PDS handle validation)
+      // Get user's PDS access token from session
+      const { storage } = await import('../../../storage');
+      const session = await storage.getSession(userDid);
+
+      if (!session?.accessToken) {
+        return res.status(401).json({
+          error: 'AuthMissing',
+          message: 'No valid session found for user',
+        });
+      }
+
+      // Forward request to user's PDS with their PDS token (let PDS handle validation)
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
         {
           method: 'POST',
           headers: {
-            Authorization: req.headers.authorization || '',
+            Authorization: `Bearer ${session.accessToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
