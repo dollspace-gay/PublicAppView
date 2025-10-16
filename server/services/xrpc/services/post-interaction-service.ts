@@ -259,12 +259,12 @@ export async function getActorLikes(
       // Don't await - let it run in background
       if (missingUris.length > 0) {
         import('../../auto-backfill-likes')
-          .then(({ autoBackfillLikes }) => {
-            // Queue the missing posts for backfill
-            autoBackfillLikes
-              .queueMissingPosts(actorDid, missingUris)
+          .then(({ autoBackfillLikesService }) => {
+            // Trigger check and backfill
+            autoBackfillLikesService
+              .checkAndBackfill(actorDid)
               .catch((err) =>
-                console.error('[getActorLikes] Error queueing backfill:', err)
+                console.error('[getActorLikes] Error triggering backfill:', err)
               );
           })
           .catch((err) =>
