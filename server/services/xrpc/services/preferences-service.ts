@@ -160,6 +160,11 @@ export async function putPreferences(
       }
 
       // Forward request to user's PDS with their PDS token (let PDS handle validation)
+      console.log(
+        `[PREFERENCES] Forwarding putPreferences to ${pdsEndpoint} for ${userDid}`
+      );
+      console.log(`[PREFERENCES] Request body:`, JSON.stringify(body, null, 2));
+
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
         {
