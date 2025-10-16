@@ -252,8 +252,25 @@ export async function getActorLikes(
       const foundUris = new Set(posts.map((p) => p.uri));
       const missingUris = postUris.filter((uri) => !foundUris.has(uri));
       console.log(
-        `[XRPC] getActorLikes: ${missingUris.length} liked posts not yet imported (from other users)`
+        `[getActorLikes] ${missingUris.length} liked posts not in database, attempting to fetch from network`
       );
+
+      // Trigger background fetch for missing posts
+      // Don't await - let it run in background
+      if (missingUris.length > 0) {
+        import('../../auto-backfill-likes')
+          .then(({ autoBackfillLikes }) => {
+            // Queue the missing posts for backfill
+            autoBackfillLikes
+              .queueMissingPosts(actorDid, missingUris)
+              .catch((err) =>
+                console.error('[getActorLikes] Error queueing backfill:', err)
+              );
+          })
+          .catch((err) =>
+            console.error('[getActorLikes] Error importing backfill:', err)
+          );
+      }
     }
 
     // Create map to preserve order from likes and match timestamps
