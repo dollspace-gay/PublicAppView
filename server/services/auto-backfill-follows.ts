@@ -136,13 +136,19 @@ export class AutoBackfillFollowsService {
 
   /**
    * Backfill follow relationships (who user follows and who follows them)
-   * NOTE: We can only backfill who the user follows (outgoing follows) by listing
-   * their repo records. We cannot backfill who follows them (incoming follows) without
-   * scanning the entire network or having that data come through the firehose.
+   *
+   * Part 1: Fetch outgoing follows from user's PDS (proper ATProto)
+   * Part 2: Fetch incoming followers from Bluesky public AppView, then fetch
+   *         the actual follow records from each follower's PDS
    */
   private async backfillFollowRelationships(userDid: string): Promise<void> {
+    const eventProcessor = new EventProcessor(storage);
+    eventProcessor.setSkipPdsFetching(true);
+    eventProcessor.setSkipDataCollectionCheck(true);
+
+    // PART 1: Fetch outgoing follows from user's PDS
+    let followingFetched = 0;
     try {
-      // Resolve the user's DID to find their PDS endpoint
       const { didResolver } = await import('./did-resolver');
       const didDoc = await didResolver.resolveDID(userDid);
 
@@ -150,100 +156,221 @@ export class AutoBackfillFollowsService {
         console.error(
           `[AUTO_BACKFILL_FOLLOWS] Could not resolve DID ${userDid}`
         );
-        return;
-      }
-
-      // Find PDS service endpoint
-      const services = (didDoc as any).service || [];
-      const pdsService = services.find(
-        (s: any) =>
-          s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
-      );
-
-      if (!pdsService?.serviceEndpoint) {
-        console.error(
-          `[AUTO_BACKFILL_FOLLOWS] No PDS endpoint found for ${userDid}`
+      } else {
+        const services = (didDoc as any).service || [];
+        const pdsService = services.find(
+          (s: any) =>
+            s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
         );
-        return;
+
+        if (!pdsService?.serviceEndpoint) {
+          console.error(
+            `[AUTO_BACKFILL_FOLLOWS] No PDS endpoint found for ${userDid}`
+          );
+        } else {
+          const userPdsEndpoint = pdsService.serviceEndpoint;
+          console.log(
+            `[AUTO_BACKFILL_FOLLOWS] Fetching outgoing follows from PDS: ${userPdsEndpoint}`
+          );
+
+          const agent = new AtpAgent({ service: userPdsEndpoint });
+          let cursor: string | undefined;
+
+          do {
+            try {
+              const response = await agent.com.atproto.repo.listRecords({
+                repo: userDid,
+                collection: 'app.bsky.graph.follow',
+                limit: 100,
+                cursor: cursor,
+              });
+
+              console.log(
+                `[AUTO_BACKFILL_FOLLOWS] Found ${response.data.records.length} outgoing follow records`
+              );
+
+              for (const record of response.data.records) {
+                try {
+                  await eventProcessor.processCommit({
+                    repo: userDid,
+                    ops: [
+                      {
+                        action: 'create',
+                        path: `app.bsky.graph.follow/${record.uri.split('/').pop()}`,
+                        cid: record.cid,
+                        record: record.value,
+                      },
+                    ],
+                    time: new Date().toISOString(),
+                    rev: '',
+                  } as any);
+
+                  followingFetched++;
+                } catch (error: any) {
+                  console.error(
+                    `[AUTO_BACKFILL_FOLLOWS] Error processing outgoing follow:`,
+                    error.message
+                  );
+                }
+              }
+
+              cursor = response.data.cursor;
+            } catch (error: any) {
+              console.error(
+                `[AUTO_BACKFILL_FOLLOWS] Error listing follow records:`,
+                error.message || error
+              );
+              break;
+            }
+          } while (cursor);
+        }
       }
 
-      const userPdsEndpoint = pdsService.serviceEndpoint;
       console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Using PDS endpoint: ${userPdsEndpoint}`
+        `[AUTO_BACKFILL_FOLLOWS] Fetched ${followingFetched} outgoing follows`
+      );
+    } catch (error) {
+      console.error(
+        `[AUTO_BACKFILL_FOLLOWS] Error backfilling outgoing follows:`,
+        error
+      );
+    }
+
+    // PART 2: Fetch incoming followers via Bluesky public AppView
+    let followersFetched = 0;
+    try {
+      const bskyAppView = 'https://public.api.bsky.app';
+      console.log(
+        `[AUTO_BACKFILL_FOLLOWS] Fetching followers list from Bluesky AppView: ${bskyAppView}`
       );
 
-      const agent = new AtpAgent({ service: userPdsEndpoint });
-      const eventProcessor = new EventProcessor(storage);
-      eventProcessor.setSkipPdsFetching(true);
-      eventProcessor.setSkipDataCollectionCheck(true);
-
-      let followingFetched = 0;
-
-      // Fetch who the user follows by listing their follow records
-      console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Listing follow records for ${userDid}`
-      );
+      const bskyAgent = new AtpAgent({ service: bskyAppView });
       let cursor: string | undefined;
+      const followerDids: string[] = [];
+
+      // First, collect all follower DIDs from Bluesky AppView
       do {
         try {
-          const response = await agent.com.atproto.repo.listRecords({
-            repo: userDid,
-            collection: 'app.bsky.graph.follow',
+          const response = await bskyAgent.app.bsky.graph.getFollowers({
+            actor: userDid,
             limit: 100,
             cursor: cursor,
           });
 
           console.log(
-            `[AUTO_BACKFILL_FOLLOWS] Found ${response.data.records.length} follow records in this batch`
+            `[AUTO_BACKFILL_FOLLOWS] Found ${response.data.followers.length} followers in this batch`
           );
 
-          for (const record of response.data.records) {
-            try {
-              // Process the follow record
-              await eventProcessor.processCommit({
-                repo: userDid,
-                ops: [
-                  {
-                    action: 'create',
-                    path: `app.bsky.graph.follow/${record.uri.split('/').pop()}`,
-                    cid: record.cid,
-                    record: record.value,
-                  },
-                ],
-                time: new Date().toISOString(),
-                rev: '',
-              } as any);
-
-              followingFetched++;
-            } catch (error: any) {
-              console.error(
-                `[AUTO_BACKFILL_FOLLOWS] Error processing follow record:`,
-                error.message
-              );
-            }
+          for (const follower of response.data.followers) {
+            followerDids.push(follower.did);
           }
 
           cursor = response.data.cursor;
         } catch (error: any) {
           console.error(
-            `[AUTO_BACKFILL_FOLLOWS] Error listing follow records:`,
+            `[AUTO_BACKFILL_FOLLOWS] Error fetching followers from Bluesky:`,
             error.message || error
           );
-          if (error.status) {
-            console.error(
-              `[AUTO_BACKFILL_FOLLOWS] HTTP Status: ${error.status}`
-            );
-          }
           break;
         }
       } while (cursor);
 
       console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Fetched ${followingFetched} follows from user's PDS`
+        `[AUTO_BACKFILL_FOLLOWS] Found ${followerDids.length} total followers, fetching their follow records...`
       );
 
+      // Now fetch the actual follow records from each follower's PDS
+      const { didResolver } = await import('./did-resolver');
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (let i = 0; i < followerDids.length; i += CONCURRENT_FETCHES) {
+        const batch = followerDids.slice(i, i + CONCURRENT_FETCHES);
+
+        await Promise.all(
+          batch.map(async (followerDid) => {
+            try {
+              // Resolve follower's DID to find their PDS
+              const followerDidDoc = await didResolver.resolveDID(followerDid);
+              if (!followerDidDoc) {
+                failedCount++;
+                return;
+              }
+
+              const services = (followerDidDoc as any).service || [];
+              const pdsService = services.find(
+                (s: any) =>
+                  s.type === 'AtprotoPersonalDataServer' ||
+                  s.id === '#atproto_pds'
+              );
+
+              if (!pdsService?.serviceEndpoint) {
+                failedCount++;
+                return;
+              }
+
+              // List their follow records to find the one pointing to userDid
+              const followerAgent = new AtpAgent({
+                service: pdsService.serviceEndpoint,
+              });
+
+              const records = await followerAgent.com.atproto.repo.listRecords({
+                repo: followerDid,
+                collection: 'app.bsky.graph.follow',
+                limit: 100, // Most users don't have 100+ follows, but we'll paginate if needed
+              });
+
+              // Find the follow record pointing to our user
+              const followRecord = records.data.records.find(
+                (r: any) => r.value?.subject === userDid
+              );
+
+              if (followRecord) {
+                await eventProcessor.processCommit({
+                  repo: followerDid,
+                  ops: [
+                    {
+                      action: 'create',
+                      path: `app.bsky.graph.follow/${followRecord.uri.split('/').pop()}`,
+                      cid: followRecord.cid,
+                      record: followRecord.value,
+                    },
+                  ],
+                  time: new Date().toISOString(),
+                  rev: '',
+                } as any);
+
+                followersFetched++;
+                successCount++;
+              } else {
+                failedCount++;
+              }
+            } catch (error: any) {
+              if (
+                error.status === 404 ||
+                error.message?.includes('not found')
+              ) {
+                // User or record doesn't exist, skip silently
+              } else {
+                console.error(
+                  `[AUTO_BACKFILL_FOLLOWS] Error fetching follow record from ${followerDid}:`,
+                  error.message
+                );
+              }
+              failedCount++;
+            }
+          })
+        );
+
+        if ((i + CONCURRENT_FETCHES) % 100 === 0 || i + CONCURRENT_FETCHES >= followerDids.length) {
+          console.log(
+            `[AUTO_BACKFILL_FOLLOWS] Follower progress: ${successCount}/${followerDids.length} (${failedCount} failed)`
+          );
+        }
+      }
+
       console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Note: Incoming followers can only be discovered through the firehose`
+        `[AUTO_BACKFILL_FOLLOWS] Fetched ${followersFetched} incoming follower records`
       );
     } catch (error) {
       console.error(

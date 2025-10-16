@@ -904,7 +904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // User backfill endpoint (uses repo backfill service)
+  // User backfill endpoint (uses repo backfill service + triggers all other backfills)
   app.post(
     '/api/user/backfill',
     csrfProtection.validateToken,
@@ -917,36 +917,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const { days } = req.body;
         const backfillDays = parseInt(days || '0');
+        const userDid = req.session.did;
 
-        // Import the repo backfill service
-        const { repoBackfillService } = await import(
-          './services/repo-backfill'
+        console.log(
+          `[USER_BACKFILL] Starting comprehensive backfill for ${userDid}`
         );
 
-        // Start backfill for the user's repo
-        await repoBackfillService.backfillSingleRepo(
-          req.session.did,
-          backfillDays
-        );
-
-        // Update user settings with last backfill time
-        await db
-          .insert(userSettings)
-          .values({
-            userDid: req.session.did,
-            lastBackfillAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: userSettings.userDid,
-            set: {
-              lastBackfillAt: new Date(),
-            },
-          });
-
+        // Send immediate response - backfills will run in background
         res.json({
           success: true,
-          message: `Started backfilling ${backfillDays === 0 ? 'all' : backfillDays + ' days of'} data from your PDS`,
+          message: `Started comprehensive backfill: repo data${backfillDays === 0 ? '' : ` (${backfillDays} days)`}, likes, follows, followers, feed subscriptions, and notifications`,
         });
+
+        // Run all backfills in background (non-blocking)
+        (async () => {
+          try {
+            // Import all backfill services
+            const { repoBackfillService } = await import(
+              './services/repo-backfill'
+            );
+            const { autoBackfillLikesService } = await import(
+              './services/auto-backfill-likes'
+            );
+            const { autoBackfillFollowsService } = await import(
+              './services/auto-backfill-follows'
+            );
+            const { autoBackfillFeedsService } = await import(
+              './services/auto-backfill-feeds'
+            );
+            const { autoBackfillNotificationsService } = await import(
+              './services/auto-backfill-notifications'
+            );
+
+            // 1. Start repo backfill (CAR file style - posts, likes, reposts, etc.)
+            console.log(`[USER_BACKFILL] Starting repo backfill...`);
+            await repoBackfillService.backfillSingleRepo(userDid, backfillDays);
+
+            // 2. Trigger likes backfill (fetch missing liked posts)
+            console.log(`[USER_BACKFILL] Starting likes backfill...`);
+            await autoBackfillLikesService.forceBackfill(userDid);
+
+            // 3. Trigger follows/followers backfill
+            console.log(`[USER_BACKFILL] Starting follows/followers backfill...`);
+            await autoBackfillFollowsService.forceBackfill(userDid);
+
+            // 4. Trigger feed subscriptions backfill
+            console.log(`[USER_BACKFILL] Starting feed subscriptions backfill...`);
+            await autoBackfillFeedsService.forceBackfill(userDid);
+
+            // 5. Trigger notifications backfill
+            console.log(`[USER_BACKFILL] Starting notifications backfill...`);
+            await autoBackfillNotificationsService.forceBackfill(userDid);
+
+            // Update user settings with last backfill time
+            await db
+              .insert(userSettings)
+              .values({
+                userDid,
+                lastBackfillAt: new Date(),
+              })
+              .onConflictDoUpdate({
+                target: userSettings.userDid,
+                set: {
+                  lastBackfillAt: new Date(),
+                },
+              });
+
+            console.log(
+              `[USER_BACKFILL] Comprehensive backfill complete for ${userDid}`
+            );
+          } catch (error) {
+            console.error(
+              `[USER_BACKFILL] Error during background backfill:`,
+              error
+            );
+          }
+        })();
       } catch (error) {
         console.error('[USER_BACKFILL] Error starting backfill:', error);
         res.status(500).json({

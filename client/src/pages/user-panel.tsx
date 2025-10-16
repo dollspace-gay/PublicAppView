@@ -300,8 +300,8 @@ export default function UserPanel() {
             <CardTitle>Backfill Your Data</CardTitle>
           </div>
           <CardDescription>
-            Import your historical posts and interactions from your Personal
-            Data Server
+            Comprehensive backfill: repo data, likes, follows, followers, feed
+            subscriptions, and notifications
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -401,7 +401,8 @@ export default function UserPanel() {
                 <h3 className="font-semibold">Follows & Followers</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Backfill your follows, followers, and their profiles
+                Backfill who you follow and who follows you. Discovers followers
+                via Bluesky's public AppView, then fetches records from each PDS.
               </p>
               <Button
                 onClick={() => backfillFollowsMutation.mutate()}
@@ -415,7 +416,7 @@ export default function UserPanel() {
                 ) : (
                   <>
                     <Users className="h-4 w-4 mr-2" />
-                    Backfill Follows
+                    Backfill Follows & Followers
                   </>
                 )}
               </Button>
