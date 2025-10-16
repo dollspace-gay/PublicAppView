@@ -86,27 +86,6 @@ The Docker Compose setup includes:
 3. Enter your Bluesky handle and app password
 4. Start exploring your personalized Aurora Prism! ✨
 
-## 📦 Manual Installation
-
-If you prefer not to use Docker:
-
-```bash
-# Prerequisites: PostgreSQL, Redis, Node.js 20+
-
-# 1. Install dependencies
-npm install
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env with your DATABASE_URL, REDIS_URL, SESSION_SECRET
-
-# 3. Initialize database
-npm run db:push
-
-# 4. Start server
-npm run dev
-```
-
 ## 🔧 Configuration
 
 ### Environment Variables
