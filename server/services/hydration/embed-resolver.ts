@@ -67,6 +67,7 @@ export class EmbedResolver {
     visited = new Set<string>(),
     dataLoader?: any
   ): Promise<Map<string, ResolvedEmbed | null>> {
+    console.log(`[EMBED_RESOLVER] Resolving embeds for ${postUris.length} posts at depth ${depth}`);
     if (depth >= this.MAX_DEPTH || postUris.length === 0) {
       return new Map();
     }
@@ -164,7 +165,9 @@ export class EmbedResolver {
         }
       } else if (embed.$type === 'app.bsky.embed.images') {
         // Images
+        console.log(`[EMBED_RESOLVER] Resolving images embed for ${post.uri}`);
         resolved = this.resolveImagesEmbed(embed, post.authorDid);
+        console.log(`[EMBED_RESOLVER] Resolved images:`, resolved);
       } else if (embed.$type === 'app.bsky.embed.external') {
         // External link
         resolved = this.resolveExternalEmbed(embed, post.authorDid);
@@ -358,10 +361,12 @@ export class EmbedResolver {
   }
 
   private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
-    return {
+    console.log(`[EMBED_RESOLVER] resolveImagesEmbed called with:`, JSON.stringify(embed).substring(0, 200));
+    const result = {
       $type: 'app.bsky.embed.images#view',
       images: (embed.images || [])
         .map((img: any) => {
+          console.log(`[EMBED_RESOLVER] Processing image:`, JSON.stringify(img).substring(0, 150));
           const thumb = this.blobToCdnUrl(
             img.image,
             authorDid,
@@ -373,8 +378,11 @@ export class EmbedResolver {
             'feed_fullsize'
           );
 
+          console.log(`[EMBED_RESOLVER] Blob URLs - thumb: ${thumb}, fullsize: ${fullsize}`);
+
           // Only include images with valid URLs
           if (!thumb || !fullsize) {
+            console.log(`[EMBED_RESOLVER] Skipping image - invalid URLs`);
             return null;
           }
 
@@ -387,6 +395,8 @@ export class EmbedResolver {
         })
         .filter((img: any) => img !== null), // Filter out null entries
     };
+    console.log(`[EMBED_RESOLVER] Final result has ${result.images.length} images`);
+    return result;
   }
 
   private resolveExternalEmbed(embed: any, authorDid: string): ResolvedEmbed {
