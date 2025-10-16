@@ -19,8 +19,10 @@ import type {
   InsertFeedItem,
   InsertVerification,
 } from '@shared/schema';
+import { threadGates } from '@shared/schema';
 import { CID } from 'multiformats/cid';
 import * as Digest from 'multiformats/hashes/digest';
+import { eq } from 'drizzle-orm';
 
 function sanitizeText(text: string | undefined | null): string | undefined {
   if (!text) return undefined;
@@ -2237,8 +2239,8 @@ export class EventProcessor {
         const postUri = uri.replace('/app.bsky.feed.threadgate/', '/app.bsky.feed.post/');
 
         // Delete thread gate record
-        await this.storage.db.delete(this.storage.schema.threadGates)
-          .where(this.storage.eq(this.storage.schema.threadGates.postUri, postUri));
+        await this.storage.db.delete(threadGates)
+          .where(eq(threadGates.postUri, postUri));
 
         // Invalidate thread gate cache for this post
         await cacheService.invalidateThreadGate(postUri);
@@ -2298,7 +2300,7 @@ export class EventProcessor {
       const allowListUris = listRules.map((rule: any) => rule.list);
 
       // Store thread gate in database
-      await this.storage.db.insert(this.storage.schema.threadGates)
+      await this.storage.db.insert(threadGates)
         .values({
           postUri,
           ownerDid: repo,
@@ -2309,7 +2311,7 @@ export class EventProcessor {
           createdAt: this.safeDate(record.createdAt),
         })
         .onConflictDoUpdate({
-          target: this.storage.schema.threadGates.postUri,
+          target: threadGates.postUri,
           set: {
             allowMentions,
             allowFollowing,
