@@ -1,336 +1,281 @@
-# AT Protocol App View
+# Aurora Prism 🌈✨
 
-A production-ready, self-hostable AT Protocol "App View" service that indexes real-time data from the Bluesky network firehose and provides a fully Bluesky-compatible XRPC API.
+**A cyberpunk-themed, self-hostable AT Protocol AppView with aurora-inspired aesthetics**
 
-## Features
+Aurora Prism is a production-ready AT Protocol "App View" service that indexes real-time data from the Bluesky network and provides a fully Bluesky-compatible XRPC API with a stunning cyberpunk dashboard.
 
-### Core Infrastructure
-- **Real-time Firehose Ingestion**: Connects to AT Protocol relay (wss://bsky.network) and processes CBOR-encoded events (#commit, #identity, #account)
-- **Cursor Persistence**: Automatic position tracking with database persistence enables restart recovery with minimal data loss (max 5 seconds)
-- **PostgreSQL Database**: Optimized schema with 28+ tables including users, posts, likes, reposts, follows, blocks, mutes, feed generators, and more
-- **Lexicon Validation**: Zod-based validation for all 8 AT Protocol record types (post, like, repost, generator, profile, follow, block, starterpack)
+## ✨ Features
 
-### Complete XRPC API (52 Endpoints)
-- **Feed APIs** (16/16): Timeline, author feeds, post threads, likes, quotes, search, feed generators
-- **Actor/Profile APIs** (7/7): Profiles, suggestions, search, preferences
-- **Graph APIs** (18/18): Follows, followers, blocks, mutes, lists, relationships, starter packs
-- **Notification APIs** (5/5): List notifications, unread count, push subscriptions
-- **Video APIs** (2/2): Job status, upload limits
-- **Moderation APIs** (2/2): Labels, reports
-- **Labeler APIs** (1/1): Labeler services
+### 🎨 Aurora Stack Theme
+- **Cyberpunk Aesthetics**: Deep space blue (#0D1117) with vibrant neon accents
+- **Aurora Glow Effects**: Glowing buttons, cards, and interactive elements
+- **Prism Gradients**: Teal → Green → Purple color palette throughout
+- **Live Animations**: Pulsing indicators, shimmer effects, and aurora waves
 
-### Advanced Features
-- **Full-Text Search**: PostgreSQL-powered search with GIN indexes, automatic tsvector updates, Unicode support
-- **Feed Algorithm System**: Reverse-chronological, engagement, and discovery ranking with user preferences
-- **Feed Generator Integration**: AT Protocol-compliant integration with DID resolution, JWT authentication, skeleton fetching
-- **Content Filtering**: Keyword-based filtering and user muting applied to all feed endpoints
-- **OAuth 2.0 Authentication**: AT Protocol-compliant with DID verification, token encryption (AES-256-GCM), automatic refresh
-- **PDS Write Proxy**: All write operations proxied to user's PDS with rollback mechanisms
+### 🚀 Core Infrastructure
+- **Real-time Firehose**: Connects to AT Protocol relay (wss://bsky.network)
+- **PostgreSQL Database**: 28+ optimized tables for posts, likes, follows, and more
+- **Smart Data Protection**: User-backfilled data is never pruned
+- **Full XRPC API**: 52 Bluesky-compatible endpoints
 
-### Monitoring Dashboard
-- **Real-time Metrics**: Events processed, DB records, API requests per minute
-- **Dynamic Database Schema**: Auto-introspects all 28+ tables with columns, types, indexes, and row counts
-- **Dynamic Lexicon Validator**: Displays all 8 supported AT Protocol lexicons
-- **System Health**: CPU, memory, disk usage, network status
-- **Firehose Status**: Connection state, cursor position, event counts
-- **API Documentation**: Live endpoint listing with performance metrics
+### 🔐 Advanced Features
+- **OAuth 2.0 Authentication**: Secure login with DID verification
+- **Full-Text Search**: PostgreSQL-powered with GIN indexes
+- **Feed Algorithms**: Reverse-chronological, engagement, and discovery ranking
+- **Content Filtering**: Keyword filtering and user muting
+- **Write Proxy**: All write operations proxied to user's PDS
+
+### 📊 Monitoring Dashboard
+- **Real-time Metrics**: Events/min, DB stats, API performance
+- **System Health**: CPU, memory, disk, network status
+- **Dynamic Schema**: Auto-introspecting database viewer
+- **API Documentation**: Live endpoint listing with metrics
 - **Logs & Analytics**: Real-time log viewer with filtering
 
-## Design Philosophy: Scale Down, Not Just Up
+## 🎯 Design Philosophy: Your Data, Your Control
 
-**True decentralization means scaling to fit your needs - whether that's a personal instance or a full network mirror.**
+**True decentralization means you control what you keep.**
 
-Most current AppViews default to mirroring everything, but this creates centralized liability risks. This AppView takes a different approach with **configurable retention and backfill**:
+Aurora Prism protects user-backfilled data while pruning random firehose noise:
 
-### Why Configurable Retention Matters
+- ✅ **Protected Forever**: Your posts, likes, follows, and everyone you follow
+- ✅ **Smart Backfill**: Thread context, quote posts, notifications
+- ✅ **Configurable Retention**: Only prune content from users who never logged in
+- ✅ **Privacy by Design**: You can't be forced to hand over data you never stored
 
-- **Personal Instances**: Run an instance with just your circles' data (days or weeks, not years)
-- **Topical Communities**: A gaming community keeps 90 days of game-related posts, a news instance keeps 30
-- **Privacy by Design**: Data minimization isn't just good practice - you can't be compelled to hand over data you never stored
-- **Technical Defense**: Against authoritarian data seizure or legal overreach, the best defense is not having the data
+## 🚀 Quick Start
 
-### Flexible Deployment Models
+### Docker Installation (Recommended)
 
-Configure `BACKFILL_DAYS` and `DATA_RETENTION_DAYS` to match your use case:
+**Prerequisites:**
+- Docker and Docker Compose installed
+- A domain (optional, for `did:web` identifier)
 
-- **Zero-retention ephemeral** (0 days): Real-time only, no history
-- **Personal/community** (7-30 days): Recent activity for small groups  
-- **Topical archive** (90-180 days): Focused collections
-- **Full mirror** (0 = unlimited): Complete network history
+**Installation Steps:**
 
-This isn't about choosing between centralized or decentralized - it's about **enabling distributed operation at any scale**. Run what you need, store what you want, minimize what you don't.
-
-## Quick Start
-
-### Prerequisites
-- PostgreSQL database
-- Redis (for caching and metrics)
-- Node.js 20+
-- (Optional) Domain for `did:web` identifier
-
-### Setup
-
-1. **Clone and Install**
 ```bash
-git clone <your-repo> PublicAppView
-cd PublicAppView
+# 1. Clone the repository
+git clone https://github.com/yourusername/aurora-prism.git
+cd aurora-prism
+
+# 2. Generate OAuth keys
+./oauth-keyset-json.sh
+
+# 3. Setup DID and keys
+./setup-did-and-keys.sh
+
+# 4. Start all services
+sudo docker-compose up --build -d
+```
+
+That's it! 🎉 Aurora Prism will be running at `http://localhost:5000`
+
+### What Gets Setup
+
+The Docker Compose setup includes:
+- **PostgreSQL 14**: Database with production tuning (5000 max connections)
+- **Redis 7**: Caching and metrics (8GB memory, LRU eviction)
+- **Aurora Prism**: The AppView with dashboard and API
+- **Automatic Migrations**: Database schema created on startup
+- **Health Checks**: All services monitored
+
+### First Login
+
+1. Navigate to `http://localhost:5000`
+2. Click "Login" in the sidebar
+3. Enter your Bluesky handle and app password
+4. Start exploring your personalized Aurora Prism! ✨
+
+## 📦 Manual Installation
+
+If you prefer not to use Docker:
+
+```bash
+# Prerequisites: PostgreSQL, Redis, Node.js 20+
+
+# 1. Install dependencies
 npm install
-```
 
-2. **Configure Environment**
-```bash
+# 2. Configure environment
 cp .env.example .env
-# Edit .env with your DATABASE_URL and SESSION_SECRET
-```
+# Edit .env with your DATABASE_URL, REDIS_URL, SESSION_SECRET
 
-3. **Initialize Database**
-```bash
+# 3. Initialize database
 npm run db:push
-```
 
-4. **Start the Server**
-```bash
+# 4. Start server
 npm run dev
 ```
 
-The server starts on port 5000 with the dashboard at http://localhost:5000
+## 🔧 Configuration
 
-## Docker Installation
+### Environment Variables
 
-### Building the Docker Image
-
-The Dockerfile is already included in the repository. It uses a multi-stage build with:
-- Node.js 20-slim base image
-- PM2 cluster mode for multi-worker deployment
-- Automatic database migrations on startup
-- Health checks and production optimizations
-
-**Build the Image**
-```bash
-# Build all services (use --no-cache for clean build)
-sudo docker-compose build --no-cache
-
-# Or build without cache flag
-sudo docker-compose build
-```
-
-### Running with Docker
-
-**Basic Run (requires external PostgreSQL and Redis)**
-```bash
-docker run -d \
-  --name at-protocol-appview \
-  -p 5000:5000 \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/dbname" \
-  -e REDIS_URL="redis://host:6379" \
-  -e SESSION_SECRET="your-secure-secret" \
-  -e NODE_ENV="production" \
-  at-protocol-appview
-```
-
-**With Docker Compose (Recommended)**
-
-A complete `docker-compose.yml` is included in the repository with:
-- **Redis** service (in-memory caching and metrics)
-- **PostgreSQL** service (database with production tuning)
-- **App** service (AppView with all dependencies)
-
-Start all services:
-```bash
-docker-compose up -d
-```
-
-The docker-compose setup includes:
-- PostgreSQL 14 with 5000 max connections and 20GB shared buffers
-- Redis 7 with 8GB memory and LRU eviction
-- Health checks for all services
-- Automatic dependency ordering
-- Volume persistence for database
-
-### Monitoring Docker Services
-
-**View Service Status**
-```bash
-# Check all services
-docker-compose ps
-
-# View detailed service info
-docker-compose logs
-
-# Check resource usage
-docker stats
-```
-
-**View Logs**
-```bash
-# Follow all logs in real-time
-docker-compose logs -f
-
-# Follow specific service logs
-docker-compose logs -f app
-docker-compose logs -f db
-docker-compose logs -f redis
-
-# View last 100 lines
-docker-compose logs --tail 100 app
-
-# Or use container names directly
-docker logs -f publicappview-app-1
-docker logs --tail 100 publicappview-db-1
-```
-
-**Health Checks**
-```bash
-# Check service health
-docker-compose ps
-
-# Manual health check
-curl http://localhost:5000/health
-curl http://localhost:5000/ready
-
-# View health status
-docker inspect --format='{{.State.Health.Status}}' publicappview-app-1
-```
-
-**Performance Monitoring**
-```bash
-# Real-time stats (all services)
-docker stats
-
-# Specific containers
-docker stats publicappview-app-1 publicappview-db-1 publicappview-redis-1
-```
-
-**Service Management**
-```bash
-# Stop all services
-docker-compose stop
-
-# Start all services
-docker-compose start
-
-# Restart all services
-docker-compose restart
-
-# Restart specific service
-docker-compose restart app
-
-# Remove all services
-docker-compose down
-
-# Remove with volumes (WARNING: deletes data)
-docker-compose down -v
-```
-
-**Entering the Container**
-```bash
-# Open shell in app container
-docker-compose exec app sh
-
-# Run commands in container
-docker-compose exec app npm run db:push
-
-# Or use container name directly (note: Docker Compose uses directory name as prefix)
-docker exec -it publicappview-app-1 sh
-```
-
-**Note:** Docker Compose creates container names using the pattern `{directory-name}-{service-name}-{number}`. Since this repo is cloned to `PublicAppView`, the actual container names are:
-- `publicappview-app-1` (main AppView service)
-- `publicappview-db-1` (PostgreSQL database)
-- `publicappview-redis-1` (Redis cache)
-
-## Environment Variables
-
-### Required
+**Required:**
 - `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string (default: `redis://localhost:6379`)
-- `SESSION_SECRET`: JWT secret (generate with `openssl rand -base64 32`)
+- `REDIS_URL`: Redis connection string
+- `SESSION_SECRET`: Generate with `openssl rand -base64 32`
 
-### Optional
-- `RELAY_URL`: AT Protocol relay URL (default: `wss://bsky.network`)
-- `APPVIEW_DID`: DID for this AppView instance (default: `did:web:appview.local`)
+**Optional:**
+- `RELAY_URL`: AT Protocol relay (default: `wss://bsky.network`)
+- `APPVIEW_DID`: Your AppView's DID (default: `did:web:localhost`)
+- `APPVIEW_HOSTNAME`: Your domain name
 - `PORT`: Server port (default: `5000`)
-- `NODE_ENV`: Environment mode (`development` or `production`)
-- `BACKFILL_DAYS`: Historical backfill in days (0=disabled, -1=all history, >0=backfill X days, default: `0`)
-  - **NEW**: Python backfill now runs automatically when enabled! See [QUICKSTART-BACKFILL.md](./QUICKSTART-BACKFILL.md)
-  - Advanced configuration: [.env.backfill.example](./.env.backfill.example) and [Python Backfill Docs](./python-firehose/README.backfill.md)
-- `DATA_RETENTION_DAYS`: Auto-prune old data (0=keep forever, >0=prune after X days, default: `0`)
-- `DB_POOL_SIZE`: Database connection pool size (default: `32`)
-- `MAX_CONCURRENT_OPS`: Max concurrent event processing (default: `80`)
+- `DATA_RETENTION_DAYS`: Prune old unprotected data (0=keep forever, >0=prune after X days)
+- `BACKFILL_DAYS`: Historical backfill on startup (0=disabled, >0=X days back)
 
-## Production Deployment
+### Data Protection
 
-### Health & Monitoring
-- **Health Check**: `GET /health` - Basic liveness probe
-- **Readiness Check**: `GET /ready` - Comprehensive readiness probe (firehose, DB, memory)
-- **Service Discovery**: `GET /xrpc/com.atproto.server.describeServer` - AT Protocol metadata
+Aurora Prism automatically protects:
+- ✅ All users who have ever logged in
+- ✅ All users they follow
+- ✅ All content from protected users (posts, likes, reposts)
+- ✅ All notifications for protected users
 
-### Recommended Configuration
+Only content from users who **never** logged in and are **not** followed gets pruned.
+
+## 🐳 Docker Commands
+
+### Service Management
+
 ```bash
-# Environment
-NODE_ENV=production
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-SESSION_SECRET=<secure-random-secret>
-APPVIEW_DID=did:web:your-domain.com
+# View status
+sudo docker-compose ps
 
-# Resources
-# - Memory: 2+ GB
-# - CPU: 2+ cores
-# - Disk: 100+ GB (grows with firehose data)
+# View logs
+sudo docker-compose logs -f
+
+# Restart services
+sudo docker-compose restart
+
+# Stop services
+sudo docker-compose stop
+
+# Stop and remove (keeps data)
+sudo docker-compose down
+
+# Stop and remove everything (WARNING: deletes data!)
+sudo docker-compose down -v
 ```
 
-### Container Orchestration
-- **Liveness Probe**: `GET /health` (interval: 10s, timeout: 5s)
-- **Readiness Probe**: `GET /ready` (interval: 5s, timeout: 3s, failure threshold: 3)
-- **Resource Limits**: `memory: 2Gi`, `cpu: 1000m` (adjust based on load)
-
-**Note**: Not horizontally scalable - use single-instance deployment with failover
-
-## Architecture
-
-### Event Processing Pipeline
-1. **Firehose Client** connects to AT Protocol relay
-2. **Event Processor** parses CBOR events and validates against Lexicon schemas
-3. **Storage Layer** persists data to PostgreSQL with optimized indexing
-4. **XRPC API** serves data through Bluesky-compatible endpoints
-5. **Cursor Service** tracks position for restart recovery
-
-### Database Schema
-- 28+ tables with optimized indexing
-- Full-text search indexes (GIN) on tsvector columns
-- Composite cursor pagination support
-- Dynamic schema introspection for dashboard
-
-### Authentication Flow
-1. User authenticates with AT Protocol PDS
-2. AppView verifies DID and PDS endpoint
-3. Session created with encrypted tokens
-4. Automatic token refresh on expiry
-5. Write operations proxied to user's PDS
-
-## API Documentation
-
-Access the interactive API documentation at `/api` in the dashboard, showing:
-- All 52 XRPC endpoints with methods and paths
-- Live performance metrics (avg response time, requests/min, success rate)
-- Endpoint status (active/available)
-
-## Development
+### Container Access
 
 ```bash
-# Install dependencies
-npm install
+# Open shell in Aurora Prism container
+sudo docker-compose exec app sh
 
 # Run database migrations
-npm run db:push
+sudo docker-compose exec app npm run db:push
 
-# Start development server
-npm run dev
-
-# Access dashboard
-open http://localhost:5000
+# View specific service logs
+sudo docker-compose logs -f app
+sudo docker-compose logs -f db
+sudo docker-compose logs -f redis
 ```
 
-## License
+### Health Checks
 
-MIT
+```bash
+# Check service health
+curl http://localhost:5000/health
+
+# Check readiness (firehose, DB, memory)
+curl http://localhost:5000/ready
+
+# View AT Protocol metadata
+curl http://localhost:5000/xrpc/com.atproto.server.describeServer
+```
+
+## 🎨 Aurora Prism Theme
+
+The Aurora Stack theme includes custom CSS classes for cyberpunk effects:
+
+- `.btn-aurora-primary` - Teal glowing button
+- `.btn-aurora-secondary` - Green glowing button
+- `.btn-aurora-accent` - Purple glowing button
+- `.card-aurora` - Card with hover glow
+- `.stat-aurora` - Glowing number display
+- `.heading-aurora` - Gradient text (teal → green → purple)
+- `.pulse-aurora` - Pulsing live indicator
+- `.shimmer-aurora` - Loading shimmer effect
+
+## 📊 Dashboard Features
+
+Access the Aurora Prism dashboard at `http://localhost:5000`:
+
+- **Overview**: Real-time metrics with aurora-styled charts
+- **Firehose Monitor**: Watch events stream in with sparkle effects
+- **Database Schema**: Dynamic table viewer with glowing borders
+- **API Endpoints**: 52 XRPC endpoints with performance metrics
+- **Lexicon Validator**: AT Protocol schema validation
+- **Logs & Analytics**: Real-time log viewer with filtering
+- **Instance Policy**: Configure moderation and labels
+- **User Panel**: Backfill data, manage sessions, delete data
+
+## 🔐 Authentication
+
+Aurora Prism uses AT Protocol OAuth 2.0:
+
+1. User logs in with Bluesky credentials
+2. Aurora Prism verifies DID and PDS endpoint
+3. Session created with AES-256-GCM encrypted tokens
+4. Automatic token refresh on expiry
+5. All write operations proxied to user's PDS
+
+## 🏗️ Architecture
+
+### Event Processing Pipeline
+1. **Firehose Client** → Connect to AT Protocol relay
+2. **Event Processor** → Parse CBOR and validate schemas
+3. **Storage Layer** → Persist to PostgreSQL
+4. **XRPC API** → Serve Bluesky-compatible endpoints
+5. **Cursor Service** → Track position for restart recovery
+
+### Database Schema
+- 28+ tables with optimized indexes
+- Full-text search (GIN indexes)
+- Automatic backfill tracking
+- Protected user data marking
+
+## 🚀 Production Deployment
+
+### Recommended Resources
+- **Memory**: 2+ GB
+- **CPU**: 2+ cores
+- **Disk**: 100+ GB (grows with firehose data)
+
+### Health Monitoring
+- **Liveness**: `GET /health` (interval: 10s)
+- **Readiness**: `GET /ready` (interval: 5s)
+- **Metrics**: Real-time dashboard at `/`
+
+### Security Recommendations
+- Use HTTPS in production (reverse proxy with nginx/Cloudflare)
+- Set strong `SESSION_SECRET` (32+ random bytes)
+- Configure `APPVIEW_DID` with your domain
+- Enable `DATA_RETENTION_DAYS` to minimize data liability
+- Regular backups of PostgreSQL database
+
+## 📚 Documentation
+
+- **Setup Scripts**: [./scripts/README.md](./scripts/README.md)
+- **Backfill Guide**: [./QUICKSTART-BACKFILL.md](./QUICKSTART-BACKFILL.md)
+- **Environment Config**: [./.env.example](./.env.example)
+
+## 🤝 Contributing
+
+Contributions welcome! Please open issues or pull requests.
+
+## 📄 License
+
+MIT License - See [LICENSE](./LICENSE) for details
+
+---
+
+<div align="center">
+
+**Aurora Prism** - *Where the firehose meets the aurora borealis* 🌈✨
+
+Built with ❤️ for the decentralized web
+
+</div>
