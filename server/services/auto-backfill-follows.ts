@@ -139,7 +139,37 @@ export class AutoBackfillFollowsService {
    */
   private async backfillFollowRelationships(userDid: string): Promise<void> {
     try {
-      const agent = new AtpAgent({ service: PDS_HOST });
+      // Resolve the user's DID to find their PDS endpoint
+      const { didResolver } = await import('./did-resolver');
+      const didDoc = await didResolver.resolveDID(userDid);
+
+      if (!didDoc) {
+        console.error(
+          `[AUTO_BACKFILL_FOLLOWS] Could not resolve DID ${userDid}`
+        );
+        return;
+      }
+
+      // Find PDS service endpoint
+      const services = (didDoc as any).service || [];
+      const pdsService = services.find(
+        (s: any) =>
+          s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+      );
+
+      if (!pdsService?.serviceEndpoint) {
+        console.error(
+          `[AUTO_BACKFILL_FOLLOWS] No PDS endpoint found for ${userDid}`
+        );
+        return;
+      }
+
+      const userPdsEndpoint = pdsService.serviceEndpoint;
+      console.log(
+        `[AUTO_BACKFILL_FOLLOWS] Using PDS endpoint: ${userPdsEndpoint}`
+      );
+
+      const agent = new AtpAgent({ service: userPdsEndpoint });
       const eventProcessor = new EventProcessor(storage);
       eventProcessor.setSkipPdsFetching(true);
       eventProcessor.setSkipDataCollectionCheck(true);
