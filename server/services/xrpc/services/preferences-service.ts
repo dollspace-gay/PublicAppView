@@ -9,6 +9,7 @@ import { handleError } from '../utils/error-handler';
 import { getUserPdsEndpoint } from '../utils/resolvers';
 import { cacheManager } from '../utils/cache';
 import { putActorPreferencesSchema } from '../schemas';
+import { appViewJWTService } from '../../appview-jwt';
 
 /**
  * Get user preferences
@@ -30,68 +31,53 @@ export async function getPreferences(
       return res.json({ preferences: cached });
     }
 
-    // Cache miss - fetch from user's PDS
     console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
 
     try {
-      // Get user's PDS endpoint from DID document
-      const pdsEndpoint = await getUserPdsEndpoint(userDid);
-      if (!pdsEndpoint) {
-        console.log(
-          `[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`
-        );
+      // Get user's PDS endpoint and DID from DID document
+      const { didResolver } = await import('../../did-resolver');
+      const didDoc = await didResolver.resolveDID(userDid);
+
+      if (!didDoc) {
+        console.warn(`[PREFERENCES] Could not resolve DID document for ${userDid}`);
         return res.json({ preferences: [] });
       }
 
-      // Extract the token from the request - for third-party clients (Bluesky app),
-      // they send the PDS token directly. For web UI users, try to get from session.
-      const authHeader = req.headers.authorization;
-      let pdsToken: string | undefined;
+      // Find PDS service
+      const services = (didDoc as any).service || [];
+      const pdsService = services.find(
+        (s: any) =>
+          s.type === 'AtprotoPersonalDataServer' ||
+          s.id === '#atproto_pds'
+      );
 
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        // Client is already sending a PDS token (app password or OAuth token)
-        pdsToken = authHeader.substring(7);
-      } else {
-        // Fallback: try to get PDS token from session (for web UI users)
-        const { storage } = await import('../../../storage');
-        const session = await storage.getSession(userDid);
-        if (session?.accessToken) {
-          pdsToken = session.accessToken;
-        }
-      }
-
-      if (!pdsToken) {
-        console.warn(
-          `[PREFERENCES] No PDS token found for ${userDid}, returning empty preferences`
-        );
+      if (!pdsService?.serviceEndpoint) {
+        console.warn(`[PREFERENCES] No PDS endpoint found for ${userDid}`);
         return res.json({ preferences: [] });
       }
 
-      // Decode token to see what it contains (for debugging)
-      try {
-        const tokenParts = pdsToken.split('.');
-        if (tokenParts.length === 3) {
-          const payload = JSON.parse(
-            Buffer.from(tokenParts[1], 'base64url').toString()
-          );
-          console.log(`[PREFERENCES] Token payload for ${userDid}:`, {
-            aud: payload.aud,
-            iss: payload.iss,
-            scope: payload.scope,
-            exp: payload.exp,
-          });
-        }
-      } catch (e) {
-        console.log(`[PREFERENCES] Could not decode token for debugging`);
-      }
+      const pdsEndpoint = pdsService.serviceEndpoint;
 
-      // Forward request to user's PDS with their PDS token
-      console.log(`[PREFERENCES] Forwarding getPreferences to ${pdsEndpoint} for ${userDid}`);
+      // Extract PDS DID from service ID (format: did:plc:xxx#atproto_pds)
+      const pdsDid = pdsService.id.startsWith('did:')
+        ? pdsService.id.split('#')[0]
+        : userDid; // Fallback to user's DID if service doesn't have its own DID
+
+      console.log(`[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`);
+
+      // Create service-auth token (AppView acting on behalf of user)
+      const serviceAuthToken = appViewJWTService.signServiceAuthToken(
+        userDid,
+        pdsDid,
+        'app.bsky.actor.getPreferences'
+      );
+
+      // Forward request to user's PDS with service-auth token
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
         {
           headers: {
-            Authorization: `Bearer ${pdsToken}`,
+            Authorization: `Bearer ${serviceAuthToken}`,
             'Content-Type': 'application/json',
           },
         }
@@ -145,52 +131,58 @@ export async function putPreferences(
     // Parse the preferences from request body
     const body = putActorPreferencesSchema.parse(req.body);
 
+    console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
+
     try {
-      // Get user's PDS endpoint from DID document
-      const pdsEndpoint = await getUserPdsEndpoint(userDid);
-      if (!pdsEndpoint) {
+      // Get user's PDS endpoint and DID from DID document
+      const { didResolver } = await import('../../did-resolver');
+      const didDoc = await didResolver.resolveDID(userDid);
+
+      if (!didDoc) {
+        return res.status(400).json({
+          error: 'InvalidRequest',
+          message: 'Could not resolve user DID document',
+        });
+      }
+
+      // Find PDS service
+      const services = (didDoc as any).service || [];
+      const pdsService = services.find(
+        (s: any) =>
+          s.type === 'AtprotoPersonalDataServer' ||
+          s.id === '#atproto_pds'
+      );
+
+      if (!pdsService?.serviceEndpoint) {
         return res.status(400).json({
           error: 'InvalidRequest',
           message: 'No PDS endpoint found for user',
         });
       }
 
-      // Extract the token from the request - for third-party clients (Bluesky app),
-      // they send the PDS token directly. For web UI users, try to get from session.
-      const authHeader = req.headers.authorization;
-      let pdsToken: string | undefined;
+      const pdsEndpoint = pdsService.serviceEndpoint;
 
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        // Client is already sending a PDS token (app password or OAuth token)
-        pdsToken = authHeader.substring(7);
-      } else {
-        // Fallback: try to get PDS token from session (for web UI users)
-        const { storage } = await import('../../../storage');
-        const session = await storage.getSession(userDid);
-        if (session?.accessToken) {
-          pdsToken = session.accessToken;
-        }
-      }
+      // Extract PDS DID from service ID
+      const pdsDid = pdsService.id.startsWith('did:')
+        ? pdsService.id.split('#')[0]
+        : userDid;
 
-      if (!pdsToken) {
-        return res.status(401).json({
-          error: 'AuthMissing',
-          message: 'No PDS token found',
-        });
-      }
+      console.log(`[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`);
 
-      // Forward request to user's PDS with their PDS token (let PDS handle validation)
-      console.log(
-        `[PREFERENCES] Forwarding putPreferences to ${pdsEndpoint} for ${userDid}`
+      // Create service-auth token (AppView acting on behalf of user)
+      const serviceAuthToken = appViewJWTService.signServiceAuthToken(
+        userDid,
+        pdsDid,
+        'app.bsky.actor.putPreferences'
       );
-      console.log(`[PREFERENCES] Request body:`, JSON.stringify(body, null, 2));
 
+      // Forward request to user's PDS with service-auth token
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${pdsToken}`,
+            Authorization: `Bearer ${serviceAuthToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
@@ -208,8 +200,7 @@ export async function putPreferences(
       } else {
         const errorText = await pdsResponse.text();
         console.error(
-          `[PREFERENCES] PDS request failed for ${userDid}:`,
-          pdsResponse.status,
+          `[PREFERENCES] PUT failed for ${userDid}: ${pdsResponse.status}`,
           errorText
         );
         return res.status(pdsResponse.status).send(errorText);

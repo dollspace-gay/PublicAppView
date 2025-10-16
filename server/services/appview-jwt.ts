@@ -195,6 +195,41 @@ export class AppViewJWTService {
   }
 
   /**
+   * Create a service-auth token for PDS requests (AppView acting on behalf of user)
+   * This allows the AppView to make authenticated requests to a user's PDS
+   * @param userDid - The DID of the user we're acting on behalf of
+   * @param pdsDid - The DID of the PDS we're making a request to
+   * @param method - The lexicon method being called (e.g., app.bsky.actor.getPreferences)
+   * @returns Signed service-auth JWT token
+   */
+  signServiceAuthToken(userDid: string, pdsDid: string, method: string): string {
+    const now = Math.floor(Date.now() / 1000);
+
+    const payload = {
+      iss: this.appViewDid, // AppView is issuing the token
+      aud: pdsDid,          // PDS is the audience
+      sub: userDid,         // User is the subject (who we're acting on behalf of)
+      exp: now + 60,        // 1 minute expiration
+      iat: now,
+      lxm: method,          // Lexicon method
+    };
+
+    // Use ES256K with proper key ID for AT Protocol compatibility
+    if (this.privateKeyPem) {
+      return createJWTWithES256K(payload, this.privateKeyPem, 'atproto');
+    }
+
+    // Fallback to HS256 only if no private key available
+    console.warn(
+      '[AppViewJWT] No private key available, using HS256 fallback for service-auth token.'
+    );
+    return jwt.sign(payload, JWT_SECRET, {
+      algorithm: 'HS256',
+      keyid: 'atproto',
+    });
+  }
+
+  /**
    * Verify a user-signed JWT token from PDS
    * This is the primary use case - verifying tokens signed by users' PDS
    * @param token - The JWT token to verify
