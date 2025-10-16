@@ -191,6 +191,9 @@ export class AutoBackfillFollowsService {
 
               for (const record of response.data.records) {
                 try {
+                  // Use the original createdAt from the follow record for proper ordering
+                  const createdAt = record.value?.createdAt || new Date().toISOString();
+
                   await eventProcessor.processCommit({
                     repo: userDid,
                     ops: [
@@ -201,7 +204,7 @@ export class AutoBackfillFollowsService {
                         record: record.value,
                       },
                     ],
-                    time: new Date().toISOString(),
+                    time: createdAt,
                     rev: '',
                   } as any);
 
@@ -310,22 +313,39 @@ export class AutoBackfillFollowsService {
               }
 
               // List their follow records to find the one pointing to userDid
+              // IMPORTANT: Paginate through ALL records, not just first 100
               const followerAgent = new AtpAgent({
                 service: pdsService.serviceEndpoint,
               });
 
-              const records = await followerAgent.com.atproto.repo.listRecords({
-                repo: followerDid,
-                collection: 'app.bsky.graph.follow',
-                limit: 100, // Most users don't have 100+ follows, but we'll paginate if needed
-              });
+              let followRecord: any = null;
+              let followCursor: string | undefined;
 
-              // Find the follow record pointing to our user
-              const followRecord = records.data.records.find(
-                (r: any) => r.value?.subject === userDid
-              );
+              // Paginate through all follow records to find the one pointing to userDid
+              do {
+                const records = await followerAgent.com.atproto.repo.listRecords({
+                  repo: followerDid,
+                  collection: 'app.bsky.graph.follow',
+                  limit: 100,
+                  cursor: followCursor,
+                });
+
+                // Find the follow record pointing to our user
+                followRecord = records.data.records.find(
+                  (r: any) => r.value?.subject === userDid
+                );
+
+                if (followRecord) {
+                  break; // Found it, stop paginating
+                }
+
+                followCursor = records.data.cursor;
+              } while (followCursor && !followRecord);
 
               if (followRecord) {
+                // Use the original createdAt from the follow record for proper ordering
+                const createdAt = followRecord.value?.createdAt || new Date().toISOString();
+
                 await eventProcessor.processCommit({
                   repo: followerDid,
                   ops: [
@@ -336,13 +356,17 @@ export class AutoBackfillFollowsService {
                       record: followRecord.value,
                     },
                   ],
-                  time: new Date().toISOString(),
+                  time: createdAt,
                   rev: '',
                 } as any);
 
                 followersFetched++;
                 successCount++;
               } else {
+                // Follow record not found - log for debugging
+                console.warn(
+                  `[AUTO_BACKFILL_FOLLOWS] No follow record found from ${followerDid} to ${userDid}`
+                );
                 failedCount++;
               }
             } catch (error: any) {
@@ -350,11 +374,29 @@ export class AutoBackfillFollowsService {
                 error.status === 404 ||
                 error.message?.includes('not found')
               ) {
-                // User or record doesn't exist, skip silently
-              } else {
+                // User or record doesn't exist
+                console.warn(
+                  `[AUTO_BACKFILL_FOLLOWS] User/record not found for ${followerDid}: ${error.message}`
+                );
+              } else if (error.status === 400 && error.message?.includes('Could not find repo')) {
+                // Repo doesn't exist (account deleted/suspended)
+                console.warn(
+                  `[AUTO_BACKFILL_FOLLOWS] Repo not found for ${followerDid} (likely deleted/suspended)`
+                );
+              } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+                // PDS connection issues
                 console.error(
-                  `[AUTO_BACKFILL_FOLLOWS] Error fetching follow record from ${followerDid}:`,
-                  error.message
+                  `[AUTO_BACKFILL_FOLLOWS] PDS connection error for ${followerDid}: ${error.code}`
+                );
+              } else {
+                // Unexpected error - log full details
+                console.error(
+                  `[AUTO_BACKFILL_FOLLOWS] Unexpected error fetching follow record from ${followerDid}:`,
+                  {
+                    message: error.message,
+                    status: error.status,
+                    code: error.code,
+                  }
                 );
               }
               failedCount++;

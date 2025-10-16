@@ -30,7 +30,6 @@ import {
   LogOut,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { PDSFetcherStatus } from '@/components/pds-fetcher-status';
 import { FirehoseStatus } from '@/components/firehose-status';
 
 interface Label {
@@ -376,17 +375,14 @@ export default function AdminControlPanel() {
 
       {/* System Controls Section */}
       <div className="grid gap-6 mb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <PDSFetcherStatus />
-          <FirehoseStatus
-            connected={firehoseConnected}
-            commits={firehoseStats.commits}
-            identity={firehoseStats.identity}
-            account={firehoseStats.account}
-            errorRate={firehoseStats.errorRate}
-            onReconnect={handleReconnect}
-          />
-        </div>
+        <FirehoseStatus
+          connected={firehoseConnected}
+          commits={firehoseStats.commits}
+          identity={firehoseStats.identity}
+          account={firehoseStats.account}
+          errorRate={firehoseStats.errorRate}
+          onReconnect={handleReconnect}
+        />
       </div>
 
       {/* Moderation Section */}
