@@ -135,55 +135,57 @@ export class AutoBackfillLikesService {
           }
 
           for (const chunk of chunks) {
-            await Promise.all(
-              chunk.map(async (postUri: string) => {
-                try {
-                  const parts = postUri.split('/');
-                  const repo = parts[2];
-                  const rkey = parts[parts.length - 1];
+            try {
+              // Use getPosts (plural) to fetch multiple posts from the AppView
+              const response = await agent.app.bsky.feed.getPosts({ uris: chunk });
 
-                  const response = await agent.app.bsky.feed.post.get({
-                    repo,
-                    rkey,
-                  });
+              if (response.data.posts && response.data.posts.length > 0) {
+                // Process each fetched post
+                for (const post of response.data.posts) {
+                  try {
+                    const parts = post.uri.split('/');
+                    const repo = parts[2];
+                    const rkey = parts[parts.length - 1];
 
-                  if (!response.value) {
-                    skippedCount++;
-                    return;
-                  }
-
-                  await eventProcessor.processCommit(
-                    {
-                      repo,
-                      ops: [
-                        {
-                          action: 'create',
-                          path: `app.bsky.feed.post/${rkey}`,
-                          cid: response.cid,
-                          record: response.value,
-                        },
-                      ],
-                      time: new Date().toISOString(),
-                      rev: '',
-                    } as any
-                  );
-
-                  fetchedCount++;
-
-                  if (fetchedCount % 500 === 0) {
-                    console.log(
-                      `[AUTO_BACKFILL_LIKES] Progress for ${userDid}: ${fetchedCount}/${missingPostUris.length} (${failedCount} failed, ${skippedCount} skipped)`
+                    await eventProcessor.processCommit(
+                      {
+                        repo,
+                        ops: [
+                          {
+                            action: 'create',
+                            path: `app.bsky.feed.post/${rkey}`,
+                            cid: post.cid,
+                            record: post.record,
+                          },
+                        ],
+                        time: new Date().toISOString(),
+                        rev: '',
+                      } as any
                     );
-                  }
-                } catch (error: any) {
-                  if (error.status === 404) {
-                    skippedCount++;
-                  } else {
+
+                    fetchedCount++;
+                  } catch (error: any) {
+                    console.error(`[AUTO_BACKFILL_LIKES] Error processing post ${post.uri}:`, error.message);
                     failedCount++;
                   }
                 }
-              })
-            );
+
+                // Count posts that weren't returned (deleted)
+                skippedCount += chunk.length - response.data.posts.length;
+              } else {
+                // All posts in chunk are missing
+                skippedCount += chunk.length;
+              }
+
+              if (fetchedCount % 500 === 0) {
+                console.log(
+                  `[AUTO_BACKFILL_LIKES] Progress for ${userDid}: ${fetchedCount}/${missingPostUris.length} (${failedCount} failed, ${skippedCount} skipped)`
+                );
+              }
+            } catch (error: any) {
+              console.error(`[AUTO_BACKFILL_LIKES] Error fetching chunk:`, error.message);
+              failedCount += chunk.length;
+            }
           }
         }
 
