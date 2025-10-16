@@ -556,7 +556,10 @@ export async function serializePostsEnhanced(
         ...(avatarCdn &&
           typeof avatarCdn === 'string' &&
           avatarCdn.trim() !== '' && { avatar: avatarCdn }),
-        viewer: actorViewerState || {},
+        viewer: actorViewerState || {
+          muted: false,
+          blockedBy: false,
+        },
         labels: authorLabels,
         createdAt: (
           author as { createdAt?: Date } | undefined

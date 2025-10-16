@@ -1196,6 +1196,7 @@ export class EventProcessor {
       embed: normalizedEmbed,
       facets: record.facets, // Store facets for rich text (links, mentions, hashtags)
       createdAt: this.safeDate(record.createdAt),
+      indexedAt: this.safeDate(record.createdAt), // Use createdAt for indexedAt to preserve chronological order during backfills
     };
 
     await this.storage.createPost(post);
