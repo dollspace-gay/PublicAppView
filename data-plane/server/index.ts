@@ -32,7 +32,9 @@ app.use((req, res, next) => {
 
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[DATA_PLANE] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
+    console.log(
+      `[DATA_PLANE] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms`
+    );
   });
 
   next();
@@ -54,7 +56,8 @@ app.get('/ready', async (_req, res) => {
     const redisConnected = redisQueue.isConnected();
     const cacheStats = await cacheService.getStats();
 
-    const ready = firehoseStatus.connected && redisConnected && cacheStats.connected;
+    const ready =
+      firehoseStatus.connected && redisConnected && cacheStats.connected;
 
     res.status(ready ? 200 : 503).json({
       ready,
@@ -104,19 +107,26 @@ app.use('/internal', notificationRoutes);
 app.use('/internal', feedGeneratorRoutes);
 
 // Error handler
-app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
-  const status = err.status || 500;
-  const message = err.message || 'Internal Server Error';
+app.use(
+  (
+    err: Error & { status?: number },
+    _req: Request,
+    res: Response,
+    _next: NextFunction
+  ) => {
+    const status = err.status || 500;
+    const message = err.message || 'Internal Server Error';
 
-  console.error('[DATA_PLANE] Error:', err);
-  logCollector.error('Data-plane error', {
-    error: message,
-    status,
-    stack: err.stack,
-  });
+    console.error('[DATA_PLANE] Error:', err);
+    logCollector.error('Data-plane error', {
+      error: message,
+      status,
+      stack: err.stack,
+    });
 
-  res.status(status).json({ error: message });
-});
+    res.status(status).json({ error: message });
+  }
+);
 
 // 404 handler
 app.use((_req, res) => {
@@ -194,7 +204,6 @@ async function start() {
 
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
-
   } catch (error) {
     console.error('[DATA_PLANE] Failed to start:', error);
     logCollector.error('Data-plane startup failed', { error });

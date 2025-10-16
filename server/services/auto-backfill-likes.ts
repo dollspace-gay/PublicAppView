@@ -39,7 +39,8 @@ export class AutoBackfillLikesService {
 
       if (settings?.lastLikedPostsBackfill) {
         const hoursSinceLastBackfill =
-          (Date.now() - settings.lastLikedPostsBackfill.getTime()) / (1000 * 60 * 60);
+          (Date.now() - settings.lastLikedPostsBackfill.getTime()) /
+          (1000 * 60 * 60);
 
         if (hoursSinceLastBackfill < BACKFILL_COOLDOWN_HOURS) {
           console.log(
@@ -59,7 +60,9 @@ export class AutoBackfillLikesService {
         `
       );
 
-      const missingCount = parseInt((result.rows[0] as any).missing_count || '0');
+      const missingCount = parseInt(
+        (result.rows[0] as any).missing_count || '0'
+      );
 
       if (missingCount < MIN_MISSING_THRESHOLD) {
         console.log(
@@ -108,7 +111,9 @@ export class AutoBackfillLikesService {
           `
         );
 
-        const missingPostUris = missingPosts.rows.map((row: any) => row.post_uri);
+        const missingPostUris = missingPosts.rows.map(
+          (row: any) => row.post_uri
+        );
 
         if (missingPostUris.length === 0) {
           console.log(`[AUTO_BACKFILL_LIKES] No posts to fetch for ${userDid}`);
@@ -140,7 +145,9 @@ export class AutoBackfillLikesService {
                 try {
                   const parts = postUri.split('/');
                   if (parts.length < 4) {
-                    console.error(`[AUTO_BACKFILL_LIKES] Invalid URI format: ${postUri}`);
+                    console.error(
+                      `[AUTO_BACKFILL_LIKES] Invalid URI format: ${postUri}`
+                    );
                     failedCount++;
                     return;
                   }
@@ -153,25 +160,33 @@ export class AutoBackfillLikesService {
                   const didDoc = await didResolver.resolveDID(repo);
 
                   if (!didDoc) {
-                    console.error(`[AUTO_BACKFILL_LIKES] Could not resolve DID: ${repo}`);
+                    console.error(
+                      `[AUTO_BACKFILL_LIKES] Could not resolve DID: ${repo}`
+                    );
                     failedCount++;
                     return;
                   }
 
                   // Find PDS service endpoint
                   const services = (didDoc as any).service || [];
-                  const pdsService = services.find((s: any) =>
-                    s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+                  const pdsService = services.find(
+                    (s: any) =>
+                      s.type === 'AtprotoPersonalDataServer' ||
+                      s.id === '#atproto_pds'
                   );
 
                   if (!pdsService?.serviceEndpoint) {
-                    console.error(`[AUTO_BACKFILL_LIKES] No PDS endpoint for DID: ${repo}`);
+                    console.error(
+                      `[AUTO_BACKFILL_LIKES] No PDS endpoint for DID: ${repo}`
+                    );
                     failedCount++;
                     return;
                   }
 
                   // Create agent for this specific PDS
-                  const pdsAgent = new AtpAgent({ service: pdsService.serviceEndpoint });
+                  const pdsAgent = new AtpAgent({
+                    service: pdsService.serviceEndpoint,
+                  });
 
                   // Fetch the record from the PDS
                   const response = await pdsAgent.com.atproto.repo.getRecord({
@@ -188,12 +203,14 @@ export class AutoBackfillLikesService {
                   // Process the post
                   await eventProcessor.processCommit({
                     repo,
-                    ops: [{
-                      action: 'create',
-                      path: `app.bsky.feed.post/${rkey}`,
-                      cid: response.data.cid,
-                      record: response.data.value,
-                    }],
+                    ops: [
+                      {
+                        action: 'create',
+                        path: `app.bsky.feed.post/${rkey}`,
+                        cid: response.data.cid,
+                        record: response.data.value,
+                      },
+                    ],
                     time: new Date().toISOString(),
                     rev: '',
                   } as any);
@@ -206,10 +223,16 @@ export class AutoBackfillLikesService {
                     );
                   }
                 } catch (error: any) {
-                  if (error.status === 404 || error.message?.includes('not found')) {
+                  if (
+                    error.status === 404 ||
+                    error.message?.includes('not found')
+                  ) {
                     skippedCount++;
                   } else {
-                    console.error(`[AUTO_BACKFILL_LIKES] Error fetching ${postUri}:`, error.message);
+                    console.error(
+                      `[AUTO_BACKFILL_LIKES] Error fetching ${postUri}:`,
+                      error.message
+                    );
                     failedCount++;
                   }
                 }

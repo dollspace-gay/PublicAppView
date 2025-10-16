@@ -954,14 +954,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Send immediate response - backfill will run in background
         res.json({
           success: true,
-          message: 'Started backfilling liked posts. This may take several minutes.',
+          message:
+            'Started backfilling liked posts. This may take several minutes.',
         });
 
         // Run backfill in background
         (async () => {
           try {
             const { AtpAgent } = await import('@atproto/api');
-            const { EventProcessor } = await import('./services/event-processor');
+            const { EventProcessor } = await import(
+              './services/event-processor'
+            );
 
             const BATCH_SIZE = 100;
             const CONCURRENT_FETCHES = 10;
@@ -980,9 +983,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               `
             );
 
-            const missingPostUris = missingPosts.rows.map((row: any) => row.post_uri);
+            const missingPostUris = missingPosts.rows.map(
+              (row: any) => row.post_uri
+            );
 
-            console.log(`[BACKFILL_LIKES] Found ${missingPostUris.length} posts to fetch`);
+            console.log(
+              `[BACKFILL_LIKES] Found ${missingPostUris.length} posts to fetch`
+            );
 
             if (missingPostUris.length === 0) {
               console.log('[BACKFILL_LIKES] No missing posts!');
@@ -1002,7 +1009,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             for (let i = 0; i < missingPostUris.length; i += BATCH_SIZE) {
               const batch = missingPostUris.slice(i, i + BATCH_SIZE);
 
-              console.log(`[BACKFILL_LIKES] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(missingPostUris.length / BATCH_SIZE)}`);
+              console.log(
+                `[BACKFILL_LIKES] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(missingPostUris.length / BATCH_SIZE)}`
+              );
 
               // Fetch in parallel chunks
               const chunks = [];
@@ -1033,8 +1042,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
                       // Find PDS service endpoint
                       const services = (didDoc as any).service || [];
-                      const pdsService = services.find((s: any) =>
-                        s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+                      const pdsService = services.find(
+                        (s: any) =>
+                          s.type === 'AtprotoPersonalDataServer' ||
+                          s.id === '#atproto_pds'
                       );
 
                       if (!pdsService?.serviceEndpoint) {
@@ -1043,14 +1054,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       }
 
                       // Create agent for this specific PDS
-                      const pdsAgent = new AtpAgent({ service: pdsService.serviceEndpoint });
+                      const pdsAgent = new AtpAgent({
+                        service: pdsService.serviceEndpoint,
+                      });
 
                       // Fetch the record from the PDS
-                      const response = await pdsAgent.com.atproto.repo.getRecord({
-                        repo,
-                        collection: 'app.bsky.feed.post',
-                        rkey,
-                      });
+                      const response =
+                        await pdsAgent.com.atproto.repo.getRecord({
+                          repo,
+                          collection: 'app.bsky.feed.post',
+                          rkey,
+                        });
 
                       if (!response.data.value) {
                         skippedCount++;
@@ -1060,12 +1074,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       // Process the post
                       await eventProcessor.processCommit({
                         repo,
-                        ops: [{
-                          action: 'create',
-                          path: `app.bsky.feed.post/${rkey}`,
-                          cid: response.data.cid,
-                          record: response.data.value,
-                        }],
+                        ops: [
+                          {
+                            action: 'create',
+                            path: `app.bsky.feed.post/${rkey}`,
+                            cid: response.data.cid,
+                            record: response.data.value,
+                          },
+                        ],
                         time: new Date().toISOString(),
                         rev: '',
                       } as any);
@@ -1073,13 +1089,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       fetchedCount++;
 
                       if (fetchedCount % 100 === 0) {
-                        console.log(`[BACKFILL_LIKES] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`);
+                        console.log(
+                          `[BACKFILL_LIKES] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`
+                        );
                       }
                     } catch (error: any) {
-                      if (error.status === 404 || error.message?.includes('not found')) {
+                      if (
+                        error.status === 404 ||
+                        error.message?.includes('not found')
+                      ) {
                         skippedCount++;
                       } else {
-                        console.error(`[BACKFILL_LIKES] Error fetching ${postUri}:`, error.status, error.message);
+                        console.error(
+                          `[BACKFILL_LIKES] Error fetching ${postUri}:`,
+                          error.status,
+                          error.message
+                        );
                         failedCount++;
                       }
                     }
@@ -1088,7 +1113,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
-            console.log(`[BACKFILL_LIKES] Complete! ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} not found`);
+            console.log(
+              `[BACKFILL_LIKES] Complete! ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} not found`
+            );
           } catch (error) {
             console.error('[BACKFILL_LIKES] Fatal error:', error);
           }
@@ -3093,7 +3120,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // XRPC API Endpoints
-  app.get('/xrpc/app.bsky.feed.getTimeline', xrpcOrchestrator.getTimeline.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.feed.getTimeline',
+    xrpcOrchestrator.getTimeline.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.feed.getAuthorFeed',
     xrpcOrchestrator.getAuthorFeed.bind(xrpcOrchestrator)
@@ -3102,8 +3132,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     '/xrpc/app.bsky.feed.getPostThread',
     xrpcOrchestrator.getPostThread.bind(xrpcOrchestrator)
   );
-  app.get('/xrpc/app.bsky.actor.getProfile', xrpcOrchestrator.getProfile.bind(xrpcOrchestrator));
-  app.get('/xrpc/app.bsky.graph.getFollows', xrpcOrchestrator.getFollows.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.actor.getProfile',
+    xrpcOrchestrator.getProfile.bind(xrpcOrchestrator)
+  );
+  app.get(
+    '/xrpc/app.bsky.graph.getFollows',
+    xrpcOrchestrator.getFollows.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.graph.getFollowers',
     xrpcOrchestrator.getFollowers.bind(xrpcOrchestrator)
@@ -3118,7 +3154,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Search endpoints
-  app.get('/xrpc/app.bsky.feed.searchPosts', xrpcOrchestrator.searchPosts.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.feed.searchPosts',
+    xrpcOrchestrator.searchPosts.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.actor.searchActors',
     xrpcOrchestrator.searchActors.bind(xrpcOrchestrator)
@@ -3164,8 +3203,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // List endpoints
-  app.get('/xrpc/app.bsky.graph.getList', xrpcOrchestrator.getList.bind(xrpcOrchestrator));
-  app.get('/xrpc/app.bsky.graph.getLists', xrpcOrchestrator.getLists.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.graph.getList',
+    xrpcOrchestrator.getList.bind(xrpcOrchestrator)
+  );
+  app.get(
+    '/xrpc/app.bsky.graph.getLists',
+    xrpcOrchestrator.getLists.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.graph.getListFeed',
     xrpcOrchestrator.getListFeed.bind(xrpcOrchestrator)
@@ -3201,13 +3246,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Post interaction endpoints
-  app.get('/xrpc/app.bsky.feed.getPosts', xrpcOrchestrator.getPosts.bind(xrpcOrchestrator));
-  app.get('/xrpc/app.bsky.feed.getLikes', xrpcOrchestrator.getLikes.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.feed.getPosts',
+    xrpcOrchestrator.getPosts.bind(xrpcOrchestrator)
+  );
+  app.get(
+    '/xrpc/app.bsky.feed.getLikes',
+    xrpcOrchestrator.getLikes.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.feed.getRepostedBy',
     xrpcOrchestrator.getRepostedBy.bind(xrpcOrchestrator)
   );
-  app.get('/xrpc/app.bsky.feed.getQuotes', xrpcOrchestrator.getQuotes.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.feed.getQuotes',
+    xrpcOrchestrator.getQuotes.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.feed.getActorLikes',
     xrpcOrchestrator.getActorLikes.bind(xrpcOrchestrator)
@@ -3241,9 +3295,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Graph endpoints
-  app.get('/xrpc/app.bsky.graph.getBlocks', xrpcOrchestrator.getBlocks.bind(xrpcOrchestrator));
-  app.get('/xrpc/app.bsky.graph.getMutes', xrpcOrchestrator.getMutes.bind(xrpcOrchestrator));
-  app.post('/xrpc/app.bsky.graph.muteActor', xrpcOrchestrator.muteActor.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.graph.getBlocks',
+    xrpcOrchestrator.getBlocks.bind(xrpcOrchestrator)
+  );
+  app.get(
+    '/xrpc/app.bsky.graph.getMutes',
+    xrpcOrchestrator.getMutes.bind(xrpcOrchestrator)
+  );
+  app.post(
+    '/xrpc/app.bsky.graph.muteActor',
+    xrpcOrchestrator.muteActor.bind(xrpcOrchestrator)
+  );
   app.post(
     '/xrpc/app.bsky.graph.unmuteActor',
     xrpcOrchestrator.unmuteActor.bind(xrpcOrchestrator)
@@ -3268,10 +3331,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     '/xrpc/app.bsky.graph.unmuteActorList',
     xrpcOrchestrator.unmuteActorList.bind(xrpcOrchestrator)
   );
-  app.post('/xrpc/app.bsky.graph.muteThread', xrpcOrchestrator.muteThread.bind(xrpcOrchestrator));
+  app.post(
+    '/xrpc/app.bsky.graph.muteThread',
+    xrpcOrchestrator.muteThread.bind(xrpcOrchestrator)
+  );
 
   // Feed Generator endpoints
-  app.get('/xrpc/app.bsky.feed.getFeed', xrpcOrchestrator.getFeed.bind(xrpcOrchestrator));
+  app.get(
+    '/xrpc/app.bsky.feed.getFeed',
+    xrpcOrchestrator.getFeed.bind(xrpcOrchestrator)
+  );
   app.get(
     '/xrpc/app.bsky.feed.getFeedGenerator',
     xrpcOrchestrator.getFeedGenerator.bind(xrpcOrchestrator)
@@ -3583,9 +3652,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (result.data.did) {
         import('./services/auto-backfill-likes').then(
           ({ autoBackfillLikesService }) => {
-            autoBackfillLikesService.checkAndBackfill(result.data.did).catch((err) => {
-              console.error('[AUTO_BACKFILL] Error:', err);
-            });
+            autoBackfillLikesService
+              .checkAndBackfill(result.data.did)
+              .catch((err) => {
+                console.error('[AUTO_BACKFILL] Error:', err);
+              });
           }
         );
       }
@@ -3666,9 +3737,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (result.data.did) {
           import('./services/auto-backfill-likes').then(
             ({ autoBackfillLikesService }) => {
-              autoBackfillLikesService.checkAndBackfill(result.data.did).catch((err) => {
-                console.error('[AUTO_BACKFILL] Error:', err);
-              });
+              autoBackfillLikesService
+                .checkAndBackfill(result.data.did)
+                .catch((err) => {
+                  console.error('[AUTO_BACKFILL] Error:', err);
+                });
             }
           );
         }

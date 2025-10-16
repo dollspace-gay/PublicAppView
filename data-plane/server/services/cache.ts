@@ -78,7 +78,10 @@ class CacheService {
       this.redis!.once('error', (error) => {
         clearTimeout(timeout);
         // Don't reject - just log and continue without cache
-        console.warn('[CACHE] Redis connection failed, continuing without cache:', error);
+        console.warn(
+          '[CACHE] Redis connection failed, continuing without cache:',
+          error
+        );
         resolve();
       });
     });
@@ -87,7 +90,12 @@ class CacheService {
   /**
    * Get cached assembled thread
    */
-  async getThread(uri: string, depth: number, parentHeight: number, viewerDid?: string): Promise<ThreadRecord | null> {
+  async getThread(
+    uri: string,
+    depth: number,
+    parentHeight: number,
+    viewerDid?: string
+  ): Promise<ThreadRecord | null> {
     if (!this.isEnabled()) return null;
 
     try {
@@ -214,13 +222,20 @@ class CacheService {
   /**
    * Cache viewer blocks
    */
-  async setViewerBlocks(viewerDid: string, blockedDids: Set<string>): Promise<void> {
+  async setViewerBlocks(
+    viewerDid: string,
+    blockedDids: Set<string>
+  ): Promise<void> {
     if (!this.isEnabled()) return;
 
     try {
       const key = `${this.VIEWER_BLOCKS_PREFIX}${this.escapeRedisKey(viewerDid)}`;
       const array = Array.from(blockedDids);
-      await this.redis!.setex(key, this.VIEWER_RELATIONSHIPS_TTL, JSON.stringify(array));
+      await this.redis!.setex(
+        key,
+        this.VIEWER_RELATIONSHIPS_TTL,
+        JSON.stringify(array)
+      );
     } catch (error) {
       console.error('[CACHE] Error setting viewer blocks:', error);
     }
@@ -250,13 +265,20 @@ class CacheService {
   /**
    * Cache viewer mutes
    */
-  async setViewerMutes(viewerDid: string, mutedDids: Set<string>): Promise<void> {
+  async setViewerMutes(
+    viewerDid: string,
+    mutedDids: Set<string>
+  ): Promise<void> {
     if (!this.isEnabled()) return;
 
     try {
       const key = `${this.VIEWER_MUTES_PREFIX}${this.escapeRedisKey(viewerDid)}`;
       const array = Array.from(mutedDids);
-      await this.redis!.setex(key, this.VIEWER_RELATIONSHIPS_TTL, JSON.stringify(array));
+      await this.redis!.setex(
+        key,
+        this.VIEWER_RELATIONSHIPS_TTL,
+        JSON.stringify(array)
+      );
     } catch (error) {
       console.error('[CACHE] Error setting viewer mutes:', error);
     }
@@ -301,7 +323,10 @@ class CacheService {
   /**
    * Cache user following list
    */
-  async setUserFollowing(did: string, followingDids: Set<string>): Promise<void> {
+  async setUserFollowing(
+    did: string,
+    followingDids: Set<string>
+  ): Promise<void> {
     if (!this.isEnabled()) return;
 
     try {
@@ -351,13 +376,20 @@ class CacheService {
   /**
    * Cache list members
    */
-  async setListMembers(listUri: string, memberDids: Set<string>): Promise<void> {
+  async setListMembers(
+    listUri: string,
+    memberDids: Set<string>
+  ): Promise<void> {
     if (!this.isEnabled()) return;
 
     try {
       const key = `${this.LIST_MEMBERS_PREFIX}${this.escapeRedisKey(listUri)}`;
       const array = Array.from(memberDids);
-      await this.redis!.setex(key, this.LIST_MEMBERS_TTL, JSON.stringify(array));
+      await this.redis!.setex(
+        key,
+        this.LIST_MEMBERS_TTL,
+        JSON.stringify(array)
+      );
     } catch (error) {
       console.error('[CACHE] Error setting list members:', error);
     }
@@ -431,7 +463,12 @@ class CacheService {
   /**
    * Helper: Generate thread cache key
    */
-  private getThreadKey(uri: string, depth: number, parentHeight: number, viewerDid?: string): string {
+  private getThreadKey(
+    uri: string,
+    depth: number,
+    parentHeight: number,
+    viewerDid?: string
+  ): string {
     const viewer = viewerDid ? `:${this.escapeRedisKey(viewerDid)}` : ':public';
     return `${this.THREAD_PREFIX}${this.escapeRedisKey(uri)}:d${depth}:h${parentHeight}${viewer}`;
   }

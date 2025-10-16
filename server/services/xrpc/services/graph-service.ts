@@ -73,7 +73,7 @@ export async function getKnownFollowers(
 
     // Get the actor's handle for the subject
     const actor = await storage.getUser(actorDid);
-    
+
     res.json({
       subject: {
         $type: 'app.bsky.actor.defs#profileView',
@@ -197,10 +197,7 @@ export async function getFollows(req: Request, res: Response): Promise<void> {
  * Get accounts that follow an actor
  * GET /xrpc/app.bsky.graph.getFollowers
  */
-export async function getFollowers(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function getFollowers(req: Request, res: Response): Promise<void> {
   try {
     const params = getFollowsSchema.parse(req.query);
     const actorDid = await resolveActor(res, params.actor);
@@ -241,7 +238,9 @@ export async function getFollowers(
           const user = userMap.get(f.followerDid);
           if (!user) return null;
 
-          const viewerState = viewerDid ? relationships.get(f.followerDid) : null;
+          const viewerState = viewerDid
+            ? relationships.get(f.followerDid)
+            : null;
           const viewer: {
             muted: boolean;
             blockedBy: boolean;

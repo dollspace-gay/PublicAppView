@@ -95,7 +95,8 @@ export async function getLikes(req: Request, res: Response): Promise<void> {
           };
           if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
           if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+          if (viewerState?.followedBy)
+            viewer.followedBy = viewerState.followedBy;
 
           return {
             actor: {
@@ -159,7 +160,8 @@ export async function getRepostedBy(
           };
           if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
           if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+          if (viewerState?.followedBy)
+            viewer.followedBy = viewerState.followedBy;
 
           return {
             did: user.did,
@@ -228,7 +230,9 @@ export async function getActorLikes(
       actorDid = user.did;
     }
 
-    console.log(`[getActorLikes] Fetching likes for ${actorDid}, cursor: ${params.cursor}, limit: ${params.limit}`);
+    console.log(
+      `[getActorLikes] Fetching likes for ${actorDid}, cursor: ${params.cursor}, limit: ${params.limit}`
+    );
 
     const { likes, cursor } = await storage.getActorLikes(
       actorDid,
@@ -236,7 +240,9 @@ export async function getActorLikes(
       params.cursor
     );
 
-    console.log(`[getActorLikes] Found ${likes.length} likes, next cursor: ${cursor}`);
+    console.log(
+      `[getActorLikes] Found ${likes.length} likes, next cursor: ${cursor}`
+    );
 
     const postUris = likes.map((like) => like.postUri);
     const posts = await storage.getPosts(postUris);

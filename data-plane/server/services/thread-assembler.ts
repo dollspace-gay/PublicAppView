@@ -83,8 +83,12 @@ export class ThreadAssembler {
 
     // Cache the results
     await Promise.all([
-      cachedBlocks ? Promise.resolve() : cacheService.setViewerBlocks(viewerDid, blockedDids),
-      cachedMutes ? Promise.resolve() : cacheService.setViewerMutes(viewerDid, mutedDids),
+      cachedBlocks
+        ? Promise.resolve()
+        : cacheService.setViewerBlocks(viewerDid, blockedDids),
+      cachedMutes
+        ? Promise.resolve()
+        : cacheService.setViewerMutes(viewerDid, mutedDids),
     ]);
 
     return { blockedDids, mutedDids };
@@ -137,7 +141,9 @@ export class ThreadAssembler {
    * Load root author's following list (for thread gate checking)
    * Uses cache to avoid repeated database queries
    */
-  private async loadRootAuthorFollowing(rootAuthorDid: string): Promise<Set<string>> {
+  private async loadRootAuthorFollowing(
+    rootAuthorDid: string
+  ): Promise<Set<string>> {
     // Try to get from cache first
     const cached = await cacheService.getUserFollowing(rootAuthorDid);
     if (cached) {
@@ -276,22 +282,26 @@ export class ThreadAssembler {
   /**
    * Assemble a thread for a given post URI
    */
-  async assembleThread(options: AssembleThreadOptions): Promise<ThreadRecord | null> {
-    const {
-      uri,
-      depth = 6,
-      parentHeight = 80,
-      viewerDid,
-    } = options;
+  async assembleThread(
+    options: AssembleThreadOptions
+  ): Promise<ThreadRecord | null> {
+    const { uri, depth = 6, parentHeight = 80, viewerDid } = options;
 
     // 0. Check cache for fully assembled thread
-    const cachedThread = await cacheService.getThread(uri, depth, parentHeight, viewerDid);
+    const cachedThread = await cacheService.getThread(
+      uri,
+      depth,
+      parentHeight,
+      viewerDid
+    );
     if (cachedThread) {
       return cachedThread;
     }
 
     // 1. Load viewer relationships if viewerDid provided
-    let viewerRelationships: { blockedDids: Set<string>; mutedDids: Set<string> } | undefined;
+    let viewerRelationships:
+      | { blockedDids: Set<string>; mutedDids: Set<string> }
+      | undefined;
     if (viewerDid) {
       viewerRelationships = await this.loadViewerRelationships(viewerDid);
     }
@@ -310,18 +320,21 @@ export class ThreadAssembler {
     );
 
     // 4. Determine root post for thread gate checking
-    const rootPost = ancestors.length > 0 ? ancestors[ancestors.length - 1] : anchorPost;
+    const rootPost =
+      ancestors.length > 0 ? ancestors[ancestors.length - 1] : anchorPost;
     const rootUri = rootPost.post.uri;
 
     // 5. Load thread gate data (if exists)
     const threadGate = await this.loadThreadGate(rootUri);
 
-    let threadGateContext: {
-      threadGate: any;
-      mentionedDids: string[];
-      rootAuthorFollowing: Set<string>;
-      allowedListMembers: Set<string>;
-    } | undefined;
+    let threadGateContext:
+      | {
+          threadGate: any;
+          mentionedDids: string[];
+          rootAuthorFollowing: Set<string>;
+          allowedListMembers: Set<string>;
+        }
+      | undefined;
 
     if (threadGate) {
       // Load data needed for thread gate enforcement in parallel
@@ -376,7 +389,13 @@ export class ThreadAssembler {
     const threadRecord = this.nodeToRecord(rootNode);
 
     // 9. Cache the assembled thread
-    await cacheService.setThread(uri, depth, parentHeight, viewerDid, threadRecord);
+    await cacheService.setThread(
+      uri,
+      depth,
+      parentHeight,
+      viewerDid,
+      threadRecord
+    );
 
     return threadRecord;
   }
@@ -571,13 +590,17 @@ export class ThreadAssembler {
     );
 
     // Apply sorting and filtering
-    const sortedReplies = this.sortReplies(replyNodesWithDescendants, post.post.authorDid);
+    const sortedReplies = this.sortReplies(
+      replyNodesWithDescendants,
+      post.post.authorDid
+    );
 
     // Apply branching factor (limit replies per level)
     const branchingFactor = 10; // Configurable
-    const trimmedReplies = currentDepth === 0
-      ? sortedReplies // Don't trim anchor's direct replies
-      : sortedReplies.slice(0, branchingFactor);
+    const trimmedReplies =
+      currentDepth === 0
+        ? sortedReplies // Don't trim anchor's direct replies
+        : sortedReplies.slice(0, branchingFactor);
 
     post.replies = trimmedReplies.length > 0 ? trimmedReplies : undefined;
 

@@ -512,12 +512,12 @@ export class PDSDataFetcher {
         // Build update object that only includes fields with values
         // This preserves data from CAR imports and only fills in missing fields
         const updateData: Partial<any> = {};
-        
+
         // Always update handle if we have one
         if (handle) {
           updateData.handle = handle;
         }
-        
+
         // Only update profile fields if they have values OR if existing field is empty
         // This way we enrich missing data without overwriting imported data
         if (profile.displayName) {
@@ -526,19 +526,19 @@ export class PDSDataFetcher {
           // Only set to null if we don't already have a value
           updateData.displayName = null;
         }
-        
+
         if (profile.description) {
           updateData.description = profile.description;
         } else if (!existingUser?.description) {
           updateData.description = null;
         }
-        
+
         if (avatarCid) {
           updateData.avatarUrl = avatarCid;
         } else if (!existingUser?.avatarUrl) {
           updateData.avatarUrl = null;
         }
-        
+
         if (bannerCid) {
           updateData.bannerUrl = bannerCid;
         } else if (!existingUser?.bannerUrl) {

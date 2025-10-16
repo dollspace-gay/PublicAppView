@@ -29,7 +29,8 @@ export class DataPlaneClient {
   private timeout: number;
 
   constructor(baseUrl?: string, timeout: number = 5000) {
-    this.baseUrl = baseUrl || process.env.DATA_PLANE_URL || 'http://localhost:5001';
+    this.baseUrl =
+      baseUrl || process.env.DATA_PLANE_URL || 'http://localhost:5001';
     this.timeout = timeout;
   }
 
@@ -62,8 +63,12 @@ export class DataPlaneClient {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-          throw new Error(`Data-plane error: ${error.error || response.statusText}`);
+          const error = await response
+            .json()
+            .catch(() => ({ error: 'Unknown error' }));
+          throw new Error(
+            `Data-plane error: ${error.error || response.statusText}`
+          );
         }
 
         return (await response.json()) as T;
@@ -71,7 +76,10 @@ export class DataPlaneClient {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // Don't retry on 4xx errors
-        if (lastError.message.includes('400') || lastError.message.includes('404')) {
+        if (
+          lastError.message.includes('400') ||
+          lastError.message.includes('404')
+        ) {
           throw lastError;
         }
 
@@ -94,17 +102,23 @@ export class DataPlaneClient {
   }
 
   async getProfiles(actors: string[]): Promise<{ profiles: ProfileRecord[] }> {
-    return this.request<{ profiles: ProfileRecord[] }>('/internal/getProfiles', { actors });
+    return this.request<{ profiles: ProfileRecord[] }>(
+      '/internal/getProfiles',
+      { actors }
+    );
   }
 
   async searchActors(
     query: string,
     options: { limit?: number; cursor?: string } = {}
   ): Promise<PaginatedResponse<ProfileRecord>> {
-    return this.request<PaginatedResponse<ProfileRecord>>('/internal/searchActors', {
-      query,
-      ...options,
-    });
+    return this.request<PaginatedResponse<ProfileRecord>>(
+      '/internal/searchActors',
+      {
+        query,
+        ...options,
+      }
+    );
   }
 
   // Feed queries
@@ -117,20 +131,26 @@ export class DataPlaneClient {
       cursor?: string;
     } = {}
   ): Promise<PaginatedResponse<FeedItemRecord>> {
-    return this.request<PaginatedResponse<FeedItemRecord>>('/internal/getAuthorFeed', {
-      actor,
-      ...options,
-    });
+    return this.request<PaginatedResponse<FeedItemRecord>>(
+      '/internal/getAuthorFeed',
+      {
+        actor,
+        ...options,
+      }
+    );
   }
 
   async getTimeline(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
   ): Promise<PaginatedResponse<FeedItemRecord>> {
-    return this.request<PaginatedResponse<FeedItemRecord>>('/internal/getTimeline', {
-      actor,
-      ...options,
-    });
+    return this.request<PaginatedResponse<FeedItemRecord>>(
+      '/internal/getTimeline',
+      {
+        actor,
+        ...options,
+      }
+    );
   }
 
   async getPostThread(
@@ -148,7 +168,9 @@ export class DataPlaneClient {
   }
 
   async getPosts(uris: string[]): Promise<{ posts: PostRecord[] }> {
-    return this.request<{ posts: PostRecord[] }>('/internal/getPosts', { uris });
+    return this.request<{ posts: PostRecord[] }>('/internal/getPosts', {
+      uris,
+    });
   }
 
   // Graph queries (placeholders - to be implemented)
@@ -210,8 +232,14 @@ export class DataPlaneClient {
     return this.request('/internal/listNotifications', { actor, ...options });
   }
 
-  async getUnreadCount(actor: string, seenAt?: string): Promise<{ count: number }> {
-    return this.request<{ count: number }>('/internal/getUnreadCount', { actor, seenAt });
+  async getUnreadCount(
+    actor: string,
+    seenAt?: string
+  ): Promise<{ count: number }> {
+    return this.request<{ count: number }>('/internal/getUnreadCount', {
+      actor,
+      seenAt,
+    });
   }
 
   // Feed generator queries (placeholders)
@@ -226,7 +254,11 @@ export class DataPlaneClient {
 
   // Health check
 
-  async health(): Promise<{ status: string; service: string; timestamp: string }> {
+  async health(): Promise<{
+    status: string;
+    service: string;
+    timestamp: string;
+  }> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2000);
 

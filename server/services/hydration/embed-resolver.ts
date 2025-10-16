@@ -429,7 +429,9 @@ export class EmbedResolver {
     if (!cid.startsWith('baf')) {
       const converted = multihashToCid(cid);
       if (!converted) {
-        console.error(`[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`);
+        console.error(
+          `[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`
+        );
         return undefined;
       }
       cid = converted;
@@ -457,7 +459,9 @@ export class EmbedResolver {
     if (!cid.startsWith('baf')) {
       const converted = multihashToCid(cid);
       if (!converted) {
-        console.error(`[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`);
+        console.error(
+          `[EMBED_RESOLVER] Failed to convert multihash to CID: ${cid}`
+        );
         return undefined;
       }
       finalCid = converted;

@@ -41,7 +41,10 @@ export function multihashToCid(multihash: string): string | null {
 
     return cidObj.toString();
   } catch (error) {
-    console.error(`[MULTIHASH_TO_CID] Error converting multihash: ${multihash}`, error);
+    console.error(
+      `[MULTIHASH_TO_CID] Error converting multihash: ${multihash}`,
+      error
+    );
     return null;
   }
 }
@@ -108,7 +111,9 @@ export function transformBlobToCdnUrl(
   if (!blobCid.startsWith('baf')) {
     const converted = multihashToCid(blobCid);
     if (!converted) {
-      console.error(`[CDN_TRANSFORM] Failed to convert multihash to CID: ${blobCid}`);
+      console.error(
+        `[CDN_TRANSFORM] Failed to convert multihash to CID: ${blobCid}`
+      );
       return undefined;
     }
     cid = converted;

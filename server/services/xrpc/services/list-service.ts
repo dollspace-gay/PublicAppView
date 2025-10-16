@@ -26,11 +26,11 @@ export async function getList(req: Request, res: Response): Promise<void> {
   try {
     const params = getListSchema.parse(req.query);
     const list = await storage.getList(params.list);
-    
+
     if (!list) {
-      res.status(404).json({ 
-        error: 'NotFound', 
-        message: 'List not found' 
+      res.status(404).json({
+        error: 'NotFound',
+        message: 'List not found',
       });
       return;
     }
@@ -61,7 +61,7 @@ export async function getLists(req: Request, res: Response): Promise<void> {
     if (!did) return;
 
     const lists = await storage.getUserLists(did, params.limit);
-    
+
     res.json({
       lists: lists.map((l) => ({
         uri: l.uri,
@@ -91,7 +91,7 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
     );
 
     const viewerDid = await getAuthenticatedDid(req);
-    
+
     // Use legacy API for complex post serialization
     // TODO: Extract serializePosts to utils in future iteration
     const serialized = await (xrpcApi as any).serializePosts(
@@ -101,7 +101,7 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
     );
 
     const oldest = posts.length ? posts[posts.length - 1] : null;
-    
+
     res.json({
       cursor: oldest ? oldest.indexedAt.toISOString() : undefined,
       feed: serialized.map((p: any) => ({ post: p })),
@@ -125,7 +125,7 @@ export async function getListsWithMembership(
     if (!did) return;
 
     const lists = await storage.getUserLists(did, params.limit);
-    
+
     res.json({
       cursor: undefined,
       lists: lists.map((l) => ({

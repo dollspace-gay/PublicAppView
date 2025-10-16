@@ -1174,7 +1174,10 @@ export class EventProcessor {
 
     // Check if data collection is forbidden for this user
     // Skip this check during user-initiated CAR imports (user importing their own data)
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(authorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(authorDid))
+    ) {
       return;
     }
 
@@ -1364,7 +1367,10 @@ export class EventProcessor {
     if (record.reply?.parent.uri) {
       await cacheService.invalidateThread(record.reply.parent.uri);
     }
-    if (record.reply?.root.uri && record.reply.root.uri !== record.reply.parent.uri) {
+    if (
+      record.reply?.root.uri &&
+      record.reply.root.uri !== record.reply.parent.uri
+    ) {
       await cacheService.invalidateThread(record.reply.root.uri);
     }
   }
@@ -1384,7 +1390,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(userDid))
+    ) {
       return;
     }
 
@@ -1460,7 +1469,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(userDid))
+    ) {
       return;
     }
 
@@ -1548,7 +1560,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(userDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(userDid))
+    ) {
       return;
     }
 
@@ -1666,7 +1681,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(followerDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(followerDid))
+    ) {
       return;
     }
 
@@ -1744,7 +1762,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(blockerDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(blockerDid))
+    ) {
       return;
     }
 
@@ -1801,7 +1822,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -1839,7 +1863,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -1918,7 +1945,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -1981,7 +2011,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -2014,7 +2047,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -2050,7 +2086,10 @@ export class EventProcessor {
     }
 
     // Check if data collection is forbidden for this user
-    if (!this.skipDataCollectionCheck && await this.isDataCollectionForbidden(creatorDid)) {
+    if (
+      !this.skipDataCollectionCheck &&
+      (await this.isDataCollectionForbidden(creatorDid))
+    ) {
       return;
     }
 
@@ -2236,10 +2275,14 @@ export class EventProcessor {
         break;
       case 'app.bsky.feed.threadgate': {
         // Extract the post URI from the thread gate URI
-        const postUri = uri.replace('/app.bsky.feed.threadgate/', '/app.bsky.feed.post/');
+        const postUri = uri.replace(
+          '/app.bsky.feed.threadgate/',
+          '/app.bsky.feed.post/'
+        );
 
         // Delete thread gate record
-        await this.storage.db.delete(threadGates)
+        await this.storage.db
+          .delete(threadGates)
           .where(eq(threadGates.postUri, postUri));
 
         // Invalidate thread gate cache for this post
@@ -2290,17 +2333,30 @@ export class EventProcessor {
       // Thread gate URI format: at://did:plc:xxx/app.bsky.feed.threadgate/rkey
       // The post URI is: at://did:plc:xxx/app.bsky.feed.post/rkey
       // Extract the post URI from the thread gate URI
-      const postUri = uri.replace('/app.bsky.feed.threadgate/', '/app.bsky.feed.post/');
+      const postUri = uri.replace(
+        '/app.bsky.feed.threadgate/',
+        '/app.bsky.feed.post/'
+      );
 
       // Extract rules from the thread gate record
-      const allowMentions = record.allow?.some((rule: any) => rule.$type === 'app.bsky.feed.threadgate#mentionRule') || false;
-      const allowFollowing = record.allow?.some((rule: any) => rule.$type === 'app.bsky.feed.threadgate#followingRule') || false;
-      const listRules = record.allow?.filter((rule: any) => rule.$type === 'app.bsky.feed.threadgate#listRule') || [];
+      const allowMentions =
+        record.allow?.some(
+          (rule: any) => rule.$type === 'app.bsky.feed.threadgate#mentionRule'
+        ) || false;
+      const allowFollowing =
+        record.allow?.some(
+          (rule: any) => rule.$type === 'app.bsky.feed.threadgate#followingRule'
+        ) || false;
+      const listRules =
+        record.allow?.filter(
+          (rule: any) => rule.$type === 'app.bsky.feed.threadgate#listRule'
+        ) || [];
       const allowListMembers = listRules.length > 0;
       const allowListUris = listRules.map((rule: any) => rule.list);
 
       // Store thread gate in database
-      await this.storage.db.insert(threadGates)
+      await this.storage.db
+        .insert(threadGates)
         .values({
           postUri,
           ownerDid: repo,
@@ -2324,9 +2380,14 @@ export class EventProcessor {
       // Invalidate thread gate cache for this post
       await cacheService.invalidateThreadGate(postUri);
 
-      smartConsole.log(`[EVENT_PROCESSOR] Thread gate processed: ${uri} for post ${postUri}`);
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Thread gate processed: ${uri} for post ${postUri}`
+      );
     } catch (error) {
-      smartConsole.error(`[EVENT_PROCESSOR] Error processing thread gate ${uri}:`, error);
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error processing thread gate ${uri}:`,
+        error
+      );
     }
   }
 

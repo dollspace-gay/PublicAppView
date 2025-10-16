@@ -35,20 +35,27 @@ router.post('/getProfile', async (req, res) => {
     }
 
     // Get follower/following counts
-    const [followerCountResult, followingCountResult, postsCountResult] = await Promise.all([
-      db.execute<{ count: string }>(sql`
+    const [followerCountResult, followingCountResult, postsCountResult] =
+      await Promise.all([
+        db.execute<{ count: string }>(sql`
         SELECT COUNT(*)::text as count FROM follows WHERE following_did = ${user.did}
       `),
-      db.execute<{ count: string }>(sql`
+        db.execute<{ count: string }>(sql`
         SELECT COUNT(*)::text as count FROM follows WHERE follower_did = ${user.did}
       `),
-      db.execute<{ count: string }>(sql`
+        db.execute<{ count: string }>(sql`
         SELECT COUNT(*)::text as count FROM posts WHERE author_did = ${user.did}
       `),
-    ]);
+      ]);
 
-    const followersCount = parseInt(followerCountResult.rows[0]?.count || '0', 10);
-    const followsCount = parseInt(followingCountResult.rows[0]?.count || '0', 10);
+    const followersCount = parseInt(
+      followerCountResult.rows[0]?.count || '0',
+      10
+    );
+    const followsCount = parseInt(
+      followingCountResult.rows[0]?.count || '0',
+      10
+    );
     const postsCount = parseInt(postsCountResult.rows[0]?.count || '0', 10);
 
     const profile: ProfileRecord = {
@@ -174,7 +181,11 @@ router.post('/searchActors', async (req, res) => {
             cursor ? sql`${users.did} > ${cursor}` : undefined
           )
         )
-        .orderBy(desc(sql`ts_rank(${users.searchVector}, plainto_tsquery('english', ${query}))`))
+        .orderBy(
+          desc(
+            sql`ts_rank(${users.searchVector}, plainto_tsquery('english', ${query}))`
+          )
+        )
         .limit(actualLimit + 1);
     } catch {
       // Fallback to ILIKE search if full-text fails

@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { db } from '../../../server/db';
-import { posts, feedItems, postAggregations, users } from '../../../shared/schema';
+import {
+  posts,
+  feedItems,
+  postAggregations,
+  users,
+} from '../../../shared/schema';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import type {
   GetAuthorFeedRequest,
@@ -21,7 +26,12 @@ const router = Router();
  */
 router.post('/getAuthorFeed', async (req, res) => {
   try {
-    const { actor, filter = 'posts_with_replies', limit = 50, cursor } = req.body as GetAuthorFeedRequest;
+    const {
+      actor,
+      filter = 'posts_with_replies',
+      limit = 50,
+      cursor,
+    } = req.body as GetAuthorFeedRequest;
 
     if (!actor) {
       return res.status(400).json({ error: 'actor is required' });
@@ -40,7 +50,7 @@ router.post('/getAuthorFeed', async (req, res) => {
     }
 
     // Build query based on filter
-    let items = await db
+    const items = await db
       .select({
         uri: feedItems.uri,
         postUri: feedItems.postUri,
@@ -104,7 +114,9 @@ router.post('/getAuthorFeed', async (req, res) => {
 
     const response: PaginatedResponse<FeedItemRecord> = {
       items: feedItemRecords,
-      cursor: hasMore ? feedItemsList[feedItemsList.length - 1].sortAt.toISOString() : undefined,
+      cursor: hasMore
+        ? feedItemsList[feedItemsList.length - 1].sortAt.toISOString()
+        : undefined,
     };
 
     res.json(response);
@@ -139,7 +151,12 @@ router.post('/getTimeline', async (req, res) => {
  */
 router.post('/getPostThread', async (req, res) => {
   try {
-    const { uri, depth = 6, parentHeight = 80, viewerDid } = req.body as GetPostThreadRequest;
+    const {
+      uri,
+      depth = 6,
+      parentHeight = 80,
+      viewerDid,
+    } = req.body as GetPostThreadRequest;
 
     if (!uri) {
       return res.status(400).json({ error: 'uri is required' });

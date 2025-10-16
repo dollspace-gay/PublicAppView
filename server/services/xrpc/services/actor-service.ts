@@ -25,15 +25,15 @@ import { xrpcApi } from '../../xrpc-api';
 export async function getProfile(req: Request, res: Response): Promise<void> {
   try {
     const params = getProfileSchema.parse(req.query);
-    
+
     // Use legacy API's _getProfiles helper for complex profile serialization
     const profiles = await (xrpcApi as any)._getProfiles([params.actor], req);
-    
+
     if (profiles.length === 0) {
       res.status(404).json({ error: 'Profile not found' });
       return;
     }
-    
+
     res.json(profiles[0]);
   } catch (error) {
     handleError(res, error, 'getProfile');
@@ -52,10 +52,10 @@ export async function getProfiles(req: Request, res: Response): Promise<void> {
     }
 
     const params = getProfilesSchema.parse(req.query);
-    
+
     // Use legacy API's _getProfiles helper for complex profile serialization
     const profiles = await (xrpcApi as any)._getProfiles(params.actors, req);
-    
+
     res.json({ profiles });
   } catch (error) {
     handleError(res, error, 'getProfiles');
@@ -137,7 +137,7 @@ export async function getSuggestedUsersUnspecced(
     if (!userDid) return;
 
     const users = await storage.getSuggestedUsers(userDid, params.limit);
-    
+
     res.json({
       users: users.map((u) => ({
         did: u.did,

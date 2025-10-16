@@ -23,10 +23,10 @@ export async function getTaggedSuggestions(
 ): Promise<void> {
   try {
     unspeccedNoParamsSchema.parse(req.query);
-    
+
     // Return recent users as generic suggestions
     const users = await storage.getSuggestedUsers(undefined, 25);
-    
+
     res.json({
       suggestions: users.map((u) => ({
         did: u.did,
@@ -50,10 +50,10 @@ export async function getTrendingTopics(
 ): Promise<void> {
   try {
     unspeccedNoParamsSchema.parse(req.query);
-    
+
     // Placeholder: compute trending by most reposted authors' handles
     const stats = await storage.getStats();
-    
+
     res.json({
       topics: stats.totalPosts > 0 ? ['#bluesky', '#atproto'] : [],
     });

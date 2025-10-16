@@ -251,10 +251,7 @@ export async function muteThread(req: Request, res: Response): Promise<void> {
  * Unmute a thread
  * POST /xrpc/app.bsky.graph.unmuteThread
  */
-export async function unmuteThread(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function unmuteThread(req: Request, res: Response): Promise<void> {
   try {
     const body = muteThreadSchema.parse(req.body);
     const userDid = await requireAuthDid(req, res);
@@ -262,7 +259,7 @@ export async function unmuteThread(
 
     const { mutes } = await storage.getThreadMutes(userDid, 1000);
     const existing = mutes.find((m) => m.threadRootUri === body.root);
-    
+
     if (existing) {
       await storage.deleteThreadMute(existing.uri);
     }
@@ -281,7 +278,7 @@ export async function queryLabels(req: Request, res: Response): Promise<void> {
   try {
     const params = queryLabelsSchema.parse(req.query);
     const subjects = params.uriPatterns ?? [];
-    
+
     if (subjects.some((u) => u.includes('*'))) {
       res.status(400).json({
         error: 'InvalidRequest',
@@ -301,7 +298,7 @@ export async function queryLabels(req: Request, res: Response): Promise<void> {
 
     const labels = await storage.getLabelsForSubjects(subjects);
     const filtered = labels.filter((l) => sources.includes(l.src));
-    
+
     res.json({ cursor: undefined, labels: filtered });
   } catch (error) {
     handleError(res, error, 'queryLabels');
@@ -312,10 +309,7 @@ export async function queryLabels(req: Request, res: Response): Promise<void> {
  * Create a moderation report
  * POST /xrpc/com.atproto.moderation.createReport
  */
-export async function createReport(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function createReport(req: Request, res: Response): Promise<void> {
   try {
     const params = createReportSchema.parse(req.body);
     const reporterDid =

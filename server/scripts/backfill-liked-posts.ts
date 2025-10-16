@@ -27,7 +27,9 @@ async function backfillLikedPosts(userDid: string) {
 
   const missingPostUris = missingPosts.rows.map((row: any) => row.post_uri);
 
-  console.log(`[BACKFILL] Found ${missingPostUris.length} liked posts that need to be fetched`);
+  console.log(
+    `[BACKFILL] Found ${missingPostUris.length} liked posts that need to be fetched`
+  );
 
   if (missingPostUris.length === 0) {
     console.log('[BACKFILL] No missing posts to backfill!');
@@ -50,7 +52,9 @@ async function backfillLikedPosts(userDid: string) {
   for (let i = 0; i < missingPostUris.length; i += BATCH_SIZE) {
     const batch = missingPostUris.slice(i, i + BATCH_SIZE);
 
-    console.log(`[BACKFILL] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(missingPostUris.length / BATCH_SIZE)} (${batch.length} posts)`);
+    console.log(
+      `[BACKFILL] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(missingPostUris.length / BATCH_SIZE)} (${batch.length} posts)`
+    );
 
     // Fetch posts in parallel chunks
     const chunks = [];
@@ -65,7 +69,7 @@ async function backfillLikedPosts(userDid: string) {
             // Fetch the post from the network
             const response = await agent.app.bsky.feed.post.get({
               repo: postUri.split('/')[2], // Extract DID from URI
-              rkey: postUri.split('/').pop()! // Extract record key
+              rkey: postUri.split('/').pop()!, // Extract record key
             });
 
             if (!response.value) {
@@ -77,12 +81,14 @@ async function backfillLikedPosts(userDid: string) {
             // Process the post through event processor
             await eventProcessor.processCommit({
               repo: postUri.split('/')[2],
-              ops: [{
-                action: 'create',
-                path: `app.bsky.feed.post/${postUri.split('/').pop()}`,
-                cid: response.cid,
-                record: response.value
-              }],
+              ops: [
+                {
+                  action: 'create',
+                  path: `app.bsky.feed.post/${postUri.split('/').pop()}`,
+                  cid: response.cid,
+                  record: response.value,
+                },
+              ],
               time: new Date().toISOString(),
               rev: '',
             } as any);
@@ -90,13 +96,18 @@ async function backfillLikedPosts(userDid: string) {
             fetchedCount++;
 
             if (fetchedCount % 100 === 0) {
-              console.log(`[BACKFILL] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`);
+              console.log(
+                `[BACKFILL] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`
+              );
             }
           } catch (error: any) {
             if (error.status === 404) {
               skippedCount++;
             } else {
-              console.error(`[BACKFILL] Error fetching ${postUri}:`, error.message);
+              console.error(
+                `[BACKFILL] Error fetching ${postUri}:`,
+                error.message
+              );
               failedCount++;
             }
           }
@@ -105,7 +116,9 @@ async function backfillLikedPosts(userDid: string) {
     }
   }
 
-  console.log(`[BACKFILL] Complete! ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} not found`);
+  console.log(
+    `[BACKFILL] Complete! ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} not found`
+  );
 }
 
 // Get user DID from command line or environment
@@ -113,7 +126,9 @@ const userDid = process.argv[2] || process.env.USER_DID;
 
 if (!userDid) {
   console.error('Usage: tsx server/scripts/backfill-liked-posts.ts <user-did>');
-  console.error('   or: USER_DID=did:plc:xxx tsx server/scripts/backfill-liked-posts.ts');
+  console.error(
+    '   or: USER_DID=did:plc:xxx tsx server/scripts/backfill-liked-posts.ts'
+  );
   process.exit(1);
 }
 

@@ -42,11 +42,7 @@ export async function getTimeline(req: Request, res: Response): Promise<void> {
       `[TIMELINE_DEBUG] User ${userDid} is following ${followCount} accounts, has ${userPostCount} posts`
     );
 
-    let posts = await storage.getTimeline(
-      userDid,
-      params.limit,
-      params.cursor
-    );
+    let posts = await storage.getTimeline(userDid, params.limit, params.cursor);
 
     console.log(
       `[TIMELINE_DEBUG] Retrieved ${posts.length} posts for timeline`
@@ -218,9 +214,7 @@ export async function getAuthorFeed(
       viewerDid,
       req
     );
-    const postsByUri = new Map(
-      serializedPosts.map((p: any) => [p.uri, p])
-    );
+    const postsByUri = new Map(serializedPosts.map((p: any) => [p.uri, p]));
 
     // Build feed with reposts and pinned posts
     const feed = items
@@ -369,9 +363,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
         cursor: params.cursor,
       },
       {
-        viewerAuthorization: req.headers['authorization'] as
-          | string
-          | undefined,
+        viewerAuthorization: req.headers['authorization'] as string | undefined,
       }
     );
 
@@ -460,13 +452,13 @@ export async function getPostThreadV2(
     const params = getPostThreadV2Schema.parse(req.query);
     const posts = await storage.getPostThread(params.anchor);
     const viewerDid = await getAuthenticatedDid(req);
-    
+
     const serialized = await (xrpcApi as any).serializePosts(
       posts,
       viewerDid || undefined,
       req
     );
-    
+
     res.json({
       hasOtherReplies: false,
       thread: serialized.length
