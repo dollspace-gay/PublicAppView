@@ -1070,6 +1070,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       if (error.status === 404 || error.message?.includes('not found')) {
                         skippedCount++;
                       } else {
+                        console.error(`[BACKFILL_LIKES] Error fetching ${postUri}:`, error.status, error.message);
                         failedCount++;
                       }
                     }
