@@ -4,7 +4,7 @@ import {
   Database,
   Terminal,
   FileText,
-  Zap,
+  Sparkles,
   BookOpen,
   Shield,
   AlertTriangle,
@@ -69,7 +69,7 @@ export function Sidebar() {
 
   const allNavItems = [
     { path: '/', icon: Activity, label: 'Overview' },
-    { path: '/firehose', icon: Zap, label: 'Firehose Monitor' },
+    { path: '/firehose', icon: Sparkles, label: 'Firehose Monitor' },
     { path: '/database', icon: Database, label: 'Database Schema' },
     { path: '/api', icon: Terminal, label: 'API Endpoints' },
     { path: '/lexicons', icon: BookOpen, label: 'Lexicon Validator' },
@@ -108,12 +108,13 @@ export function Sidebar() {
     <aside className="w-64 bg-card border-r border-border flex flex-col shadow-xl">
       <div className="px-8 py-4 border-b border-border h-[73px] flex items-center">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center shadow-lg">
-            <Zap className="h-6 w-6 text-white" />
+          <div className="w-10 h-10 bg-gradient-to-br from-primary via-secondary to-accent rounded-lg flex items-center justify-center shadow-lg relative overflow-hidden">
+            <Sparkles className="h-6 w-6 text-white relative z-10" />
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-foreground leading-tight">
-              App View
+            <h1 className="text-lg font-semibold heading-aurora leading-tight">
+              Aurora Prism
             </h1>
             <p className="text-xs text-muted-foreground font-mono leading-tight">
               Dashboard

@@ -118,7 +118,7 @@ export default function InstancePolicyPage() {
         </div>
         <p className="text-muted-foreground mt-2">
           Transparency information about content moderation and legal compliance
-          for this App View instance
+          for this Aurora Prism instance
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import { db } from '../db';
-import { posts, likes, reposts, notifications } from '../../shared/schema';
-import { sql } from 'drizzle-orm';
+import { posts, likes, reposts, notifications, sessions, follows } from '../../shared/schema';
+import { sql, gt } from 'drizzle-orm';
 import { logCollector } from './log-collector';
 
 export class DataPruningService {
@@ -55,6 +55,50 @@ export class DataPruningService {
     }, this.PRUNE_CHECK_INTERVAL);
   }
 
+  /**
+   * Get list of DIDs that should be protected from pruning
+   * Includes ALL users who have ever had a session (past or present) and users they follow
+   * This ensures user-backfilled data is never pruned unless they explicitly delete it
+   */
+  private async getProtectedDids(): Promise<Set<string>> {
+    const protectedDids = new Set<string>();
+
+    try {
+      // Get ALL users who have EVER had a session (active or expired)
+      // These are users who have used the AppView and may have backfilled data
+      const allSessions = await db
+        .select({ userDid: sessions.userDid })
+        .from(sessions);
+
+      const registeredUserDids = [...new Set(allSessions.map(s => s.userDid))];
+
+      console.log(`[DATA_PRUNING] Found ${registeredUserDids.length} total users who have ever logged in`);
+
+      // Add all registered users to protected list
+      registeredUserDids.forEach(did => protectedDids.add(did));
+
+      // For each registered user, get their follows
+      // This protects content from people they follow (their timeline content)
+      for (const userDid of registeredUserDids) {
+        const userFollows = await db
+          .select({ followingDid: follows.followingDid })
+          .from(follows)
+          .where(sql`${follows.followerDid} = ${userDid}`);
+
+        userFollows.forEach(f => protectedDids.add(f.followingDid));
+      }
+
+      console.log(`[DATA_PRUNING] Protecting ${protectedDids.size} total DIDs (registered users + their follows)`);
+
+    } catch (error) {
+      console.error('[DATA_PRUNING] Error getting protected DIDs:', error);
+      // On error, return empty set (fail-safe: prune nothing rather than prune everything)
+      return new Set<string>();
+    }
+
+    return protectedDids;
+  }
+
   private async pruneOldData() {
     if (this.retentionDays === 0) return;
 
@@ -67,6 +111,14 @@ export class DataPruningService {
     logCollector.info(
       `Data pruning started - cutoff: ${cutoffDate.toISOString()}`
     );
+
+    // Get protected DIDs (active users + their follows)
+    const protectedDids = await this.getProtectedDids();
+
+    if (protectedDids.size === 0) {
+      console.warn('[DATA_PRUNING] No protected DIDs found - skipping pruning for safety');
+      return;
+    }
 
     const totalStats = {
       posts: 0,
@@ -85,13 +137,14 @@ export class DataPruningService {
         iteration++;
         let batchHadDeletions = false;
 
-        // Prune posts with limit
+        // Prune posts with limit (exclude protected DIDs)
         const deletedPosts = await db
           .delete(posts)
           .where(
             sql`${posts.uri} IN (
-            SELECT uri FROM ${posts} 
-            WHERE ${posts.createdAt} < ${cutoffDate} 
+            SELECT uri FROM ${posts}
+            WHERE ${posts.createdAt} < ${cutoffDate}
+            AND ${posts.authorDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -102,13 +155,14 @@ export class DataPruningService {
           batchHadDeletions = true;
         }
 
-        // Prune likes with limit
+        // Prune likes with limit (exclude protected DIDs)
         const deletedLikes = await db
           .delete(likes)
           .where(
             sql`${likes.uri} IN (
             SELECT uri FROM ${likes}
             WHERE ${likes.createdAt} < ${cutoffDate}
+            AND ${likes.userDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -119,13 +173,14 @@ export class DataPruningService {
           batchHadDeletions = true;
         }
 
-        // Prune reposts with limit
+        // Prune reposts with limit (exclude protected DIDs)
         const deletedReposts = await db
           .delete(reposts)
           .where(
             sql`${reposts.uri} IN (
             SELECT uri FROM ${reposts}
             WHERE ${reposts.createdAt} < ${cutoffDate}
+            AND ${reposts.userDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -136,13 +191,14 @@ export class DataPruningService {
           batchHadDeletions = true;
         }
 
-        // Prune notifications with limit
+        // Prune notifications with limit (exclude protected DIDs)
         const deletedNotifications = await db
           .delete(notifications)
           .where(
             sql`${notifications.uri} IN (
             SELECT uri FROM ${notifications}
             WHERE ${notifications.createdAt} < ${cutoffDate}
+            AND ${notifications.recipientDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -177,11 +233,11 @@ export class DataPruningService {
       }
 
       console.log(
-        `[DATA_PRUNING] Completed - Deleted ${totalStats.total} total records (${totalStats.posts} posts, ${totalStats.likes} likes, ${totalStats.reposts} reposts, ${totalStats.notifications} notifications)`
+        `[DATA_PRUNING] Completed - Deleted ${totalStats.total} total records (${totalStats.posts} posts, ${totalStats.likes} likes, ${totalStats.reposts} reposts, ${totalStats.notifications} notifications). Protected ${protectedDids.size} DIDs from pruning.`
       );
       logCollector.success(
-        `Data pruning completed - ${totalStats.total} records deleted`,
-        totalStats
+        `Data pruning completed - ${totalStats.total} records deleted, ${protectedDids.size} DIDs protected`,
+        { ...totalStats, protectedDids: protectedDids.size }
       );
 
       // Redis counters will auto-refresh from database on next stats query

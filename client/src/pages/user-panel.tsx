@@ -445,7 +445,7 @@ export default function UserPanel() {
                 <h3 className="font-semibold">Follows & Followers</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Backfill who you follow and who follows you via Bluesky AppView
+                Backfill who you follow and who follows you via Bluesky public API
               </p>
               <Button
                 onClick={() => backfillFollowsMutation.mutate()}

@@ -183,8 +183,8 @@ export default function Dashboard() {
         <header className="bg-card/95 backdrop-blur-xl border-b border-border sticky top-0 z-10 shadow-sm h-[73px]">
           <div className="px-8 h-full flex items-center justify-between">
             <div className="flex items-center">
-              <h2 className="text-2xl font-bold text-foreground">
-                App View Dashboard
+              <h2 className="text-2xl font-bold heading-aurora">
+                Aurora Prism Dashboard
               </h2>
             </div>
             <div className="flex items-center space-x-4">

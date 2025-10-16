@@ -2,43 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========================================
+   AURORA STACK THEME
+   Cyberpunk Aurora Borealis Aesthetic
+   ======================================== */
+
 :root {
-  --background: 222 47% 5%;
-  --foreground: 210 40% 98%;
-  --card: 222 47% 10%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222 47% 10%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 262 83% 58%;
-  --secondary-foreground: 0 0% 100%;
-  --muted: 217 32% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 187 92% 50%;
+  /* Aurora Stack Color Palette */
+  --aurora-background: 13 17 23; /* #0D1117 - Deep space blue */
+  --aurora-card: 22 27 34; /* #161B22 - Card background */
+  --aurora-teal: 0 245 212; /* #00F5D4 - Primary accent */
+  --aurora-green: 154 239 130; /* #9AEF82 - Secondary accent */
+  --aurora-purple: 185 0 245; /* #B900F5 - Tertiary accent */
+  --aurora-text: 240 240 240; /* #F0F0F0 - Primary text */
+  --aurora-border: 139 148 158; /* #8B949E - Borders (with opacity) */
+
+  /* Tailwind-compatible HSL values */
+  --background: 213 28% 7%; /* #0D1117 converted to HSL */
+  --foreground: 0 0% 94%; /* #F0F0F0 */
+  --card: 213 21% 11%; /* #161B22 */
+  --card-foreground: 0 0% 94%;
+  --popover: 213 21% 11%;
+  --popover-foreground: 0 0% 94%;
+
+  /* Primary = Teal accent */
+  --primary: 171 100% 48%; /* #00F5D4 */
+  --primary-foreground: 213 28% 7%;
+
+  /* Secondary = Green accent */
+  --secondary: 97 80% 72%; /* #9AEF82 */
+  --secondary-foreground: 213 28% 7%;
+
+  /* Muted states */
+  --muted: 213 21% 15%;
+  --muted-foreground: 215 14% 61%;
+
+  /* Accent = Purple */
+  --accent: 285 100% 48%; /* #B900F5 */
   --accent-foreground: 0 0% 100%;
+
+  /* Status colors with aurora glow */
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
-  --success: 142 76% 36%;
-  --success-foreground: 0 0% 100%;
+  --success: 97 80% 72%; /* Aurora green */
+  --success-foreground: 213 28% 7%;
   --warning: 38 92% 50%;
-  --warning-foreground: 0 0% 100%;
-  --border: 217 32% 20%;
-  --input: 217 32% 20%;
-  --ring: 217 91% 60%;
-  --chart-1: 217 91% 60%;
-  --chart-2: 142 76% 36%;
-  --chart-3: 38 92% 50%;
-  --chart-4: 187 92% 50%;
-  --chart-5: 262 83% 58%;
-  --sidebar: 222 47% 10%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-primary: 217 91% 60%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 187 92% 50%;
+  --warning-foreground: 213 28% 7%;
+
+  /* Borders with aurora transparency */
+  --border: 215 14% 58%; /* With 0.3 opacity */
+  --input: 213 21% 15%;
+  --ring: 171 100% 48%; /* Teal glow */
+
+  /* Chart colors - Aurora palette */
+  --chart-1: 171 100% 48%; /* Teal */
+  --chart-2: 97 80% 72%; /* Green */
+  --chart-3: 285 100% 48%; /* Purple */
+  --chart-4: 194 100% 50%; /* Cyan */
+  --chart-5: 258 84% 65%; /* Violet */
+
+  /* Sidebar with aurora theme */
+  --sidebar: 213 21% 11%;
+  --sidebar-foreground: 0 0% 94%;
+  --sidebar-primary: 171 100% 48%;
+  --sidebar-primary-foreground: 213 28% 7%;
+  --sidebar-accent: 285 100% 48%;
   --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-border: 217 32% 20%;
-  --sidebar-ring: 217 91% 60%;
+  --sidebar-border: 215 14% 58%;
+  --sidebar-ring: 171 100% 48%;
+
+  /* Typography */
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
@@ -52,5 +85,191 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    background: linear-gradient(135deg, #0D1117 0%, #161B22 100%);
+  }
+
+  /* Smooth scrolling for aurora effect */
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ========================================
+   AURORA GLOW EFFECTS
+   ======================================== */
+
+@layer components {
+  /* Primary button with teal glow */
+  .btn-aurora-primary {
+    @apply bg-primary text-primary-foreground;
+    box-shadow: 0 0 12px 2px rgba(0, 245, 212, 0.6);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-aurora-primary:hover {
+    box-shadow: 0 0 20px 4px rgba(0, 245, 212, 0.8);
+    transform: translateY(-2px);
+  }
+
+  /* Secondary button with green glow */
+  .btn-aurora-secondary {
+    @apply bg-secondary text-secondary-foreground;
+    box-shadow: 0 0 12px 2px rgba(154, 239, 130, 0.6);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-aurora-secondary:hover {
+    box-shadow: 0 0 20px 4px rgba(154, 239, 130, 0.8);
+    transform: translateY(-2px);
+  }
+
+  /* Accent button with purple glow */
+  .btn-aurora-accent {
+    @apply bg-accent text-accent-foreground;
+    box-shadow: 0 0 12px 2px rgba(185, 0, 245, 0.6);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .btn-aurora-accent:hover {
+    box-shadow: 0 0 20px 4px rgba(185, 0, 245, 0.8);
+    transform: translateY(-2px);
+  }
+
+  /* Card with subtle glow on hover */
+  .card-aurora {
+    @apply bg-card border border-border/30;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-aurora:hover {
+    border-color: rgba(0, 245, 212, 0.4);
+    box-shadow: 0 0 16px 2px rgba(0, 245, 212, 0.2);
+  }
+
+  /* Stats card with number glow */
+  .stat-aurora {
+    @apply text-4xl font-bold;
+    color: #00F5D4;
+    text-shadow: 0 0 10px rgba(0, 245, 212, 0.5);
+  }
+
+  /* Badge/Tag with purple glow */
+  .badge-aurora {
+    @apply bg-accent/20 text-accent border border-accent/50;
+    box-shadow: 0 0 8px 1px rgba(185, 0, 245, 0.3);
+  }
+
+  /* Progress bar with gradient */
+  .progress-aurora {
+    background: linear-gradient(90deg, #00F5D4 0%, #9AEF82 100%);
+    box-shadow: 0 0 10px 2px rgba(0, 245, 212, 0.4);
+  }
+
+  /* Link with hover glow */
+  .link-aurora {
+    @apply text-primary;
+    transition: all 0.2s ease;
+  }
+
+  .link-aurora:hover {
+    color: #00F5D4;
+    text-shadow: 0 0 8px rgba(0, 245, 212, 0.6);
+  }
+
+  /* Sidebar nav item active state */
+  .nav-aurora-active {
+    @apply bg-primary/10 text-primary border-l-2 border-primary;
+    box-shadow: 0 0 12px 2px rgba(0, 245, 212, 0.3);
+  }
+
+  /* Input with focus glow */
+  .input-aurora:focus {
+    @apply border-primary ring-2 ring-primary/50;
+    box-shadow: 0 0 12px 2px rgba(0, 245, 212, 0.4);
+  }
+
+  /* Chart glow effect */
+  .chart-aurora {
+    filter: drop-shadow(0 0 8px rgba(0, 245, 212, 0.4));
+  }
+
+  /* Border with aurora gradient */
+  .border-aurora {
+    border-image: linear-gradient(90deg, #00F5D4, #9AEF82, #B900F5) 1;
+  }
+
+  /* Text gradient for headings */
+  .heading-aurora {
+    background: linear-gradient(90deg, #00F5D4 0%, #9AEF82 50%, #B900F5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Pulsing animation for live indicators */
+  .pulse-aurora {
+    animation: aurora-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes aurora-pulse {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 0 12px 2px rgba(0, 245, 212, 0.6);
+    }
+    50% {
+      opacity: 0.7;
+      box-shadow: 0 0 20px 4px rgba(0, 245, 212, 0.8);
+    }
+  }
+
+  /* Shimmer effect for loading states */
+  .shimmer-aurora {
+    background: linear-gradient(
+      90deg,
+      rgba(22, 27, 34, 0.5) 0%,
+      rgba(0, 245, 212, 0.2) 50%,
+      rgba(22, 27, 34, 0.5) 100%
+    );
+    background-size: 200% 100%;
+    animation: aurora-shimmer 2s ease-in-out infinite;
+  }
+
+  @keyframes aurora-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  /* Aurora wave animation for background */
+  .aurora-wave {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .aurora-wave::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 245, 212, 0.1) 0%,
+      transparent 70%
+    );
+    animation: aurora-rotate 20s linear infinite;
+  }
+
+  @keyframes aurora-rotate {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 }
