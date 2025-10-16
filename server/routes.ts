@@ -924,7 +924,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Backfill liked posts endpoint - fetches posts you've liked that don't exist yet
   app.post(
     '/api/user/backfill-liked-posts',
-    csrfProtection.validateToken,
     requireAuth,
     async (req: AuthRequest, res) => {
       try {
