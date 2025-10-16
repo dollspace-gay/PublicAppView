@@ -89,6 +89,28 @@ export class AutoBackfillLikesService {
   }
 
   /**
+   * Manually trigger backfill bypassing cooldown checks
+   * Used for manual user-initiated backfills
+   */
+  async forceBackfill(userDid: string): Promise<boolean> {
+    // Skip if already backfilling for this user
+    if (ongoingBackfills.has(userDid)) {
+      console.log(
+        `[AUTO_BACKFILL_LIKES] Already backfilling for ${userDid} - skipping force trigger`
+      );
+      return false;
+    }
+
+    console.log(
+      `[AUTO_BACKFILL_LIKES] Force backfill triggered for ${userDid} (bypassing cooldown)`
+    );
+
+    // Trigger backfill in background without cooldown check
+    this.backfillInBackground(userDid, 0);
+    return true;
+  }
+
+  /**
    * Run backfill in the background (non-blocking)
    */
   private backfillInBackground(userDid: string, estimatedCount: number): void {

@@ -20,6 +20,8 @@ import {
   Download,
   AlertCircle,
   LogOut,
+  Heart,
+  Users,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -82,6 +84,51 @@ export default function UserPanel() {
       toast({
         title: 'Backfill Failed',
         description: error.message || 'Failed to start backfill',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Manual backfill likes mutation
+  const backfillLikesMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/user/backfill-likes', {}),
+    onSuccess: (data) => {
+      toast({
+        title: 'Likes Backfill Started',
+        description:
+          data.message || 'Backfilling your liked posts in the background...',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Likes Backfill Failed',
+        description: error.message || 'Failed to start likes backfill',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Manual backfill follows mutation
+  const backfillFollowsMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ message: string }>('/api/user/backfill-follows', {}),
+    onSuccess: (data) => {
+      toast({
+        title: 'Follows Backfill Started',
+        description:
+          data.message ||
+          'Backfilling your follows and followers in the background...',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/user/stats'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: 'Follows Backfill Failed',
+        description: error.message || 'Failed to start follows backfill',
         variant: 'destructive',
       });
     },
@@ -305,6 +352,87 @@ export default function UserPanel() {
                 </>
               )}
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Manual Backfill Controls */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Download className="h-5 w-5 text-primary" />
+            <CardTitle>Manual Backfill Controls</CardTitle>
+          </div>
+          <CardDescription>
+            Manually trigger backfill for specific data types (bypasses cooldown)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+              <div className="flex items-center space-x-2">
+                <Heart className="h-5 w-5 text-pink-500" />
+                <h3 className="font-semibold">Liked Posts</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Backfill all posts you've liked and their metadata
+              </p>
+              <Button
+                onClick={() => backfillLikesMutation.mutate()}
+                disabled={backfillLikesMutation.isPending}
+                className="w-full"
+                variant="outline"
+                data-testid="button-backfill-likes"
+              >
+                {backfillLikesMutation.isPending ? (
+                  'Backfilling...'
+                ) : (
+                  <>
+                    <Heart className="h-4 w-4 mr-2" />
+                    Backfill Likes
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+              <div className="flex items-center space-x-2">
+                <Users className="h-5 w-5 text-blue-500" />
+                <h3 className="font-semibold">Follows & Followers</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Backfill your follows, followers, and their profiles
+              </p>
+              <Button
+                onClick={() => backfillFollowsMutation.mutate()}
+                disabled={backfillFollowsMutation.isPending}
+                className="w-full"
+                variant="outline"
+                data-testid="button-backfill-follows"
+              >
+                {backfillFollowsMutation.isPending ? (
+                  'Backfilling...'
+                ) : (
+                  <>
+                    <Users className="h-4 w-4 mr-2" />
+                    Backfill Follows
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          <div className="p-3 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-md">
+            <div className="flex items-start space-x-2">
+              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+              <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                <p className="font-medium">Manual triggers bypass cooldown</p>
+                <p className="mt-1">
+                  These buttons will start backfills immediately, even if one ran recently.
+                  The backfill runs in the background and won't block your session.
+                </p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

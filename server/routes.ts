@@ -1148,6 +1148,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Manual backfill likes trigger (bypasses cooldown)
+  app.post(
+    '/api/user/backfill-likes',
+    csrfProtection.validateToken,
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.session?.did) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const userDid = req.session.did;
+
+        console.log(
+          `[MANUAL_BACKFILL_LIKES] Manual trigger requested by ${userDid}`
+        );
+
+        // Import and trigger the auto-backfill service directly
+        const { autoBackfillLikesService } = await import(
+          './services/auto-backfill-likes'
+        );
+
+        // Send immediate response
+        res.json({
+          success: true,
+          message: 'Manual likes backfill started in the background',
+        });
+
+        // Trigger backfill in background (bypasses cooldown)
+        (async () => {
+          try {
+            const triggered = await autoBackfillLikesService.forceBackfill(
+              userDid
+            );
+            if (triggered) {
+              console.log(
+                `[MANUAL_BACKFILL_LIKES] Successfully triggered for ${userDid}`
+              );
+            } else {
+              console.log(
+                `[MANUAL_BACKFILL_LIKES] Backfill already in progress for ${userDid}`
+              );
+            }
+          } catch (error) {
+            console.error(
+              `[MANUAL_BACKFILL_LIKES] Error during backfill:`,
+              error
+            );
+          }
+        })();
+      } catch (error) {
+        console.error('[MANUAL_BACKFILL_LIKES] Error starting:', error);
+        res.status(500).json({
+          error: 'Failed to start likes backfill',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  );
+
+  // Manual backfill follows trigger (bypasses cooldown)
+  app.post(
+    '/api/user/backfill-follows',
+    csrfProtection.validateToken,
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.session?.did) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const userDid = req.session.did;
+
+        console.log(
+          `[MANUAL_BACKFILL_FOLLOWS] Manual trigger requested by ${userDid}`
+        );
+
+        // Import and trigger the auto-backfill service directly
+        const { autoBackfillFollowsService } = await import(
+          './services/auto-backfill-follows'
+        );
+
+        // Send immediate response
+        res.json({
+          success: true,
+          message: 'Manual follows backfill started in the background',
+        });
+
+        // Trigger backfill in background (bypasses cooldown)
+        (async () => {
+          try {
+            const triggered = await autoBackfillFollowsService.forceBackfill(
+              userDid
+            );
+            if (triggered) {
+              console.log(
+                `[MANUAL_BACKFILL_FOLLOWS] Successfully triggered for ${userDid}`
+              );
+            } else {
+              console.log(
+                `[MANUAL_BACKFILL_FOLLOWS] Backfill already in progress for ${userDid}`
+              );
+            }
+          } catch (error) {
+            console.error(
+              `[MANUAL_BACKFILL_FOLLOWS] Error during backfill:`,
+              error
+            );
+          }
+        })();
+      } catch (error) {
+        console.error('[MANUAL_BACKFILL_FOLLOWS] Error starting:', error);
+        res.status(500).json({
+          error: 'Failed to start follows backfill',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  );
+
   app.post(
     '/api/user/delete-data',
     deletionLimiter,
