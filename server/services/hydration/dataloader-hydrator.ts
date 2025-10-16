@@ -198,8 +198,10 @@ export class DataLoaderHydrator {
 
       // Resolve embeds
       const embedMap = await this.embedResolver.resolveEmbeds(
-        Array.from(postMap.values()),
-        loader
+        Array.from(postMap.keys()), // Pass URIs, not post objects
+        0, // depth
+        new Set<string>(), // visited
+        loader // dataLoader
       );
 
       // Propagate labels if needed
