@@ -200,6 +200,9 @@ export class AutoBackfillNotificationsService {
                   );
 
                   if (likeRecord) {
+                    // Use the original createdAt from the like record for proper ordering
+                    const createdAt = likeRecord.value?.createdAt || new Date().toISOString();
+
                     await eventProcessor.processCommit({
                       repo: like.actor.did,
                       ops: [
@@ -210,7 +213,7 @@ export class AutoBackfillNotificationsService {
                           record: likeRecord.value,
                         },
                       ],
-                      time: new Date().toISOString(),
+                      time: createdAt,
                       rev: '',
                     } as any);
 
@@ -262,6 +265,9 @@ export class AutoBackfillNotificationsService {
                   );
 
                   if (repostRecord) {
+                    // Use the original createdAt from the repost record for proper ordering
+                    const createdAt = repostRecord.value?.createdAt || new Date().toISOString();
+
                     await eventProcessor.processCommit({
                       repo: reposter.did,
                       ops: [
@@ -272,7 +278,7 @@ export class AutoBackfillNotificationsService {
                           record: repostRecord.value,
                         },
                       ],
-                      time: new Date().toISOString(),
+                      time: createdAt,
                       rev: '',
                     } as any);
 
