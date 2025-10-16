@@ -136,6 +136,9 @@ export class AutoBackfillFollowsService {
 
   /**
    * Backfill follow relationships (who user follows and who follows them)
+   * NOTE: We can only backfill who the user follows (outgoing follows) by listing
+   * their repo records. We cannot backfill who follows them (incoming follows) without
+   * scanning the entire network or having that data come through the firehose.
    */
   private async backfillFollowRelationships(userDid: string): Promise<void> {
     try {
@@ -175,38 +178,36 @@ export class AutoBackfillFollowsService {
       eventProcessor.setSkipDataCollectionCheck(true);
 
       let followingFetched = 0;
-      let followersFetched = 0;
 
-      // Fetch who the user follows
-      console.log(`[AUTO_BACKFILL_FOLLOWS] Fetching following list for ${userDid}`);
-      let followingCursor: string | undefined;
+      // Fetch who the user follows by listing their follow records
+      console.log(
+        `[AUTO_BACKFILL_FOLLOWS] Listing follow records for ${userDid}`
+      );
+      let cursor: string | undefined;
       do {
         try {
-          const response = await agent.app.bsky.graph.getFollows({
-            actor: userDid,
+          const response = await agent.com.atproto.repo.listRecords({
+            repo: userDid,
+            collection: 'app.bsky.graph.follow',
             limit: 100,
-            cursor: followingCursor,
+            cursor: cursor,
           });
 
-          for (const follow of response.data.follows) {
-            try {
-              // Create a follow record URI
-              const rkey = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
-              const uri = `at://${userDid}/app.bsky.graph.follow/${rkey}`;
+          console.log(
+            `[AUTO_BACKFILL_FOLLOWS] Found ${response.data.records.length} follow records in this batch`
+          );
 
-              // Process the follow
+          for (const record of response.data.records) {
+            try {
+              // Process the follow record
               await eventProcessor.processCommit({
                 repo: userDid,
                 ops: [
                   {
                     action: 'create',
-                    path: `app.bsky.graph.follow/${rkey}`,
-                    cid: '',
-                    record: {
-                      $type: 'app.bsky.graph.follow',
-                      subject: follow.did,
-                      createdAt: follow.indexedAt || new Date().toISOString(),
-                    },
+                    path: `app.bsky.graph.follow/${record.uri.split('/').pop()}`,
+                    cid: record.cid,
+                    record: record.value,
                   },
                 ],
                 time: new Date().toISOString(),
@@ -216,81 +217,33 @@ export class AutoBackfillFollowsService {
               followingFetched++;
             } catch (error: any) {
               console.error(
-                `[AUTO_BACKFILL_FOLLOWS] Error processing follow ${follow.did}:`,
+                `[AUTO_BACKFILL_FOLLOWS] Error processing follow record:`,
                 error.message
               );
             }
           }
 
-          followingCursor = response.data.cursor;
+          cursor = response.data.cursor;
         } catch (error: any) {
           console.error(
-            `[AUTO_BACKFILL_FOLLOWS] Error fetching following:`,
-            error.message
+            `[AUTO_BACKFILL_FOLLOWS] Error listing follow records:`,
+            error.message || error
           );
-          break;
-        }
-      } while (followingCursor);
-
-      console.log(`[AUTO_BACKFILL_FOLLOWS] Fetched ${followingFetched} following`);
-
-      // Fetch who follows the user
-      console.log(`[AUTO_BACKFILL_FOLLOWS] Fetching followers list for ${userDid}`);
-      let followersCursor: string | undefined;
-      do {
-        try {
-          const response = await agent.app.bsky.graph.getFollowers({
-            actor: userDid,
-            limit: 100,
-            cursor: followersCursor,
-          });
-
-          for (const follower of response.data.followers) {
-            try {
-              // Create a follow record URI (follower -> user)
-              const rkey = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
-              const uri = `at://${follower.did}/app.bsky.graph.follow/${rkey}`;
-
-              // Process the follow
-              await eventProcessor.processCommit({
-                repo: follower.did,
-                ops: [
-                  {
-                    action: 'create',
-                    path: `app.bsky.graph.follow/${rkey}`,
-                    cid: '',
-                    record: {
-                      $type: 'app.bsky.graph.follow',
-                      subject: userDid,
-                      createdAt: follower.indexedAt || new Date().toISOString(),
-                    },
-                  },
-                ],
-                time: new Date().toISOString(),
-                rev: '',
-              } as any);
-
-              followersFetched++;
-            } catch (error: any) {
-              console.error(
-                `[AUTO_BACKFILL_FOLLOWS] Error processing follower ${follower.did}:`,
-                error.message
-              );
-            }
+          if (error.status) {
+            console.error(
+              `[AUTO_BACKFILL_FOLLOWS] HTTP Status: ${error.status}`
+            );
           }
-
-          followersCursor = response.data.cursor;
-        } catch (error: any) {
-          console.error(
-            `[AUTO_BACKFILL_FOLLOWS] Error fetching followers:`,
-            error.message
-          );
           break;
         }
-      } while (followersCursor);
+      } while (cursor);
 
       console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Fetched ${followersFetched} followers`
+        `[AUTO_BACKFILL_FOLLOWS] Fetched ${followingFetched} follows from user's PDS`
+      );
+
+      console.log(
+        `[AUTO_BACKFILL_FOLLOWS] Note: Incoming followers can only be discovered through the firehose`
       );
     } catch (error) {
       console.error(
