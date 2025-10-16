@@ -25,7 +25,7 @@ import { logCollector } from './services/log-collector';
 import { schemaIntrospectionService } from './services/schema-introspection';
 import { db } from './db';
 import { sql, eq } from 'drizzle-orm';
-import { userSettings } from '@shared/schema';
+import { userSettings, likes, posts } from '@shared/schema';
 import { csrfProtection } from './middleware/csrf';
 import {
   isUrlSafeToFetch,
