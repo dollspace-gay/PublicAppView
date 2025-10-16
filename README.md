@@ -83,7 +83,7 @@ The Docker Compose setup includes:
 
 1. Navigate to `http://localhost:5000`
 2. Click "Login" in the sidebar
-3. Enter your Bluesky handle and app password
+3. Enter your Bluesky handle and password. It will authenticate you against your PDS via Oauth.
 4. Start exploring your personalized Aurora Prism! ✨
 
 ## 🔧 Configuration
