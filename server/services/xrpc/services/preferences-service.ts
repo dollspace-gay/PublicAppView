@@ -67,7 +67,26 @@ export async function getPreferences(
         return res.json({ preferences: [] });
       }
 
+      // Decode token to see what it contains (for debugging)
+      try {
+        const tokenParts = pdsToken.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(
+            Buffer.from(tokenParts[1], 'base64url').toString()
+          );
+          console.log(`[PREFERENCES] Token payload for ${userDid}:`, {
+            aud: payload.aud,
+            iss: payload.iss,
+            scope: payload.scope,
+            exp: payload.exp,
+          });
+        }
+      } catch (e) {
+        console.log(`[PREFERENCES] Could not decode token for debugging`);
+      }
+
       // Forward request to user's PDS with their PDS token
+      console.log(`[PREFERENCES] Forwarding getPreferences to ${pdsEndpoint} for ${userDid}`);
       const pdsResponse = await fetch(
         `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
         {
@@ -91,9 +110,10 @@ export async function getPreferences(
         );
         return res.json({ preferences: pdsData.preferences || [] });
       } else {
-        console.warn(
-          `[PREFERENCES] PDS request failed for ${userDid}:`,
-          pdsResponse.status
+        const errorText = await pdsResponse.text();
+        console.error(
+          `[PREFERENCES] GET failed for ${userDid}: ${pdsResponse.status}`,
+          errorText
         );
         return res.json({ preferences: [] });
       }
