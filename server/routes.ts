@@ -1002,51 +1002,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
 
               for (const chunk of chunks) {
-                try {
-                  // Use getPosts (plural) to fetch multiple posts from the AppView
-                  const response = await agent.app.bsky.feed.getPosts({ uris: chunk });
+                await Promise.all(
+                  chunk.map(async (postUri: string) => {
+                    try {
+                      const parts = postUri.split('/');
+                      if (parts.length < 4) {
+                        failedCount++;
+                        return;
+                      }
 
-                  if (response.data.posts && response.data.posts.length > 0) {
-                    // Process each fetched post
-                    for (const post of response.data.posts) {
-                      try {
-                        const parts = post.uri.split('/');
-                        const repo = parts[2];
-                        const rkey = parts[parts.length - 1];
+                      const repo = parts[2]; // DID
+                      const rkey = parts[parts.length - 1]; // Record key
 
-                        await eventProcessor.processCommit({
-                          repo,
-                          ops: [{
-                            action: 'create',
-                            path: `app.bsky.feed.post/${rkey}`,
-                            cid: post.cid,
-                            record: post.record
-                          }],
-                          time: new Date().toISOString(),
-                          rev: '',
-                        } as any);
+                      // Resolve DID to find PDS endpoint
+                      const didDoc = await didResolver.resolve(repo);
 
-                        fetchedCount++;
-                      } catch (error: any) {
-                        console.error(`[BACKFILL_LIKES] Error processing post ${post.uri}:`, error.message);
+                      if (!didDoc) {
+                        failedCount++;
+                        return;
+                      }
+
+                      // Find PDS service endpoint
+                      const services = (didDoc as any).service || [];
+                      const pdsService = services.find((s: any) =>
+                        s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+                      );
+
+                      if (!pdsService?.serviceEndpoint) {
+                        failedCount++;
+                        return;
+                      }
+
+                      // Create agent for this specific PDS
+                      const pdsAgent = new AtpAgent({ service: pdsService.serviceEndpoint });
+
+                      // Fetch the record from the PDS
+                      const response = await pdsAgent.com.atproto.repo.getRecord({
+                        repo,
+                        collection: 'app.bsky.feed.post',
+                        rkey,
+                      });
+
+                      if (!response.data.value) {
+                        skippedCount++;
+                        return;
+                      }
+
+                      // Process the post
+                      await eventProcessor.processCommit({
+                        repo,
+                        ops: [{
+                          action: 'create',
+                          path: `app.bsky.feed.post/${rkey}`,
+                          cid: response.data.cid,
+                          record: response.data.value,
+                        }],
+                        time: new Date().toISOString(),
+                        rev: '',
+                      } as any);
+
+                      fetchedCount++;
+
+                      if (fetchedCount % 100 === 0) {
+                        console.log(`[BACKFILL_LIKES] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`);
+                      }
+                    } catch (error: any) {
+                      if (error.status === 404 || error.message?.includes('not found')) {
+                        skippedCount++;
+                      } else {
                         failedCount++;
                       }
                     }
-
-                    // Count posts that weren't returned (deleted)
-                    skippedCount += chunk.length - response.data.posts.length;
-                  } else {
-                    // All posts in chunk are missing
-                    skippedCount += chunk.length;
-                  }
-
-                  if (fetchedCount % 100 === 0) {
-                    console.log(`[BACKFILL_LIKES] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`);
-                  }
-                } catch (error: any) {
-                  console.error(`[BACKFILL_LIKES] Error fetching chunk:`, error.message);
-                  failedCount += chunk.length;
-                }
+                  })
+                );
               }
             }
 
