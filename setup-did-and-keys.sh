@@ -65,6 +65,9 @@ D_B64URL=$(echo -n $PRIV_HEX | xxd -r -p | base64 | tr '/+' '_-' | tr -d '=')
 X_B64URL=$(echo -n $X_HEX | xxd -r -p | base64 | tr '/+' '_-' | tr -d '=')
 Y_B64URL=$(echo -n $Y_HEX | xxd -r -p | base64 | tr '/+' '_-' | tr -d '=')
 
+# 8. Generate a unique Key ID (kid)
+KID="$(date +%s)-$(openssl rand -hex 4)"
+
 # --- File Creation ---
 mkdir -p public
 
@@ -104,12 +107,16 @@ jq -n \
 
 # 9. Create the private key file (appview-signing-key.json) using jq
 jq -n \
+  --arg kid "$KID" \
   --arg d "$D_B64URL" \
   --arg x "$X_B64URL" \
   --arg y "$Y_B64URL" \
   '{
+    kid: $kid,
     kty: "EC",
     crv: "secp256k1",
+    alg: "ES256K",
+    use: "sig",
     d: $d,
     x: $x,
     y: $y
