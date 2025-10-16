@@ -6,14 +6,14 @@
 import type { Request, Response } from 'express';
 import { requireAuthDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
-import { getUserPdsEndpoint } from '../utils/resolvers';
-import { cacheManager } from '../utils/cache';
 import { putActorPreferencesSchema } from '../schemas';
 import { appViewJWTService } from '../../appview-jwt';
 
 /**
  * Get user preferences
  * GET /xrpc/app.bsky.actor.getPreferences
+ *
+ * Uses service-auth tokens to fetch preferences from user's PDS
  */
 export async function getPreferences(
   req: Request,
@@ -24,107 +24,87 @@ export async function getPreferences(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    // Check cache first
-    const cached = cacheManager.getPreferences(userDid);
-    if (cached) {
-      console.log(`[PREFERENCES] Cache hit for ${userDid}`);
-      return res.json({ preferences: cached });
+    console.log(`[PREFERENCES] Fetching preferences for ${userDid}`);
+
+    // Get user's PDS endpoint
+    const { didResolver } = await import('../../did-resolver');
+    const didDoc = await didResolver.resolveDID(userDid);
+
+    if (!didDoc) {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'Could not resolve user DID document',
+      });
     }
 
-    console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
+    const services = (didDoc as any).service || [];
+    const pdsService = services.find(
+      (s: any) =>
+        s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+    );
 
-    try {
-      // Get user's PDS endpoint and DID from DID document
-      const { didResolver } = await import('../../did-resolver');
-      const didDoc = await didResolver.resolveDID(userDid);
+    if (!pdsService?.serviceEndpoint) {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'No PDS endpoint found for user',
+      });
+    }
 
-      if (!didDoc) {
-        console.warn(`[PREFERENCES] Could not resolve DID document for ${userDid}`);
-        return res.json({ preferences: [] });
+    const pdsEndpoint = pdsService.serviceEndpoint;
+
+    // Get the PDS DID from describeServer
+    const pdsDid = await getPdsDid(pdsEndpoint);
+
+    if (!pdsDid) {
+      return res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Could not determine PDS DID',
+      });
+    }
+
+    console.log(
+      `[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`
+    );
+
+    // Create service-auth token with correct audience (PDS DID)
+    const serviceAuthToken = appViewJWTService.signServiceAuthToken(
+      userDid,
+      pdsDid,
+      'app.bsky.actor.getPreferences'
+    );
+
+    // Fetch from PDS
+    const pdsResponse = await fetch(
+      `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
+      {
+        headers: {
+          Authorization: `Bearer ${serviceAuthToken}`,
+          'Content-Type': 'application/json',
+        },
       }
+    );
 
-      // Find PDS service
-      const services = (didDoc as any).service || [];
-      const pdsService = services.find(
-        (s: any) =>
-          s.type === 'AtprotoPersonalDataServer' ||
-          s.id === '#atproto_pds'
+    if (pdsResponse.ok) {
+      const pdsData = (await pdsResponse.json()) as {
+        preferences?: unknown[];
+      };
+      console.log(
+        `[PREFERENCES] Successfully retrieved ${pdsData.preferences?.length || 0} preferences from PDS`
       );
-
-      if (!pdsService?.serviceEndpoint) {
-        console.warn(`[PREFERENCES] No PDS endpoint found for ${userDid}`);
-        return res.json({ preferences: [] });
-      }
-
-      const pdsEndpoint = pdsService.serviceEndpoint;
-
-      // Extract PDS DID from service ID (format: did:plc:xxx#atproto_pds)
-      const pdsDid = pdsService.id.startsWith('did:')
-        ? pdsService.id.split('#')[0]
-        : userDid; // Fallback to user's DID if service doesn't have its own DID
-
-      console.log(`[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`);
-      console.log(`[PREFERENCES] PDS endpoint: ${pdsEndpoint}`);
-
-      // Create service-auth token (AppView acting on behalf of user)
-      const serviceAuthToken = appViewJWTService.signServiceAuthToken(
-        userDid,
-        pdsDid,
-        'app.bsky.actor.getPreferences'
-      );
-
-      // Decode and log the token payload for debugging
-      try {
-        const tokenParts = serviceAuthToken.split('.');
-        if (tokenParts.length === 3) {
-          const header = JSON.parse(Buffer.from(tokenParts[0], 'base64url').toString());
-          const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
-          console.log(`[PREFERENCES] Service-auth token header:`, header);
-          console.log(`[PREFERENCES] Service-auth token payload:`, payload);
-        }
-      } catch (e) {
-        console.log(`[PREFERENCES] Could not decode service-auth token for debugging`);
-      }
-
-      // Forward request to user's PDS with service-auth token
-      const pdsResponse = await fetch(
-        `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
-        {
-          headers: {
-            Authorization: `Bearer ${serviceAuthToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (pdsResponse.ok) {
-        const pdsData = (await pdsResponse.json()) as {
-          preferences?: unknown[];
-        };
-
-        // Cache the response
-        cacheManager.setPreferences(userDid, pdsData.preferences || []);
-
-        console.log(
-          `[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`
-        );
-        return res.json({ preferences: pdsData.preferences || [] });
-      } else {
-        const errorText = await pdsResponse.text();
-        console.error(
-          `[PREFERENCES] GET failed for ${userDid}: ${pdsResponse.status}`,
-          errorText
-        );
-        return res.json({ preferences: [] });
-      }
-    } catch (pdsError) {
+      return res.json({ preferences: pdsData.preferences || [] });
+    } else {
+      const errorText = await pdsResponse.text();
       console.error(
-        `[PREFERENCES] Error fetching from PDS for ${userDid}:`,
-        pdsError
+        `[PREFERENCES] PDS rejected service-auth (${pdsResponse.status}):`,
+        errorText
       );
-      return res.json({ preferences: [] });
+      return res.status(pdsResponse.status).json({
+        error: 'PDS Error',
+        message: errorText || 'Failed to fetch preferences from PDS',
+      });
     }
   } catch (error) {
+    console.error(`[PREFERENCES] Error fetching preferences:`, error);
     handleError(res, error, 'getPreferences');
   }
 }
@@ -132,6 +112,8 @@ export async function getPreferences(
 /**
  * Update user preferences
  * POST /xrpc/app.bsky.actor.putPreferences
+ *
+ * Uses service-auth tokens to update preferences on user's PDS
  */
 export async function putPreferences(
   req: Request,
@@ -147,89 +129,107 @@ export async function putPreferences(
 
     console.log(`[PREFERENCES] Updating preferences for ${userDid}`);
 
-    try {
-      // Get user's PDS endpoint and DID from DID document
-      const { didResolver } = await import('../../did-resolver');
-      const didDoc = await didResolver.resolveDID(userDid);
+    // Get user's PDS endpoint
+    const { didResolver } = await import('../../did-resolver');
+    const didDoc = await didResolver.resolveDID(userDid);
 
-      if (!didDoc) {
-        return res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'Could not resolve user DID document',
-        });
-      }
+    if (!didDoc) {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'Could not resolve user DID document',
+      });
+    }
 
-      // Find PDS service
-      const services = (didDoc as any).service || [];
-      const pdsService = services.find(
-        (s: any) =>
-          s.type === 'AtprotoPersonalDataServer' ||
-          s.id === '#atproto_pds'
-      );
+    const services = (didDoc as any).service || [];
+    const pdsService = services.find(
+      (s: any) =>
+        s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+    );
 
-      if (!pdsService?.serviceEndpoint) {
-        return res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'No PDS endpoint found for user',
-        });
-      }
+    if (!pdsService?.serviceEndpoint) {
+      return res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'No PDS endpoint found for user',
+      });
+    }
 
-      const pdsEndpoint = pdsService.serviceEndpoint;
+    const pdsEndpoint = pdsService.serviceEndpoint;
+    const pdsDid = await getPdsDid(pdsEndpoint);
 
-      // Extract PDS DID from service ID
-      const pdsDid = pdsService.id.startsWith('did:')
-        ? pdsService.id.split('#')[0]
-        : userDid;
-
-      console.log(`[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`);
-
-      // Create service-auth token (AppView acting on behalf of user)
-      const serviceAuthToken = appViewJWTService.signServiceAuthToken(
-        userDid,
-        pdsDid,
-        'app.bsky.actor.putPreferences'
-      );
-
-      // Forward request to user's PDS with service-auth token
-      const pdsResponse = await fetch(
-        `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${serviceAuthToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        }
-      );
-
-      if (pdsResponse.ok) {
-        // Invalidate cache after successful update
-        cacheManager.invalidatePreferencesCache(userDid);
-
-        console.log(`[PREFERENCES] Updated preferences via PDS for ${userDid}`);
-
-        // Return success response (no body, like Bluesky)
-        return res.status(200).end();
-      } else {
-        const errorText = await pdsResponse.text();
-        console.error(
-          `[PREFERENCES] PUT failed for ${userDid}: ${pdsResponse.status}`,
-          errorText
-        );
-        return res.status(pdsResponse.status).send(errorText);
-      }
-    } catch (pdsError) {
-      console.error(
-        `[PREFERENCES] Error updating preferences via PDS for ${userDid}:`,
-        pdsError
-      );
+    if (!pdsDid) {
       return res.status(500).json({
         error: 'InternalServerError',
-        message: 'Failed to update preferences',
+        message: 'Could not determine PDS DID',
+      });
+    }
+
+    console.log(
+      `[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`
+    );
+
+    const serviceAuthToken = appViewJWTService.signServiceAuthToken(
+      userDid,
+      pdsDid,
+      'app.bsky.actor.putPreferences'
+    );
+
+    const pdsResponse = await fetch(
+      `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${serviceAuthToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    if (pdsResponse.ok) {
+      console.log(
+        `[PREFERENCES] Successfully updated preferences on PDS for ${userDid}`
+      );
+      return res.status(200).end();
+    } else {
+      const errorText = await pdsResponse.text();
+      console.error(
+        `[PREFERENCES] PDS rejected service-auth (${pdsResponse.status}):`,
+        errorText
+      );
+      return res.status(pdsResponse.status).json({
+        error: 'PDS Error',
+        message: errorText || 'Failed to update preferences on PDS',
       });
     }
   } catch (error) {
+    console.error(`[PREFERENCES] Error updating preferences:`, error);
     handleError(res, error, 'putPreferences');
+  }
+}
+
+/**
+ * Get PDS DID by calling describeServer endpoint
+ */
+async function getPdsDid(pdsEndpoint: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `${pdsEndpoint}/xrpc/com.atproto.server.describeServer`
+    );
+
+    if (!response.ok) {
+      console.error(
+        `[PREFERENCES] Failed to fetch PDS DID from ${pdsEndpoint}: ${response.status}`
+      );
+      return null;
+    }
+
+    const data = (await response.json()) as { did?: string };
+    return data.did || null;
+  } catch (error) {
+    console.error(
+      `[PREFERENCES] Error fetching PDS DID from ${pdsEndpoint}:`,
+      error
+    );
+    return null;
   }
 }

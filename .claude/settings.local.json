@@ -11,7 +11,8 @@
       "Bash(npm run db:generate:*)",
       "Bash(npm run:*)",
       "Bash(npm audit:*)",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
