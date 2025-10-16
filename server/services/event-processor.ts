@@ -1062,6 +1062,9 @@ export class EventProcessor {
             case 'app.bsky.actor.profile':
               await this.processProfile(repo, record);
               break;
+            case 'app.bsky.actor.status':
+              await this.processActorStatus(repo, record);
+              break;
             case 'app.bsky.graph.follow':
               await this.processFollow(repo, op);
               break;
@@ -1578,6 +1581,28 @@ export class EventProcessor {
         return;
       }
       throw error;
+    }
+  }
+
+  /**
+   * Process actor status record
+   * Actor status records indicate account state (e.g., "takendown", "suspended", "deactivated")
+   */
+  private async processActorStatus(did: string, record: any) {
+    try {
+      // For now, we just log the status change
+      // In the future, we could store this in the users table or a separate actor_status table
+      smartConsole.log(
+        `[ACTOR_STATUS] Status for ${did}: ${JSON.stringify(record)}`
+      );
+
+      // If we wanted to store this, we could update the user record with status info
+      // For now, we'll just acknowledge the record without storing to generic_records
+    } catch (error) {
+      smartConsole.error(
+        `[EVENT_PROCESSOR] Error processing actor status for ${did}:`,
+        error
+      );
     }
   }
 

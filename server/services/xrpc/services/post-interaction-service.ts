@@ -228,11 +228,15 @@ export async function getActorLikes(
       actorDid = user.did;
     }
 
+    console.log(`[getActorLikes] Fetching likes for ${actorDid}, cursor: ${params.cursor}, limit: ${params.limit}`);
+
     const { likes, cursor } = await storage.getActorLikes(
       actorDid,
       params.limit,
       params.cursor
     );
+
+    console.log(`[getActorLikes] Found ${likes.length} likes, next cursor: ${cursor}`);
 
     const postUris = likes.map((like) => like.postUri);
     const posts = await storage.getPosts(postUris);
