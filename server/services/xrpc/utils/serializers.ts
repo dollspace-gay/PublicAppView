@@ -7,6 +7,44 @@ import type { Request } from 'express';
 import { optimizedHydrator } from '../../hydration/index';
 import { dataLoaderHydrator } from '../../hydration/dataloader-hydrator';
 import { getRequestDataLoader } from '../../../middleware/dataloader';
+import { CID } from 'multiformats/cid';
+import * as Digest from 'multiformats/hashes/digest';
+
+/**
+ * Convert raw multihash hex string to proper CID
+ * Handles the avatar/banner CIDs stored as multihashes in the database
+ */
+export function multihashToCid(multihash: string): string | null {
+  try {
+    // If it's already a proper CID (starts with 'baf'), return as-is
+    if (multihash.startsWith('baf')) {
+      return multihash;
+    }
+
+    // Convert hex string to Uint8Array
+    const bytes = new Uint8Array(multihash.length / 2);
+    for (let i = 0; i < multihash.length; i += 2) {
+      bytes[i / 2] = parseInt(multihash.substr(i, 2), 16);
+    }
+
+    // Parse the multihash to get code and digest
+    // First 2 bytes are: [hash_code, digest_length]
+    const code = bytes[0];
+    const digestLength = bytes[1];
+    const digestBytes = bytes.slice(2, 2 + digestLength);
+
+    // Create proper multihash digest
+    const multihashDigest = Digest.create(code, digestBytes);
+
+    // Create CID (version 1, codec 0x55 for raw, multihash)
+    const cidObj = CID.create(1, 0x55, multihashDigest);
+
+    return cidObj.toString();
+  } catch (error) {
+    console.error(`[MULTIHASH_TO_CID] Error converting multihash: ${multihash}`, error);
+    return null;
+  }
+}
 
 /**
  * Get the base URL from the request
@@ -65,10 +103,21 @@ export function transformBlobToCdnUrl(
   )
     return undefined;
 
+  // Convert multihash to proper CID if needed
+  let cid = blobCid;
+  if (!blobCid.startsWith('baf')) {
+    const converted = multihashToCid(blobCid);
+    if (!converted) {
+      console.error(`[CDN_TRANSFORM] Failed to convert multihash to CID: ${blobCid}`);
+      return undefined;
+    }
+    cid = converted;
+  }
+
   // Use local image proxy to fetch from Bluesky CDN
   const baseUrl = getBaseUrl(req);
-  const proxyUrl = `${baseUrl}/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
-  console.log(`[CDN_TRANSFORM] ${blobCid} -> ${proxyUrl}`);
+  const proxyUrl = `${baseUrl}/img/${format}/plain/${userDid}/${cid}@jpeg`;
+  console.log(`[CDN_TRANSFORM] ${blobCid} -> ${cid} -> ${proxyUrl}`);
   return proxyUrl;
 }
 
