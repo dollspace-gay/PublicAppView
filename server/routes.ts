@@ -685,6 +685,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       const isAdmin = await adminAuthService.isAdmin(did);
 
+      // Trigger automatic backfill of liked posts in background (non-blocking)
+      import('./services/auto-backfill-likes').then(
+        ({ autoBackfillLikesService }) => {
+          autoBackfillLikesService.checkAndBackfill(did).catch((err) => {
+            console.error('[AUTO_BACKFILL] Error:', err);
+          });
+        }
+      );
+
       // Create JWT token for frontend
       const token = authService.createSessionToken(did, did);
 

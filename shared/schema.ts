@@ -488,6 +488,7 @@ export const userSettings = pgTable('user_settings', {
     .default(false)
     .notNull(),
   lastBackfillAt: timestamp('last_backfill_at'),
+  lastLikedPostsBackfill: timestamp('last_liked_posts_backfill'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
