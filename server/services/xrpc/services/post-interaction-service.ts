@@ -256,22 +256,27 @@ export async function getActorLikes(
       );
     }
 
-    // Create map to preserve order from likes
+    // Create map to preserve order from likes and match timestamps
     const postMap = new Map(posts.map((p) => [p.uri, p]));
-    const orderedPosts = postUris
-      .map((uri) => postMap.get(uri))
-      .filter((p): p is NonNullable<typeof p> => p !== undefined);
+
+    // Build array of {post, like} pairs, filtering out missing posts
+    const postsWithLikes = likes
+      .map((like) => {
+        const post = postMap.get(like.postUri);
+        return post ? { post, like } : null;
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
     const serialized = await (xrpcApi as any).serializePosts(
-      orderedPosts,
+      postsWithLikes.map(({ post }) => post),
       viewerDid || undefined,
       req
     );
 
-    // Build feed response with like timestamps
+    // Build feed response with like timestamps matched correctly
     const feed = serialized.map((post: any, index: number) => ({
       post,
-      cursor: likes[index]?.createdAt.toISOString(),
+      cursor: postsWithLikes[index]?.like.createdAt.toISOString(),
     }));
 
     res.json({
