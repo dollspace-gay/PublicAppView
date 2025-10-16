@@ -921,6 +921,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Backfill liked posts endpoint - fetches posts you've liked that don't exist yet
+  app.post(
+    '/api/user/backfill-liked-posts',
+    csrfProtection.validateToken,
+    requireAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.session?.did) {
+          return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const userDid = req.session.did;
+
+        // Send immediate response - backfill will run in background
+        res.json({
+          success: true,
+          message: 'Started backfilling liked posts. This may take several minutes.',
+        });
+
+        // Run backfill in background
+        (async () => {
+          try {
+            const { AtpAgent } = await import('@atproto/api');
+            const { EventProcessor } = await import('./services/event-processor');
+
+            const BATCH_SIZE = 100;
+            const CONCURRENT_FETCHES = 10;
+            const PDS_HOST = process.env.PDS_HOST || 'https://bsky.network';
+
+            console.log(`[BACKFILL_LIKES] Starting for ${userDid}`);
+
+            // Get missing post URIs
+            const missingPosts = await db.execute(
+              sql`
+                SELECT DISTINCT l.post_uri
+                FROM ${likes} l
+                LEFT JOIN ${posts} p ON l.post_uri = p.uri
+                WHERE l.user_did = ${userDid} AND p.uri IS NULL
+                LIMIT 10000
+              `
+            );
+
+            const missingPostUris = missingPosts.rows.map((row: any) => row.post_uri);
+
+            console.log(`[BACKFILL_LIKES] Found ${missingPostUris.length} posts to fetch`);
+
+            if (missingPostUris.length === 0) {
+              console.log('[BACKFILL_LIKES] No missing posts!');
+              return;
+            }
+
+            const agent = new AtpAgent({ service: PDS_HOST });
+            const eventProcessor = new EventProcessor(storage);
+            eventProcessor.setSkipPdsFetching(true);
+            eventProcessor.setSkipDataCollectionCheck(true);
+
+            let fetchedCount = 0;
+            let failedCount = 0;
+            let skippedCount = 0;
+
+            // Process in batches
+            for (let i = 0; i < missingPostUris.length; i += BATCH_SIZE) {
+              const batch = missingPostUris.slice(i, i + BATCH_SIZE);
+
+              console.log(`[BACKFILL_LIKES] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(missingPostUris.length / BATCH_SIZE)}`);
+
+              // Fetch in parallel chunks
+              const chunks = [];
+              for (let j = 0; j < batch.length; j += CONCURRENT_FETCHES) {
+                chunks.push(batch.slice(j, j + CONCURRENT_FETCHES));
+              }
+
+              for (const chunk of chunks) {
+                await Promise.all(
+                  chunk.map(async (postUri: string) => {
+                    try {
+                      const parts = postUri.split('/');
+                      const repo = parts[2];
+                      const rkey = parts[parts.length - 1];
+
+                      const response = await agent.app.bsky.feed.post.get({ repo, rkey });
+
+                      if (!response.value) {
+                        skippedCount++;
+                        return;
+                      }
+
+                      await eventProcessor.processCommit({
+                        repo,
+                        ops: [{
+                          action: 'create',
+                          path: `app.bsky.feed.post/${rkey}`,
+                          cid: response.cid,
+                          record: response.value
+                        }],
+                        time: new Date().toISOString(),
+                        rev: '',
+                      } as any);
+
+                      fetchedCount++;
+
+                      if (fetchedCount % 100 === 0) {
+                        console.log(`[BACKFILL_LIKES] Progress: ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} skipped`);
+                      }
+                    } catch (error: any) {
+                      if (error.status === 404) {
+                        skippedCount++;
+                      } else {
+                        failedCount++;
+                      }
+                    }
+                  })
+                );
+              }
+            }
+
+            console.log(`[BACKFILL_LIKES] Complete! ${fetchedCount} fetched, ${failedCount} failed, ${skippedCount} not found`);
+          } catch (error) {
+            console.error('[BACKFILL_LIKES] Fatal error:', error);
+          }
+        })();
+      } catch (error) {
+        console.error('[BACKFILL_LIKES] Error starting:', error);
+        res.status(500).json({
+          error: 'Failed to start backfill',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  );
+
   app.post(
     '/api/user/delete-data',
     deletionLimiter,
