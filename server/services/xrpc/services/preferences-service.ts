@@ -63,6 +63,9 @@ export async function getPreferences(
     }
 
     console.log(
+      `[PREFERENCES] PDS endpoint: ${pdsEndpoint}`
+    );
+    console.log(
       `[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`
     );
 
@@ -73,7 +76,21 @@ export async function getPreferences(
       'app.bsky.actor.getPreferences'
     );
 
+    // Decode and log the token payload for debugging
+    try {
+      const tokenParts = serviceAuthToken.split('.');
+      if (tokenParts.length === 3) {
+        const header = JSON.parse(Buffer.from(tokenParts[0], 'base64url').toString());
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
+        console.log(`[PREFERENCES] Service-auth token header:`, header);
+        console.log(`[PREFERENCES] Service-auth token payload:`, payload);
+      }
+    } catch (e) {
+      console.log(`[PREFERENCES] Could not decode service-auth token for debugging`);
+    }
+
     // Fetch from PDS
+    console.log(`[PREFERENCES] Sending GET request to PDS...`);
     const pdsResponse = await fetch(
       `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
       {
@@ -164,6 +181,9 @@ export async function putPreferences(
     }
 
     console.log(
+      `[PREFERENCES] PDS endpoint: ${pdsEndpoint}`
+    );
+    console.log(
       `[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`
     );
 
@@ -172,6 +192,22 @@ export async function putPreferences(
       pdsDid,
       'app.bsky.actor.putPreferences'
     );
+
+    // Decode and log the token payload for debugging
+    try {
+      const tokenParts = serviceAuthToken.split('.');
+      if (tokenParts.length === 3) {
+        const header = JSON.parse(Buffer.from(tokenParts[0], 'base64url').toString());
+        const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
+        console.log(`[PREFERENCES] Service-auth token header:`, header);
+        console.log(`[PREFERENCES] Service-auth token payload:`, payload);
+      }
+    } catch (e) {
+      console.log(`[PREFERENCES] Could not decode service-auth token for debugging`);
+    }
+
+    console.log(`[PREFERENCES] Sending PUT request to PDS...`);
+    console.log(`[PREFERENCES] Request body:`, JSON.stringify(body, null, 2));
 
     const pdsResponse = await fetch(
       `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
