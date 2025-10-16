@@ -64,6 +64,7 @@ export async function getPreferences(
         : userDid; // Fallback to user's DID if service doesn't have its own DID
 
       console.log(`[PREFERENCES] Creating service-auth token for ${userDid} -> ${pdsDid}`);
+      console.log(`[PREFERENCES] PDS endpoint: ${pdsEndpoint}`);
 
       // Create service-auth token (AppView acting on behalf of user)
       const serviceAuthToken = appViewJWTService.signServiceAuthToken(
@@ -71,6 +72,19 @@ export async function getPreferences(
         pdsDid,
         'app.bsky.actor.getPreferences'
       );
+
+      // Decode and log the token payload for debugging
+      try {
+        const tokenParts = serviceAuthToken.split('.');
+        if (tokenParts.length === 3) {
+          const header = JSON.parse(Buffer.from(tokenParts[0], 'base64url').toString());
+          const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString());
+          console.log(`[PREFERENCES] Service-auth token header:`, header);
+          console.log(`[PREFERENCES] Service-auth token payload:`, payload);
+        }
+      } catch (e) {
+        console.log(`[PREFERENCES] Could not decode service-auth token for debugging`);
+      }
 
       // Forward request to user's PDS with service-auth token
       const pdsResponse = await fetch(
