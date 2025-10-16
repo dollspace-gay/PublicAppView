@@ -54,6 +54,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // See: https://expressjs.com/en/guide/behind-proxies.html
   const httpServer = createServer(app);
 
+  // Network byte tracking for ALL requests (not just API)
+  app.use((req, res, next) => {
+    // Track request bytes (approximate from content-length or body)
+    const requestBytes =
+      parseInt(req.headers['content-length'] || '0', 10) ||
+      (req.body ? JSON.stringify(req.body).length : 0);
+
+    const originalSend = res.send;
+    const originalEnd = res.end;
+
+    // Track response bytes on send
+    res.send = function (data: unknown) {
+      const responseBytes = Buffer.byteLength(
+        typeof data === 'string' ? data : JSON.stringify(data)
+      );
+      metricsService.trackNetworkBytes(requestBytes, responseBytes);
+      return originalSend.call(this, data);
+    };
+
+    // Track response bytes on end (for streams and other responses)
+    res.end = function (chunk?: any, encoding?: any, callback?: any) {
+      if (chunk) {
+        const responseBytes = Buffer.isBuffer(chunk)
+          ? chunk.length
+          : Buffer.byteLength(String(chunk));
+        metricsService.trackNetworkBytes(requestBytes, responseBytes);
+      } else {
+        // Even if no chunk, we received request bytes
+        metricsService.trackNetworkBytes(requestBytes, 0);
+      }
+      return originalEnd.call(this, chunk, encoding, callback);
+    };
+
+    next();
+  });
+
   // API request tracking middleware with per-endpoint performance tracking
   app.use((req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/xrpc')) {
@@ -61,23 +97,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const startTime = Date.now();
 
-      // Track request bytes (approximate from content-length or body)
-      const requestBytes =
-        parseInt(req.headers['content-length'] || '0', 10) ||
-        (req.body ? JSON.stringify(req.body).length : 0);
-
       const originalSend = res.send;
 
       res.send = function (data: unknown) {
         const duration = Date.now() - startTime;
         const success = res.statusCode >= 200 && res.statusCode < 400;
         metricsService.recordEndpointRequest(req.path, duration, success);
-
-        // Track response bytes
-        const responseBytes = Buffer.byteLength(
-          typeof data === 'string' ? data : JSON.stringify(data)
-        );
-        metricsService.trackNetworkBytes(requestBytes, responseBytes);
 
         return originalSend.call(this, data);
       };
@@ -4736,21 +4761,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get('/api/logs', (_req, res) => {
-    const limit = parseInt(_req.query.limit as string) || 100;
-    const logs = logCollector.getRecentLogs(limit);
-    res.json(logs);
-  });
-
-  app.post('/api/logs/clear', (_req, res) => {
-    logCollector.clear();
-    res.json({ success: true });
-  });
-
   app.post('/api/firehose/reconnect', (_req, res) => {
     firehoseClient.disconnect();
     firehoseClient.connect();
     res.json({ success: true });
+  });
+
+  app.get('/api/metrics/activity-history', (_req, res) => {
+    const history = metricsService.getActivityHistory();
+    res.json(history);
   });
 
   // Content filtering endpoints

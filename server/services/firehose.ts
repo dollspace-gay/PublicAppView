@@ -283,6 +283,14 @@ export class FirehoseClient {
 
         metricsService.incrementEvent('#commit');
 
+        // Track firehose network bytes (estimate: commit event + ops data)
+        const eventBytes = JSON.stringify({
+          repo: commit.repo,
+          seq: commit.seq,
+          ops: commit.ops,
+        }).length;
+        metricsService.trackNetworkBytes(eventBytes, 0); // Incoming data from firehose
+
         // Save cursor for restart recovery (only worker 0)
         if (commit.seq && this.workerId === 0) {
           this.saveCursor(String(commit.seq));
@@ -339,6 +347,13 @@ export class FirehoseClient {
 
         metricsService.incrementEvent('#identity');
 
+        // Track firehose network bytes for identity events
+        const eventBytes = JSON.stringify({
+          did: identity.did,
+          handle: identity.handle,
+        }).length;
+        metricsService.trackNetworkBytes(eventBytes, 0); // Incoming data from firehose
+
         // Broadcast to WebSocket clients
         this.broadcastEvent({
           type: '#identity',
@@ -368,6 +383,13 @@ export class FirehoseClient {
         this.lastEventTime = Date.now();
 
         metricsService.incrementEvent('#account');
+
+        // Track firehose network bytes for account events
+        const eventBytes = JSON.stringify({
+          did: account.did,
+          active: account.active,
+        }).length;
+        metricsService.trackNetworkBytes(eventBytes, 0); // Incoming data from firehose
 
         // Broadcast to WebSocket clients
         this.broadcastEvent({

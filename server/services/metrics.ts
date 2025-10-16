@@ -50,11 +50,38 @@ export class MetricsService {
   private networkBytesSent = 0;
   private previousNetworkTime = Date.now();
 
+  // 24-hour activity tracking (store events by minute for smooth chart)
+  private activityHistory: Array<{
+    timestamp: number;
+    commit: number;
+    identity: number;
+    account: number;
+  }> = [];
+  private readonly ACTIVITY_HISTORY_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+  private currentMinuteBucket: {
+    timestamp: number;
+    commit: number;
+    identity: number;
+    account: number;
+  } | null = null;
+
   constructor() {
     // Periodic cleanup every 5 minutes to prevent memory leaks
     this.cleanupInterval = setInterval(() => this.cleanup(), 5 * 60 * 1000);
     // Initialize CPU tracking
     this.previousCpuTimes = process.cpuUsage();
+    // Initialize first minute bucket
+    this.currentMinuteBucket = {
+      timestamp: this.getMinuteTimestamp(Date.now()),
+      commit: 0,
+      identity: 0,
+      account: 0,
+    };
+  }
+
+  private getMinuteTimestamp(time: number): number {
+    // Round down to the nearest minute
+    return Math.floor(time / 60000) * 60000;
   }
 
   private cleanup() {
@@ -70,12 +97,47 @@ export class MetricsService {
         (req) => req.timestamp > cutoff
       );
     });
+
+    // Clean up activity history (keep last 24 hours)
+    const activityCutoff = now - this.ACTIVITY_HISTORY_DURATION;
+    this.activityHistory = this.activityHistory.filter(
+      (entry) => entry.timestamp > activityCutoff
+    );
   }
 
   incrementEvent(type: keyof EventCounts) {
     this.eventCounts[type]++;
     this.totalEvents++;
     this.lastUpdate = new Date();
+
+    // Track in 24-hour history
+    const now = Date.now();
+    const currentMinute = this.getMinuteTimestamp(now);
+
+    // If we're in a new minute, save the old bucket and create a new one
+    if (
+      !this.currentMinuteBucket ||
+      this.currentMinuteBucket.timestamp !== currentMinute
+    ) {
+      if (this.currentMinuteBucket) {
+        this.activityHistory.push({ ...this.currentMinuteBucket });
+      }
+      this.currentMinuteBucket = {
+        timestamp: currentMinute,
+        commit: 0,
+        identity: 0,
+        account: 0,
+      };
+    }
+
+    // Increment the appropriate counter
+    if (type === '#commit') {
+      this.currentMinuteBucket.commit++;
+    } else if (type === '#identity') {
+      this.currentMinuteBucket.identity++;
+    } else if (type === '#account') {
+      this.currentMinuteBucket.account++;
+    }
   }
 
   incrementError() {
@@ -263,6 +325,48 @@ export class MetricsService {
       disk,
       network,
     };
+  }
+
+  getActivityHistory() {
+    // Include current minute bucket if it has data
+    const history = [...this.activityHistory];
+    if (
+      this.currentMinuteBucket &&
+      (this.currentMinuteBucket.commit > 0 ||
+        this.currentMinuteBucket.identity > 0 ||
+        this.currentMinuteBucket.account > 0)
+    ) {
+      history.push({ ...this.currentMinuteBucket });
+    }
+
+    // Fill in any gaps with zero data for smooth chart
+    const now = Date.now();
+    const oldest = now - this.ACTIVITY_HISTORY_DURATION;
+    const filledHistory: typeof history = [];
+
+    // Create a map of existing data
+    const dataMap = new Map(history.map((entry) => [entry.timestamp, entry]));
+
+    // Fill in all minutes in the last 24 hours
+    for (
+      let time = this.getMinuteTimestamp(oldest);
+      time <= now;
+      time += 60000
+    ) {
+      const existing = dataMap.get(time);
+      if (existing) {
+        filledHistory.push(existing);
+      } else {
+        filledHistory.push({
+          timestamp: time,
+          commit: 0,
+          identity: 0,
+          account: 0,
+        });
+      }
+    }
+
+    return filledHistory;
   }
 
   reset() {

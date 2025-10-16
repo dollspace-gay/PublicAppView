@@ -3,7 +3,6 @@ import {
   Activity,
   Database,
   Terminal,
-  FileText,
   Sparkles,
   BookOpen,
   Shield,
@@ -11,6 +10,7 @@ import {
   User,
   LogIn,
   LogOut,
+  BarChart3,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -70,10 +70,10 @@ export function Sidebar() {
   const allNavItems = [
     { path: '/', icon: Activity, label: 'Overview' },
     { path: '/firehose', icon: Sparkles, label: 'Firehose Monitor' },
+    { path: '/activity', icon: BarChart3, label: 'Activity Analytics' },
     { path: '/database', icon: Database, label: 'Database Schema' },
     { path: '/api', icon: Terminal, label: 'API Endpoints' },
     { path: '/lexicons', icon: BookOpen, label: 'Lexicon Validator' },
-    { path: '/logs', icon: FileText, label: 'Logs & Analytics' },
     { path: '/policy', icon: Shield, label: 'Instance Policy' },
     { path: '/login', icon: LogIn, label: 'Login', authHidden: true },
     {

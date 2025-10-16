@@ -8,7 +8,7 @@ import { EventStream } from '@/components/event-stream';
 import { DatabaseSchema } from '@/components/database-schema';
 import { ApiEndpoints } from '@/components/api-endpoints';
 import { LexiconValidatorPanel } from '@/components/lexicon-validator-panel';
-import { LogsPanel } from '@/components/logs-panel';
+import { ActivityChart } from '@/components/activity-chart';
 import InstancePolicyPage from '@/pages/instance-policy';
 import AdminControlPanel from '@/pages/admin-moderation';
 import UserPanel from '@/pages/user-panel';
@@ -380,17 +380,17 @@ export default function Dashboard() {
           </section>
         )}
 
-        {location === '/logs' && (
+        {location === '/activity' && (
           <section className="p-8 bg-muted/30">
             <div className="mb-6">
               <h2 className="text-2xl font-bold text-foreground mb-2">
-                System Logs
+                Activity Analytics
               </h2>
               <p className="text-muted-foreground">
-                Real-time application logs and error tracking
+                24-hour event distribution across firehose streams
               </p>
             </div>
-            <LogsPanel />
+            <ActivityChart />
           </section>
         )}
 
