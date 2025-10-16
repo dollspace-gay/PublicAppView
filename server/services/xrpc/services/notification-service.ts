@@ -70,27 +70,8 @@ export async function listNotifications(
 
       if (missingUris.length > 0) {
         console.log(
-          `[listNotifications] ${missingUris.length} notification posts not in database, triggering backfill`
+          `[listNotifications] ${missingUris.length} notification posts not in database (will be backfilled on login)`
         );
-
-        // Trigger background backfill for missing posts
-        import('../../auto-backfill-likes')
-          .then(({ autoBackfillLikesService }) => {
-            autoBackfillLikesService
-              .checkAndBackfill(userDid)
-              .catch((err) =>
-                console.error(
-                  '[listNotifications] Error triggering backfill:',
-                  err
-                )
-              );
-          })
-          .catch((err) =>
-            console.error(
-              '[listNotifications] Error importing backfill:',
-              err
-            )
-          );
       }
     }
 
