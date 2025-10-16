@@ -150,7 +150,7 @@ export class AutoBackfillLikesService {
 
                   // Resolve DID to find PDS endpoint
                   const { didResolver } = await import('./did-resolver');
-                  const didDoc = await didResolver.resolve(repo);
+                  const didDoc = await didResolver.resolveDID(repo);
 
                   if (!didDoc) {
                     console.error(`[AUTO_BACKFILL_LIKES] Could not resolve DID: ${repo}`);

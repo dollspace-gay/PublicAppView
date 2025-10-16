@@ -1015,7 +1015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       const rkey = parts[parts.length - 1]; // Record key
 
                       // Resolve DID to find PDS endpoint
-                      const didDoc = await didResolver.resolve(repo);
+                      const didDoc = await didResolver.resolveDID(repo);
 
                       if (!didDoc) {
                         failedCount++;
