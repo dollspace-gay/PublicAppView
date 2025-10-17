@@ -682,8 +682,48 @@ export class XRPCApi {
     actor: string
   ): Promise<string | null> {
     if (actor.startsWith('did:')) {
-      // A small optimization would be to check if the user exists in the DB.
-      // But for now, subsequent queries will fail, which is acceptable.
+      // Check if user exists and update if they have handle.invalid
+      const did = actor;
+      let user = await storage.getUser(did);
+
+      if (!user || user.handle === 'handle.invalid') {
+        console.log(`[RESOLVE_ACTOR] User ${did} ${!user ? 'not found' : 'has invalid handle'}, fetching profile`);
+
+        try {
+          // Fetch profile from PDS
+          const { didResolver } = await import('./did-resolver');
+          const pdsUrl = await didResolver.resolveDIDToPDS(did);
+
+          if (pdsUrl) {
+            const profileUrl = `${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=app.bsky.actor.profile&rkey=self`;
+            const profileResponse = await fetch(profileUrl, {
+              signal: AbortSignal.timeout(5000),
+            });
+
+            if (profileResponse.ok) {
+              const { value, cid } = await profileResponse.json();
+              console.log(`[RESOLVE_ACTOR] Profile fetched for ${did}, indexing`);
+
+              // Process through event processor to index it
+              const { eventProcessor } = await import('./event-processor');
+              const profileUri = `at://${did}/app.bsky.actor.profile/self`;
+              await eventProcessor.processRecord(profileUri, cid, did, {
+                $type: 'app.bsky.actor.profile',
+                displayName: value.displayName,
+                description: value.description,
+                avatar: value.avatar,
+                banner: value.banner,
+              });
+
+              // Update user reference
+              user = await storage.getUser(did);
+            }
+          }
+        } catch (error) {
+          console.warn(`[RESOLVE_ACTOR] Failed to fetch profile for ${did}:`, error);
+        }
+      }
+
       return actor;
     }
 
@@ -699,11 +739,59 @@ export class XRPCApi {
     }
 
     console.log(`[RESOLVE_ACTOR] Looking up handle: ${actor}`);
-    const user = await storage.getUserByHandle(handle);
+    let user = await storage.getUserByHandle(handle);
+
     if (!user) {
-      console.log(`[RESOLVE_ACTOR] User not found in database: ${actor}`);
-      res.status(404).json({ error: 'NotFound', message: 'Actor not found' });
-      return null;
+      // Try to resolve and fetch the profile from PDS
+      console.log(`[RESOLVE_ACTOR] User not found in database, attempting to resolve and fetch: ${actor}`);
+
+      try {
+        // Resolve handle to DID via AT Protocol
+        const didResolution = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`);
+
+        if (didResolution.ok) {
+          const { did } = await didResolution.json();
+          console.log(`[RESOLVE_ACTOR] Resolved ${handle} to ${did}, fetching profile`);
+
+          // Fetch profile from PDS
+          const { didResolver } = await import('./did-resolver');
+          const pdsUrl = await didResolver.resolveDIDToPDS(did);
+
+          if (pdsUrl) {
+            const profileUrl = `${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=app.bsky.actor.profile&rkey=self`;
+            const profileResponse = await fetch(profileUrl, {
+              signal: AbortSignal.timeout(5000),
+            });
+
+            if (profileResponse.ok) {
+              const { value, cid } = await profileResponse.json();
+              console.log(`[RESOLVE_ACTOR] Profile fetched, indexing: ${value.displayName || handle}`);
+
+              // Process through event processor to index it
+              const { eventProcessor } = await import('./event-processor');
+              const profileUri = `at://${did}/app.bsky.actor.profile/self`;
+              await eventProcessor.processRecord(profileUri, cid, did, {
+                $type: 'app.bsky.actor.profile',
+                displayName: value.displayName,
+                description: value.description,
+                avatar: value.avatar,
+                banner: value.banner,
+              });
+
+              // Try fetching again after indexing
+              user = await storage.getUserByHandle(handle);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`[RESOLVE_ACTOR] Failed to resolve and fetch profile:`, error);
+      }
+
+      if (!user) {
+        console.log(`[RESOLVE_ACTOR] User not found even after fetch attempt: ${actor}`);
+        res.status(404).json({ error: 'NotFound', message: 'Actor not found' });
+        return null;
+      }
     }
 
     // Cache the result
