@@ -2636,6 +2636,16 @@ export class XRPCApi {
           const parts = params.feed.split('/');
           const creatorDid = parts[2];
 
+          // Ensure the creator user exists first
+          const creator = await storage.getUser(creatorDid);
+          if (!creator) {
+            console.log(`[XRPC] Creator ${creatorDid} not found, creating placeholder`);
+            await storage.createUser({
+              did: creatorDid,
+              handle: 'handle.invalid', // Will be updated by PDS fetcher
+            });
+          }
+
           // Process through event processor to index it
           const { eventProcessor } = await import('./event-processor');
           await eventProcessor.processRecord(params.feed, discovered.cid, creatorDid, {
@@ -2779,6 +2789,16 @@ export class XRPCApi {
           // Parse the URI to get the creator DID
           const parts = params.feed.split('/');
           const creatorDid = parts[2];
+
+          // Ensure the creator user exists first
+          const creator = await storage.getUser(creatorDid);
+          if (!creator) {
+            console.log(`[XRPC] Creator ${creatorDid} not found, creating placeholder`);
+            await storage.createUser({
+              did: creatorDid,
+              handle: 'handle.invalid', // Will be updated by PDS fetcher
+            });
+          }
 
           // Process through event processor to index it
           const { eventProcessor } = await import('./event-processor');
