@@ -136,27 +136,33 @@ export class AuthService {
       ) {
         userDid = payload.sub;
 
-        // App password tokens from PDS: sub=userDID, aud=pdsDID, scope=com.atproto.appPassPrivileged
+        // PDS-issued tokens: sub=userDID, aud=pdsDID, scope=com.atproto.access or com.atproto.appPassPrivileged
         // SECURITY: All JWTs MUST have their cryptographic signatures verified
-        // Even app password tokens need signature verification to prevent forgery
         const pdsDid = payload.aud;
         if (
-          payload.scope === 'com.atproto.appPassPrivileged' &&
+          (payload.scope === 'com.atproto.appPassPrivileged' || payload.scope === 'com.atproto.access') &&
           pdsDid &&
           typeof pdsDid === 'string' &&
           pdsDid.startsWith('did:')
         ) {
-          // For app password tokens, the PDS is the issuer
+          // For PDS-issued tokens, the PDS is the signer
           signingDid = pdsDid;
           console.log(
-            `[AUTH] PDS app password token detected for DID: ${payload.sub} (from PDS: ${pdsDid}) - verifying signature`
+            `[AUTH] PDS token detected (scope: ${payload.scope}) for DID: ${payload.sub} (from PDS: ${pdsDid}) - verifying signature`
           );
         }
         // OAuth tokens with iss field need signature verification
         else if (payload.iss && typeof payload.iss === 'string') {
           signingDid = payload.iss;
+        }
+        // Fallback: use aud as signing DID if present
+        else if (pdsDid && typeof pdsDid === 'string' && pdsDid.startsWith('did:')) {
+          signingDid = pdsDid;
+          console.log(
+            `[AUTH] Using aud field as signing DID for token from: ${pdsDid}`
+          );
         } else {
-          console.log(`[AUTH] OAuth token missing iss field`);
+          console.log(`[AUTH] OAuth token missing iss/aud field`);
           return null;
         }
       }
