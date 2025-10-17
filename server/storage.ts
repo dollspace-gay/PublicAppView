@@ -2400,8 +2400,13 @@ export class DatabaseStorage implements IStorage {
     limit = 50,
     cursor?: string
   ): Promise<Post[]> {
-    const followList = await this.getFollows(userDid);
-    const followingDids = followList.follows.map((f) => f.followingDid);
+    // Get ALL follows (not paginated) for timeline generation
+    const allFollows = await this.db
+      .select()
+      .from(follows)
+      .where(eq(follows.followerDid, userDid));
+
+    const followingDids = allFollows.map((f) => f.followingDid);
 
     console.log(
       `[STORAGE_DEBUG] getTimeline for ${userDid}: ${followingDids.length} follows`
