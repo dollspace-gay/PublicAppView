@@ -11,9 +11,11 @@ import { follows, users, userSettings } from '@shared/schema';
 import { EventProcessor } from './event-processor';
 
 const BATCH_SIZE = 100;
-const CONCURRENT_FETCHES = 10;
+const CONCURRENT_FETCHES = 50; // Increased from 10 to 50 for faster processing
 const PDS_HOST = process.env.PDS_HOST || 'https://bsky.network';
 const BACKFILL_COOLDOWN_HOURS = 1; // Cooldown before re-running automatic backfill
+const PDS_REQUEST_TIMEOUT = 10000; // 10 second timeout per PDS request
+const MAX_FOLLOW_RECORDS_TO_CHECK = 500; // Don't paginate through more than 500 follows per user
 
 // Track ongoing backfills to prevent duplicates
 const ongoingBackfills = new Set<string>();
@@ -317,8 +319,10 @@ export class AutoBackfillFollowsService {
 
               let followRecord: any = null;
               let followCursor: string | undefined;
+              let recordsChecked = 0;
 
-              // Paginate through all follow records to find the one pointing to userDid
+              // Paginate through follow records to find the one pointing to userDid
+              // Limit pagination to prevent getting stuck on users who follow thousands
               do {
                 const records =
                   await followerAgent.com.atproto.repo.listRecords({
@@ -327,6 +331,8 @@ export class AutoBackfillFollowsService {
                     limit: 100,
                     cursor: followCursor,
                   });
+
+                recordsChecked += records.data.records.length;
 
                 // Find the follow record pointing to our user
                 followRecord = records.data.records.find(
@@ -338,6 +344,14 @@ export class AutoBackfillFollowsService {
                 }
 
                 followCursor = records.data.cursor;
+
+                // Safety limit: don't check more than MAX_FOLLOW_RECORDS_TO_CHECK records
+                if (recordsChecked >= MAX_FOLLOW_RECORDS_TO_CHECK) {
+                  console.warn(
+                    `[AUTO_BACKFILL_FOLLOWS] Hit pagination limit for ${followerDid} (checked ${recordsChecked} records)`
+                  );
+                  break;
+                }
               } while (followCursor && !followRecord);
 
               if (followRecord) {
