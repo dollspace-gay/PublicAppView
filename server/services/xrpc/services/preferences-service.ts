@@ -4,22 +4,21 @@
  * NOTE: Per ATProto architecture, preferences are user-specific private data
  * that belongs on the PDS, NOT the AppView. AppViews aggregate public data only.
  *
- * Clients should fetch preferences directly from the user's PDS using their
- * PDS token, then apply those preferences client-side to AppView feed data.
- *
- * These endpoints return helpful errors directing clients to the proper flow.
+ * These endpoints proxy requests back to the user's PDS for compatibility
+ * with clients that expect the AppView to handle all XRPC calls.
  */
 
 import type { Request, Response } from 'express';
 import { requireAuthDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
 import { getUserPdsEndpoint } from '../utils/resolvers';
+import { pdsClient } from '../../pds-client';
 
 /**
  * Get user preferences
  * GET /xrpc/app.bsky.actor.getPreferences
  *
- * Returns error directing client to fetch from PDS directly
+ * Proxies request to user's PDS
  */
 export async function getPreferences(
   req: Request,
@@ -29,26 +28,44 @@ export async function getPreferences(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    // Use debug-level logging to reduce log volume
-    if (process.env.DEBUG_LOGGING === 'true') {
-      console.log(
-        `[PREFERENCES] GET request for ${userDid} - directing to PDS`
-      );
-    }
+    console.log(
+      `[PREFERENCES] GET request for ${userDid} - proxying to PDS`
+    );
 
-    // Get user's PDS endpoint to include in error message
+    // Get user's PDS endpoint
     const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    res.status(501).json({
-      error: 'NotImplemented',
-      message:
-        'Preferences must be fetched directly from your PDS, not through the AppView. ' +
-        'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
-        (pdsEndpoint
-          ? `Please fetch from: ${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`
-          : 'Please fetch from your PDS using your PDS token.'),
-      pdsEndpoint: pdsEndpoint || undefined,
-    });
+    if (!pdsEndpoint) {
+      return res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Could not resolve PDS endpoint for user',
+      });
+    }
+
+    // Extract authorization token from request
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        error: 'AuthRequired',
+        message: 'Authorization header required',
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    // Proxy the request to the PDS
+    const pdsResponse = await pdsClient.proxyXRPC(
+      pdsEndpoint,
+      'GET',
+      '/xrpc/app.bsky.actor.getPreferences',
+      req.query,
+      token,
+      undefined,
+      req.headers
+    );
+
+    // Forward the PDS response to the client
+    res.status(pdsResponse.status).json(pdsResponse.body);
   } catch (error) {
     console.error(`[PREFERENCES] Error in getPreferences:`, error);
     handleError(res, error, 'getPreferences');
@@ -57,9 +74,9 @@ export async function getPreferences(
 
 /**
  * Update user preferences
- * POST /xrpc/app.bsky.actor.putPreferences
+ * POST/PUT /xrpc/app.bsky.actor.putPreferences
  *
- * Returns error directing client to update on PDS directly
+ * Proxies request to user's PDS
  */
 export async function putPreferences(
   req: Request,
@@ -69,26 +86,44 @@ export async function putPreferences(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    // Use debug-level logging to reduce log volume
-    if (process.env.DEBUG_LOGGING === 'true') {
-      console.log(
-        `[PREFERENCES] PUT request for ${userDid} - directing to PDS`
-      );
-    }
+    console.log(
+      `[PREFERENCES] PUT request for ${userDid} - proxying to PDS`
+    );
 
-    // Get user's PDS endpoint to include in error message
+    // Get user's PDS endpoint
     const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    res.status(501).json({
-      error: 'NotImplemented',
-      message:
-        'Preferences must be updated directly on your PDS, not through the AppView. ' +
-        'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
-        (pdsEndpoint
-          ? `Please update at: ${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`
-          : 'Please update on your PDS using your PDS token.'),
-      pdsEndpoint: pdsEndpoint || undefined,
-    });
+    if (!pdsEndpoint) {
+      return res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Could not resolve PDS endpoint for user',
+      });
+    }
+
+    // Extract authorization token from request
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({
+        error: 'AuthRequired',
+        message: 'Authorization header required',
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    // Proxy the request to the PDS
+    const pdsResponse = await pdsClient.proxyXRPC(
+      pdsEndpoint,
+      req.method,
+      '/xrpc/app.bsky.actor.putPreferences',
+      req.query,
+      token,
+      req.body,
+      req.headers
+    );
+
+    // Forward the PDS response to the client
+    res.status(pdsResponse.status).json(pdsResponse.body);
   } catch (error) {
     console.error(`[PREFERENCES] Error in putPreferences:`, error);
     handleError(res, error, 'putPreferences');
