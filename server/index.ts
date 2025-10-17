@@ -100,53 +100,20 @@ app.use(
   })
 );
 
-// Initialize CORS allowed origins list ONCE at startup (not per-request to avoid memory leak)
-const ALLOWED_ORIGINS = (() => {
-  const origins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
-    : [];
-
-  // Add APPVIEW_HOSTNAME if configured (for the web UI)
-  if (process.env.APPVIEW_HOSTNAME) {
-    origins.push(`https://${process.env.APPVIEW_HOSTNAME}`);
-    origins.push(`http://${process.env.APPVIEW_HOSTNAME}`);
-  }
-
-  return origins;
-})();
-
-// CORS configuration - Secure for CSRF protection
+// CORS configuration - Following ATProto standards
+// ATProto services are public APIs using bearer token auth (Authorization header),
+// not session cookies, so CSRF protection via origin restrictions is not necessary.
+// This matches how official Bluesky AppView handles CORS.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // For same-origin or explicitly allowed origins, enable credentials
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  // Allow all origins for XRPC/API endpoints (standard ATProto behavior)
+  // Use wildcard for requests without origin, or reflect origin for credentialed requests
+  if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else if (!origin) {
-    // Server-to-server (no Origin header) - Only allow for read-only endpoints
-    // Restrict wildcard to GET requests only for security
-    if (
-      req.method === 'GET' ||
-      req.method === 'HEAD' ||
-      req.method === 'OPTIONS'
-    ) {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    } else if (req.path.startsWith('/xrpc/')) {
-      // XRPC endpoints use Authorization header auth, not cookies, so CSRF isn't a concern
-      // Allow cross-origin requests for ATProto clients
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    } else {
-      // For state-changing operations without origin, reject to prevent CSRF
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'Origin header required for state-changing operations',
-      });
-    }
   } else {
-    // Cross-origin from untrusted source - allow read-only without credentials
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    // Explicitly NO credentials for untrusted origins (CSRF protection)
+    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 
   res.setHeader(
@@ -159,8 +126,10 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Access-Control-Expose-Headers',
-    'atproto-content-labelers, atproto-repo-rev'
+    'atproto-content-labelers, atproto-repo-rev, RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset'
   );
+  // Cache preflight requests for 24 hours
+  res.setHeader('Access-Control-Max-Age', '86400');
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
