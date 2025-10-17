@@ -3585,18 +3585,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     '/xrpc/app.bsky.actor.getSuggestions',
     xrpcOrchestrator.getSuggestions.bind(xrpcOrchestrator)
   );
-  app.get(
-    '/xrpc/app.bsky.actor.getPreferences',
-    xrpcOrchestrator.getPreferences.bind(xrpcOrchestrator)
-  );
-  app.post(
-    '/xrpc/app.bsky.actor.putPreferences',
-    xrpcOrchestrator.putPreferences.bind(xrpcOrchestrator)
-  );
-  app.put(
-    '/xrpc/app.bsky.actor.putPreferences',
-    xrpcOrchestrator.putPreferences.bind(xrpcOrchestrator)
-  );
+  // Preferences endpoints - return minimal responses
+  // These are PDS-only but some clients expect the AppView to handle them
+  app.get('/xrpc/app.bsky.actor.getPreferences', (req, res) => {
+    // Return empty preferences to unblock the client
+    res.json({ preferences: [] });
+  });
+  app.post('/xrpc/app.bsky.actor.putPreferences', (req, res) => {
+    // Accept but don't persist (preferences live on PDS)
+    res.json({});
+  });
+  app.put('/xrpc/app.bsky.actor.putPreferences', (req, res) => {
+    // Accept but don't persist (preferences live on PDS)
+    res.json({});
+  });
 
   // Graph endpoints
   app.get(
