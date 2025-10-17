@@ -744,6 +744,19 @@ export class XRPCApi {
     )
       return undefined;
 
+    // Validate CID format - should start with 'baf' and be at least 46 characters (base32 CIDv1)
+    // or 'Qm' for base58 CIDv0 (at least 46 chars)
+    const cidTrimmed = blobCid.trim();
+    const isValidCid = (
+      (cidTrimmed.startsWith('baf') && cidTrimmed.length >= 46) ||
+      (cidTrimmed.startsWith('Qm') && cidTrimmed.length >= 46)
+    );
+
+    if (!isValidCid) {
+      console.warn(`[CDN_TRANSFORM] Invalid CID format: ${blobCid}`);
+      return undefined;
+    }
+
     // Use local image proxy to fetch from Bluesky CDN
     const baseUrl = this.getBaseUrl(req);
     const proxyUrl = `${baseUrl}/img/${format}/plain/${userDid}/${blobCid}@jpeg`;
@@ -3135,13 +3148,17 @@ export class XRPCApi {
         handle: creator.handle,
       };
       if (creator?.displayName) creatorView.displayName = creator.displayName;
-      if (creator?.avatarUrl)
-        creatorView.avatar = this.transformBlobToCdnUrl(
+      if (creator?.avatarUrl) {
+        const avatarUrl = this.transformBlobToCdnUrl(
           creator.avatarUrl,
           creator.did,
           'avatar',
           req
         );
+        if (avatarUrl && typeof avatarUrl === 'string' && avatarUrl.trim() !== '') {
+          creatorView.avatar = avatarUrl;
+        }
+      }
 
       const record: any = {
         name: pack.name,
