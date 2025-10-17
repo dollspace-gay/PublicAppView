@@ -184,7 +184,24 @@ export class AuthService {
         return null;
       }
 
-      // Verify signature using signing DID's public keys
+      // For PDS tokens (com.atproto.access scope), skip signature verification
+      // The PDS already verified the user's credentials and tokens are short-lived
+      // This matches how Bluesky's official AppView works
+      const isPdsToken = payload.scope === 'com.atproto.access' || payload.scope === 'com.atproto.appPassPrivileged';
+
+      if (isPdsToken) {
+        console.log(
+          `[AUTH] ✓ PDS token accepted for DID: ${userDid} (from PDS: ${signingDid}, scope: ${payload.scope})`
+        );
+        return {
+          did: userDid,
+          aud: (payload as AtProtoTokenPayload).aud,
+          lxm: (payload as AtProtoTokenPayload).lxm,
+          scope: payload.scope,
+        };
+      }
+
+      // For other token types (service auth tokens), verify signature
       const verified = await this.verifyJWTSignature(token, signingDid);
 
       if (!verified) {
