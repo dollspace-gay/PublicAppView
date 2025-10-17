@@ -350,6 +350,16 @@ export interface IStorage {
   ): Promise<UserPreferences | undefined>;
 
   // Relationship operations
+  getRelationship(
+    viewerDid: string,
+    targetDid: string
+  ): Promise<{
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
+    blockedBy: boolean;
+    muting: boolean;
+  } | undefined>;
   getRelationships(
     viewerDid: string,
     targetDids: string[]
@@ -1304,7 +1314,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${likes.createdAt} < ${cursor}`);
     }
 
-    const results = await db
+    const results = await this.db
       .select()
       .from(likes)
       .where(and(...conditions))
@@ -2156,6 +2166,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userPreferences.userDid, userDid))
       .returning();
     return updated || undefined;
+  }
+
+  async getRelationship(
+    viewerDid: string,
+    targetDid: string
+  ): Promise<{
+    following: string | undefined;
+    followedBy: string | undefined;
+    blocking: string | undefined;
+    blockedBy: boolean;
+    muting: boolean;
+  } | undefined> {
+    const relationships = await this.getRelationships(viewerDid, [targetDid]);
+    return relationships.get(targetDid);
   }
 
   async getRelationships(
