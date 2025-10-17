@@ -66,14 +66,18 @@ export async function getList(req: Request, res: Response): Promise<void> {
 
             // Process through event processor to index it
             const { eventProcessor } = await import('../../event-processor');
-            await eventProcessor.processRecord(params.list, cid, creatorDid, {
+            const listRecord: any = {
               $type: 'app.bsky.graph.list',
               name: value.name,
               purpose: value.purpose,
               description: value.description,
-              avatar: value.avatar,
               createdAt: value.createdAt,
-            });
+            };
+            // Only include avatar if it's a valid blob reference
+            if (value.avatar && typeof value.avatar === 'object' && value.avatar.ref) {
+              listRecord.avatar = value.avatar;
+            }
+            await eventProcessor.processRecord(params.list, cid, creatorDid, listRecord);
 
             // Try fetching again after indexing
             list = await storage.getList(params.list);
@@ -343,14 +347,18 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
 
             // Process through event processor to index it
             const { eventProcessor } = await import('../../event-processor');
-            await eventProcessor.processRecord(params.list, cid, creatorDid, {
+            const listRecord: any = {
               $type: 'app.bsky.graph.list',
               name: value.name,
               purpose: value.purpose,
               description: value.description,
-              avatar: value.avatar,
               createdAt: value.createdAt,
-            });
+            };
+            // Only include avatar if it's a valid blob reference
+            if (value.avatar && typeof value.avatar === 'object' && value.avatar.ref) {
+              listRecord.avatar = value.avatar;
+            }
+            await eventProcessor.processRecord(params.list, cid, creatorDid, listRecord);
 
             // Try fetching again after indexing
             list = await storage.getList(params.list);
