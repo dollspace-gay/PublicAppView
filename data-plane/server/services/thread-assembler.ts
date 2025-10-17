@@ -232,7 +232,6 @@ export class ThreadAssembler {
       return [];
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mentions = facets.features.filter(
       (f: any) => f.$type === 'app.bsky.richtext.facet#mention'
     );
@@ -245,7 +244,7 @@ export class ThreadAssembler {
    * Check if a reply violates a thread gate
    * Returns true if the reply should be filtered out
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   private checkThreadGateViolation(
     replyAuthorDid: string,
     rootAuthorDid: string,
@@ -330,7 +329,6 @@ export class ThreadAssembler {
     // 5. Load thread gate data (if exists)
     const threadGate = await this.loadThreadGate(rootUri);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let threadGateContext:
       | {
           threadGate: any;
@@ -499,7 +497,7 @@ export class ThreadAssembler {
     post: ThreadNode,
     maxDepth: number,
     viewerRelationships?: { blockedDids: Set<string>; mutedDids: Set<string> },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     threadGateContext?: {
       threadGate: any;
       mentionedDids: string[];

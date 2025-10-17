@@ -191,7 +191,10 @@ export async function searchActorsTypeahead(
 
     const viewerDid = await getAuthenticatedDid(req);
 
-    const results = await searchService.searchActorsTypeahead(term, params.limit);
+    const results = await searchService.searchActorsTypeahead(
+      term,
+      params.limit
+    );
 
     // Get viewer relationships if authenticated
     const dids = results.map((r) => r.did);

@@ -326,7 +326,10 @@ export class MetricsService {
       (entry) => entry.timestamp > cutoff
     );
 
-    const totalReceived = recentBytes.reduce((sum, entry) => sum + entry.received, 0);
+    const totalReceived = recentBytes.reduce(
+      (sum, entry) => sum + entry.received,
+      0
+    );
     const totalSent = recentBytes.reduce((sum, entry) => sum + entry.sent, 0);
 
     // Calculate rate over the window (10 seconds)

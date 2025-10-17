@@ -98,12 +98,13 @@ export async function getMutes(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Mutes must be fetched directly from your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               'Unlike blocks (which are public records), mutes are private metadata. ' +
-               (pdsEndpoint
-                 ? `Please fetch from: ${pdsEndpoint}/xrpc/app.bsky.graph.getMutes`
-                 : 'Please fetch from your PDS using your PDS token.'),
+      message:
+        'Mutes must be fetched directly from your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        'Unlike blocks (which are public records), mutes are private metadata. ' +
+        (pdsEndpoint
+          ? `Please fetch from: ${pdsEndpoint}/xrpc/app.bsky.graph.getMutes`
+          : 'Please fetch from your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -130,11 +131,12 @@ export async function muteActor(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Mutes must be created directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please create mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteActor`
-                 : 'Please create mute on your PDS using your PDS token.'),
+      message:
+        'Mutes must be created directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please create mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteActor`
+          : 'Please create mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -161,11 +163,12 @@ export async function unmuteActor(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Mutes must be removed directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please remove mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteActor`
-                 : 'Please remove mute on your PDS using your PDS token.'),
+      message:
+        'Mutes must be removed directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please remove mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteActor`
+          : 'Please remove mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -195,11 +198,12 @@ export async function muteActorList(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'List mutes must be created directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please create list mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteActorList`
-                 : 'Please create list mute on your PDS using your PDS token.'),
+      message:
+        'List mutes must be created directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please create list mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteActorList`
+          : 'Please create list mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -229,11 +233,12 @@ export async function unmuteActorList(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'List mutes must be removed directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please remove list mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteActorList`
-                 : 'Please remove list mute on your PDS using your PDS token.'),
+      message:
+        'List mutes must be removed directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please remove list mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteActorList`
+          : 'Please remove list mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -260,11 +265,12 @@ export async function muteThread(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Thread mutes must be created directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please create thread mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteThread`
-                 : 'Please create thread mute on your PDS using your PDS token.'),
+      message:
+        'Thread mutes must be created directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please create thread mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.muteThread`
+          : 'Please create thread mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -291,11 +297,12 @@ export async function unmuteThread(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Thread mutes must be removed directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please remove thread mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteThread`
-                 : 'Please remove thread mute on your PDS using your PDS token.'),
+      message:
+        'Thread mutes must be removed directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, mutes are private user preferences stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please remove thread mute at: ${pdsEndpoint}/xrpc/app.bsky.graph.unmuteThread`
+          : 'Please remove thread mute on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {

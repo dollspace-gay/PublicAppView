@@ -124,9 +124,7 @@ export class AutoBackfillFeedsService {
       const didDoc = await didResolver.resolveDID(userDid);
 
       if (!didDoc) {
-        console.error(
-          `[AUTO_BACKFILL_FEEDS] Could not resolve DID ${userDid}`
-        );
+        console.error(`[AUTO_BACKFILL_FEEDS] Could not resolve DID ${userDid}`);
         return;
       }
 
@@ -165,7 +163,9 @@ export class AutoBackfillFeedsService {
         // Fetch the user's preferences to get saved feeds
         const prefsResponse = await agent.app.bsky.actor.getPreferences();
         const savedFeeds = prefsResponse.data.preferences
-          .filter((pref: any) => pref.$type === 'app.bsky.actor.defs#savedFeedsPref')
+          .filter(
+            (pref: any) => pref.$type === 'app.bsky.actor.defs#savedFeedsPref'
+          )
           .flatMap((pref: any) => pref.saved || []);
 
         console.log(
@@ -190,17 +190,18 @@ export class AutoBackfillFeedsService {
             const rkey = parts[4];
 
             // Resolve feed creator's DID to find their PDS
-            const feedCreatorDidDoc = await didResolver.resolveDID(
-              feedCreatorDid
-            );
+            const feedCreatorDidDoc =
+              await didResolver.resolveDID(feedCreatorDid);
             if (!feedCreatorDidDoc) {
               continue;
             }
 
-            const feedCreatorServices = (feedCreatorDidDoc as any).service || [];
+            const feedCreatorServices =
+              (feedCreatorDidDoc as any).service || [];
             const feedCreatorPdsService = feedCreatorServices.find(
               (s: any) =>
-                s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+                s.type === 'AtprotoPersonalDataServer' ||
+                s.id === '#atproto_pds'
             );
 
             if (!feedCreatorPdsService?.serviceEndpoint) {
@@ -237,10 +238,7 @@ export class AutoBackfillFeedsService {
               feedsFetched++;
             }
           } catch (error: any) {
-            if (
-              error.status === 404 ||
-              error.message?.includes('not found')
-            ) {
+            if (error.status === 404 || error.message?.includes('not found')) {
               // Feed doesn't exist, skip silently
             } else {
               console.error(
@@ -261,10 +259,7 @@ export class AutoBackfillFeedsService {
         );
       }
     } catch (error) {
-      console.error(
-        `[AUTO_BACKFILL_FEEDS] Error backfilling feeds:`,
-        error
-      );
+      console.error(`[AUTO_BACKFILL_FEEDS] Error backfilling feeds:`, error);
     }
   }
 }

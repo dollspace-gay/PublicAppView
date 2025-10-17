@@ -687,7 +687,8 @@ export async function putActivitySubscription(
       cid,
       subscriberDid: userDid,
       subjectDid: body.subject,
-      priority: body.activitySubscription.post || body.activitySubscription.reply,
+      priority:
+        body.activitySubscription.post || body.activitySubscription.reply,
       createdAt: new Date(),
     });
 

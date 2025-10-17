@@ -2008,7 +2008,6 @@ export class XRPCApi {
     return profiles;
   }
 
-
   async getFollows(req: Request, res: Response) {
     try {
       const params = getFollowsSchema.parse(req.query);

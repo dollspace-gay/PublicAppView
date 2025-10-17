@@ -26,10 +26,12 @@ export const registerPushSchema = z.object({
   appId: z.string().optional(),
   // Web push specific fields
   endpoint: z.string().url().optional(), // Web push subscription endpoint
-  keys: z.object({
-    p256dh: z.string(),
-    auth: z.string(),
-  }).optional(), // Web push encryption keys
+  keys: z
+    .object({
+      p256dh: z.string(),
+      auth: z.string(),
+    })
+    .optional(), // Web push encryption keys
 });
 
 export const unregisterPushSchema = z.object({

@@ -230,10 +230,11 @@ export async function getAgeAssuranceState(
   try {
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'This AppView does not and will never provide age assurance services. ' +
-               'Age verification is a sensitive legal matter requiring compliance with international laws, ' +
-               'secure handling of personal identification, and regulatory oversight. ' +
-               'Users must handle age verification through their PDS or appropriate identity services.',
+      message:
+        'This AppView does not and will never provide age assurance services. ' +
+        'Age verification is a sensitive legal matter requiring compliance with international laws, ' +
+        'secure handling of personal identification, and regulatory oversight. ' +
+        'Users must handle age verification through their PDS or appropriate identity services.',
     });
   } catch (error) {
     handleError(res, error, 'getAgeAssuranceState');
@@ -263,10 +264,11 @@ export async function initAgeAssurance(
   try {
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'This AppView does not and will never provide age assurance services. ' +
-               'Age verification is a sensitive legal matter requiring compliance with international laws, ' +
-               'secure handling of personal identification, and regulatory oversight. ' +
-               'Users must handle age verification through their PDS or appropriate identity services.',
+      message:
+        'This AppView does not and will never provide age assurance services. ' +
+        'Age verification is a sensitive legal matter requiring compliance with international laws, ' +
+        'secure handling of personal identification, and regulatory oversight. ' +
+        'Users must handle age verification through their PDS or appropriate identity services.',
     });
   } catch (error) {
     handleError(res, error, 'initAgeAssurance');

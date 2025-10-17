@@ -41,11 +41,12 @@ export async function getPreferences(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Preferences must be fetched directly from your PDS, not through the AppView. ' +
-               'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please fetch from: ${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`
-                 : 'Please fetch from your PDS using your PDS token.'),
+      message:
+        'Preferences must be fetched directly from your PDS, not through the AppView. ' +
+        'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please fetch from: ${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`
+          : 'Please fetch from your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -80,11 +81,12 @@ export async function putPreferences(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Preferences must be updated directly on your PDS, not through the AppView. ' +
-               'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `Please update at: ${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`
-                 : 'Please update on your PDS using your PDS token.'),
+      message:
+        'Preferences must be updated directly on your PDS, not through the AppView. ' +
+        'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
+        (pdsEndpoint
+          ? `Please update at: ${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`
+          : 'Please update on your PDS using your PDS token.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {

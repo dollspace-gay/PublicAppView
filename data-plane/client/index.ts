@@ -176,7 +176,6 @@ export class DataPlaneClient {
 
   // Graph queries (placeholders - to be implemented)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFollowers(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -184,7 +183,6 @@ export class DataPlaneClient {
     return this.request('/internal/getFollowers', { actor, ...options });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getFollows(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -197,7 +195,6 @@ export class DataPlaneClient {
     return this.request('/internal/getRelationships', { actor, others });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getBlocks(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -205,7 +202,6 @@ export class DataPlaneClient {
     return this.request('/internal/getBlocks', { actor, ...options });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async getMutes(
     actor: string,
     options: { limit?: number; cursor?: string } = {}
@@ -215,7 +211,6 @@ export class DataPlaneClient {
 
   // Search queries (placeholders)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async searchPosts(
     query: string,
     options: {
@@ -232,7 +227,6 @@ export class DataPlaneClient {
 
   // Notification queries (placeholders)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async listNotifications(
     actor: string,
     options: { limit?: number; cursor?: string; seenAt?: string } = {}

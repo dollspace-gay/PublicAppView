@@ -99,7 +99,9 @@ class SearchService {
 
     // Mentions filter - check if text contains the DID or handle
     if (mentions) {
-      conditions.push(`(text ILIKE $${paramIndex} OR embed::text ILIKE $${paramIndex})`);
+      conditions.push(
+        `(text ILIKE $${paramIndex} OR embed::text ILIKE $${paramIndex})`
+      );
       params.push(`%${mentions}%`);
       paramIndex++;
     }
@@ -127,7 +129,9 @@ class SearchService {
 
     // Tag filter - check if tags column contains any of the specified tags
     if (tag && tag.length > 0) {
-      conditions.push(`tags && ARRAY[${tag.map((_, i) => `$${paramIndex + i}`).join(', ')}]::varchar[]`);
+      conditions.push(
+        `tags && ARRAY[${tag.map((_, i) => `$${paramIndex + i}`).join(', ')}]::varchar[]`
+      );
       params.push(...tag);
       paramIndex += tag.length;
     }

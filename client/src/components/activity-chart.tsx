@@ -30,7 +30,10 @@ export function ActivityChart() {
           setData(history);
         }
       } catch (error) {
-        console.error('[ActivityChart] Failed to fetch activity history:', error);
+        console.error(
+          '[ActivityChart] Failed to fetch activity history:',
+          error
+        );
       } finally {
         setIsLoading(false);
       }
@@ -68,7 +71,10 @@ export function ActivityChart() {
   // Custom tooltip with aurora styling
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
-      const total = payload.reduce((sum: number, entry: any) => sum + entry.value, 0);
+      const total = payload.reduce(
+        (sum: number, entry: any) => sum + entry.value,
+        0
+      );
 
       return (
         <div className="bg-card/95 backdrop-blur-xl border border-border rounded-lg p-3 shadow-lg">
@@ -77,7 +83,10 @@ export function ActivityChart() {
           </p>
           <div className="space-y-1">
             {payload.map((entry: any) => (
-              <div key={entry.name} className="flex items-center justify-between gap-3">
+              <div
+                key={entry.name}
+                className="flex items-center justify-between gap-3"
+              >
                 <div className="flex items-center gap-2">
                   <div
                     className="w-2 h-2 rounded-full"
@@ -87,7 +96,10 @@ export function ActivityChart() {
                     {entry.name}
                   </span>
                 </div>
-                <span className="text-xs font-mono font-semibold" style={{ color: entry.color }}>
+                <span
+                  className="text-xs font-mono font-semibold"
+                  style={{ color: entry.color }}
+                >
                   {entry.value.toLocaleString()}
                 </span>
               </div>
@@ -219,15 +231,21 @@ export function ActivityChart() {
         <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-border/50">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#00F5D4] shadow-sm"></div>
-            <span className="text-xs text-muted-foreground font-mono">#commit</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              #commit
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#9AEF82] shadow-sm"></div>
-            <span className="text-xs text-muted-foreground font-mono">#identity</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              #identity
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-[#B900F5] shadow-sm"></div>
-            <span className="text-xs text-muted-foreground font-mono">#account</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              #account
+            </span>
           </div>
         </div>
       </CardContent>

@@ -179,8 +179,7 @@ export async function getFollows(req: Request, res: Response): Promise<void> {
         };
         if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
         if (viewerState?.following) viewer.following = viewerState.following;
-        if (viewerState?.followedBy)
-          viewer.followedBy = viewerState.followedBy;
+        if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
         return {
           $type: 'app.bsky.actor.defs#profileView',
@@ -258,9 +257,7 @@ export async function getFollowers(req: Request, res: Response): Promise<void> {
           };
         }
 
-        const viewerState = viewerDid
-          ? relationships.get(f.followerDid)
-          : null;
+        const viewerState = viewerDid ? relationships.get(f.followerDid) : null;
         const viewer: {
           muted: boolean;
           blockedBy: boolean;
@@ -273,8 +270,7 @@ export async function getFollowers(req: Request, res: Response): Promise<void> {
         };
         if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
         if (viewerState?.following) viewer.following = viewerState.following;
-        if (viewerState?.followedBy)
-          viewer.followedBy = viewerState.followedBy;
+        if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
 
         return {
           $type: 'app.bsky.actor.defs#profileView',

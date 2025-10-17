@@ -49,9 +49,7 @@ export class AutoBackfillFollowsService {
         }
       }
 
-      console.log(
-        `[AUTO_BACKFILL_FOLLOWS] Triggering backfill for ${userDid}`
-      );
+      console.log(`[AUTO_BACKFILL_FOLLOWS] Triggering backfill for ${userDid}`);
 
       // Trigger backfill in background
       this.backfillInBackground(userDid);
@@ -120,9 +118,7 @@ export class AutoBackfillFollowsService {
             },
           });
 
-        console.log(
-          `[AUTO_BACKFILL_FOLLOWS] Complete for ${userDid}!`
-        );
+        console.log(`[AUTO_BACKFILL_FOLLOWS] Complete for ${userDid}!`);
       } catch (error) {
         console.error(
           `[AUTO_BACKFILL_FOLLOWS] Fatal error for ${userDid}:`,
@@ -192,7 +188,8 @@ export class AutoBackfillFollowsService {
               for (const record of response.data.records) {
                 try {
                   // Use the original createdAt from the follow record for proper ordering
-                  const createdAt = record.value?.createdAt || new Date().toISOString();
+                  const createdAt =
+                    record.value?.createdAt || new Date().toISOString();
 
                   await eventProcessor.processCommit({
                     repo: userDid,
@@ -323,12 +320,13 @@ export class AutoBackfillFollowsService {
 
               // Paginate through all follow records to find the one pointing to userDid
               do {
-                const records = await followerAgent.com.atproto.repo.listRecords({
-                  repo: followerDid,
-                  collection: 'app.bsky.graph.follow',
-                  limit: 100,
-                  cursor: followCursor,
-                });
+                const records =
+                  await followerAgent.com.atproto.repo.listRecords({
+                    repo: followerDid,
+                    collection: 'app.bsky.graph.follow',
+                    limit: 100,
+                    cursor: followCursor,
+                  });
 
                 // Find the follow record pointing to our user
                 followRecord = records.data.records.find(
@@ -344,7 +342,8 @@ export class AutoBackfillFollowsService {
 
               if (followRecord) {
                 // Use the original createdAt from the follow record for proper ordering
-                const createdAt = followRecord.value?.createdAt || new Date().toISOString();
+                const createdAt =
+                  followRecord.value?.createdAt || new Date().toISOString();
 
                 await eventProcessor.processCommit({
                   repo: followerDid,
@@ -378,12 +377,18 @@ export class AutoBackfillFollowsService {
                 console.warn(
                   `[AUTO_BACKFILL_FOLLOWS] User/record not found for ${followerDid}: ${error.message}`
                 );
-              } else if (error.status === 400 && error.message?.includes('Could not find repo')) {
+              } else if (
+                error.status === 400 &&
+                error.message?.includes('Could not find repo')
+              ) {
                 // Repo doesn't exist (account deleted/suspended)
                 console.warn(
                   `[AUTO_BACKFILL_FOLLOWS] Repo not found for ${followerDid} (likely deleted/suspended)`
                 );
-              } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+              } else if (
+                error.code === 'ECONNREFUSED' ||
+                error.code === 'ETIMEDOUT'
+              ) {
                 // PDS connection issues
                 console.error(
                   `[AUTO_BACKFILL_FOLLOWS] PDS connection error for ${followerDid}: ${error.code}`
@@ -404,7 +409,10 @@ export class AutoBackfillFollowsService {
           })
         );
 
-        if ((i + CONCURRENT_FETCHES) % 100 === 0 || i + CONCURRENT_FETCHES >= followerDids.length) {
+        if (
+          (i + CONCURRENT_FETCHES) % 100 === 0 ||
+          i + CONCURRENT_FETCHES >= followerDids.length
+        ) {
           console.log(
             `[AUTO_BACKFILL_FOLLOWS] Follower progress: ${successCount}/${followerDids.length} (${failedCount} failed)`
           );
@@ -443,7 +451,9 @@ export class AutoBackfillFollowsService {
       const didsToFetch = relatedDids.rows.map((row: any) => row.did);
 
       if (didsToFetch.length === 0) {
-        console.log(`[AUTO_BACKFILL_FOLLOWS] No related users to fetch profiles for`);
+        console.log(
+          `[AUTO_BACKFILL_FOLLOWS] No related users to fetch profiles for`
+        );
         return;
       }
 

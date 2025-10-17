@@ -104,7 +104,7 @@ export async function getStarterPacks(
   try {
     const params = getStarterPacksSchema.parse(req.query);
 
-    const packs = await storage.getStarterPacks(params.uris) as {
+    const packs = (await storage.getStarterPacks(params.uris)) as {
       creatorDid: string;
       listUri?: string;
       name: string;
@@ -121,8 +121,11 @@ export async function getStarterPacks(
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(packs.map(p => p.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(packs.map((p) => p.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
@@ -190,11 +193,8 @@ export async function getActorStarterPacks(
     const did = await resolveActor(res, params.actor);
     if (!did) return;
 
-    const { starterPacks, cursor: nextCursor } = await storage.getStarterPacksByCreator(
-      did,
-      params.limit,
-      params.cursor
-    );
+    const { starterPacks, cursor: nextCursor } =
+      await storage.getStarterPacksByCreator(did, params.limit, params.cursor);
 
     if (starterPacks.length === 0) {
       res.json({
@@ -322,11 +322,12 @@ export async function getStarterPacksWithMembership(
     if (!actorDid) return;
 
     // Get starter packs created by authenticated user
-    const { starterPacks, cursor: nextCursor } = await storage.getStarterPacksByCreator(
-      sessionDid,
-      params.limit,
-      params.cursor
-    );
+    const { starterPacks, cursor: nextCursor } =
+      await storage.getStarterPacksByCreator(
+        sessionDid,
+        params.limit,
+        params.cursor
+      );
 
     if (starterPacks.length === 0) {
       res.json({
@@ -337,7 +338,10 @@ export async function getStarterPacksWithMembership(
     }
 
     // Use _getProfiles for both creator and actor profiles
-    const profiles = await (xrpcApi as any)._getProfiles([sessionDid, actorDid], req);
+    const profiles = await (xrpcApi as any)._getProfiles(
+      [sessionDid, actorDid],
+      req
+    );
 
     if (profiles.length === 0) {
       res.status(500).json({

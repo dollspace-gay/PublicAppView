@@ -165,8 +165,7 @@ export default function UserPanel() {
       toast({
         title: 'Quote Posts Scan Started',
         description:
-          data.message ||
-          'Scanning for quote posts in the background...',
+          data.message || 'Scanning for quote posts in the background...',
       });
     },
     onError: (error: Error) => {
@@ -408,7 +407,8 @@ export default function UserPanel() {
             <CardTitle>Manual Backfill Controls</CardTitle>
           </div>
           <CardDescription>
-            Manually trigger backfill for specific data types (bypasses cooldown)
+            Manually trigger backfill for specific data types (bypasses
+            cooldown)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -445,7 +445,8 @@ export default function UserPanel() {
                 <h3 className="font-semibold">Follows & Followers</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                Backfill who you follow and who follows you via Bluesky public API
+                Backfill who you follow and who follows you via Bluesky public
+                API
               </p>
               <Button
                 onClick={() => backfillFollowsMutation.mutate()}
@@ -524,8 +525,9 @@ export default function UserPanel() {
               <div className="text-sm text-yellow-800 dark:text-yellow-200">
                 <p className="font-medium">Manual triggers bypass cooldown</p>
                 <p className="mt-1">
-                  These buttons will start backfills immediately, even if one ran recently.
-                  The backfill runs in the background and won't block your session.
+                  These buttons will start backfills immediately, even if one
+                  ran recently. The backfill runs in the background and won't
+                  block your session.
                 </p>
               </div>
             </div>

@@ -199,7 +199,8 @@ export async function getLikes(req: Request, res: Response): Promise<void> {
             } else if (viewerState?.blocking) {
               viewer.blocking = viewerState.blocking;
             }
-            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
             if (viewerState?.followedBy)
               viewer.followedBy = viewerState.followedBy;
           }
@@ -386,7 +387,9 @@ export async function getRepostedBy(
             ? relationships.get(repost.userDid)
             : null;
           const mutingList = viewerDid ? listMutes.get(repost.userDid) : null;
-          const blockingList = viewerDid ? listBlocks.get(repost.userDid) : null;
+          const blockingList = viewerDid
+            ? listBlocks.get(repost.userDid)
+            : null;
 
           // Build viewer state
           const viewer: any = {};
@@ -418,7 +421,8 @@ export async function getRepostedBy(
             } else if (viewerState?.blocking) {
               viewer.blocking = viewerState.blocking;
             }
-            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.following)
+              viewer.following = viewerState.following;
             if (viewerState?.followedBy)
               viewer.followedBy = viewerState.followedBy;
           }

@@ -132,7 +132,7 @@ export async function getFeedGenerators(
   try {
     const params = getFeedGeneratorsSchema.parse(req.query);
 
-    const generators = await storage.getFeedGenerators(params.feeds) as {
+    const generators = (await storage.getFeedGenerators(params.feeds)) as {
       uri: string;
       cid: string;
       did: string;
@@ -149,8 +149,11 @@ export async function getFeedGenerators(
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(generators.map((g) => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
@@ -190,11 +193,11 @@ export async function getActorFeeds(
     const actorDid = await resolveActor(res, params.actor);
     if (!actorDid) return;
 
-    const { generators, cursor } = await storage.getActorFeeds(
+    const { generators, cursor } = (await storage.getActorFeeds(
       actorDid,
       params.limit,
       params.cursor
-    ) as {
+    )) as {
       generators: {
         uri: string;
         cid: string;
@@ -214,8 +217,11 @@ export async function getActorFeeds(
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(generators.map((g) => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
@@ -252,10 +258,10 @@ export async function getSuggestedFeeds(
   try {
     const params = getSuggestedFeedsSchema.parse(req.query);
 
-    const { generators, cursor } = await storage.getSuggestedFeeds(
+    const { generators, cursor } = (await storage.getSuggestedFeeds(
       params.limit,
       params.cursor
-    ) as {
+    )) as {
       generators: {
         uri: string;
         cid: string;
@@ -275,8 +281,11 @@ export async function getSuggestedFeeds(
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(generators.map((g) => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
@@ -321,9 +330,10 @@ export async function describeFeedGenerator(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'This endpoint is for Feed Generator services, not AppView. ' +
-               'Feed Generator services implement this endpoint to describe their feed offerings. ' +
-               'This is an AppView that consumes feeds from external Feed Generator services.',
+      message:
+        'This endpoint is for Feed Generator services, not AppView. ' +
+        'Feed Generator services implement this endpoint to describe their feed offerings. ' +
+        'This is an AppView that consumes feeds from external Feed Generator services.',
     });
   } catch (error) {
     handleError(res, error, 'describeFeedGenerator');
@@ -370,7 +380,8 @@ export async function getPopularFeedGenerators(
         params.limit,
         params.cursor
       );
-      generators = (suggestedResults as { generators: typeof generators }).generators;
+      generators = (suggestedResults as { generators: typeof generators })
+        .generators;
       cursor = (suggestedResults as { cursor?: string }).cursor;
     }
 
@@ -379,8 +390,11 @@ export async function getPopularFeedGenerators(
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(generators.map((g) => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));

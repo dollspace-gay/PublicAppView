@@ -130,7 +130,11 @@ router.post('/getAuthorFeed', async (req, res) => {
  */
 router.post('/getTimeline', async (req, res) => {
   try {
-    const { actor, limit: _limit = 50, cursor: _cursor } = req.body as GetTimelineRequest;
+    const {
+      actor,
+      limit: _limit = 50,
+      cursor: _cursor,
+    } = req.body as GetTimelineRequest;
 
     if (!actor) {
       return res.status(400).json({ error: 'actor is required' });

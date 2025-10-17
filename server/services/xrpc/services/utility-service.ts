@@ -46,14 +46,17 @@ export async function getServices(req: Request, res: Response): Promise<void> {
     }
 
     // Batch fetch all creator profiles
-    const creatorDids = [...new Set(services.map(s => s.creatorDid))];
-    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorDids = [...new Set(services.map((s) => s.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
 
     // Create map for quick lookup
     const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
 
     // Batch fetch labels for all services
-    const serviceUris = services.map(s => s.uri);
+    const serviceUris = services.map((s) => s.uri);
     const allLabels = await storage.getLabelsForSubjects(serviceUris);
 
     // Create labels map
@@ -127,9 +130,10 @@ export async function getJobStatus(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'This endpoint is for video processing services, not AppView. ' +
-               'Video processing (upload, transcoding, job tracking) is handled by dedicated video services. ' +
-               'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
+      message:
+        'This endpoint is for video processing services, not AppView. ' +
+        'Video processing (upload, transcoding, job tracking) is handled by dedicated video services. ' +
+        'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
     });
   } catch (error) {
     handleError(res, error, 'getJobStatus');
@@ -157,9 +161,10 @@ export async function getUploadLimits(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'This endpoint is for video processing services, not AppView. ' +
-               'Video upload limits are managed by dedicated video services. ' +
-               'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
+      message:
+        'This endpoint is for video processing services, not AppView. ' +
+        'Video upload limits are managed by dedicated video services. ' +
+        'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
     });
   } catch (error) {
     handleError(res, error, 'getUploadLimits');

@@ -281,9 +281,11 @@ export async function getPostThread(
     const { threadContextBackfillService } = await import(
       '../../thread-context-backfill'
     );
-    threadContextBackfillService.backfillPostContext(params.uri).catch((err) => {
-      console.error('[THREAD_CONTEXT] Error backfilling context:', err);
-    });
+    threadContextBackfillService
+      .backfillPostContext(params.uri)
+      .catch((err) => {
+        console.error('[THREAD_CONTEXT] Error backfilling context:', err);
+      });
 
     // Trigger quote posts backfill in background (non-blocking)
     const { quotePostsBackfillService } = await import(
@@ -364,7 +366,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
     if (!feedGen) {
       res.status(404).json({
         error: 'UnknownFeed',
-        message: 'Feed generator not found'
+        message: 'Feed generator not found',
       });
       return;
     }

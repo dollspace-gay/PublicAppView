@@ -36,7 +36,9 @@ export class QuotePostsBackfillService {
       .orderBy(sql`${posts.createdAt} DESC`)
       .limit(500); // Check last 500 posts
 
-    console.log(`[QUOTE_POSTS] Checking ${postsToCheck.length} posts for quotes`);
+    console.log(
+      `[QUOTE_POSTS] Checking ${postsToCheck.length} posts for quotes`
+    );
 
     let totalQuotesFound = 0;
     let totalQuotesFetched = 0;

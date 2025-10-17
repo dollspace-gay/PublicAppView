@@ -353,13 +353,16 @@ export interface IStorage {
   getRelationship(
     viewerDid: string,
     targetDid: string
-  ): Promise<{
-    following: string | undefined;
-    followedBy: string | undefined;
-    blocking: string | undefined;
-    blockedBy: boolean;
-    muting: boolean;
-  } | undefined>;
+  ): Promise<
+    | {
+        following: string | undefined;
+        followedBy: string | undefined;
+        blocking: string | undefined;
+        blockedBy: boolean;
+        muting: boolean;
+      }
+    | undefined
+  >;
   getRelationships(
     viewerDid: string,
     targetDids: string[]
@@ -2171,13 +2174,16 @@ export class DatabaseStorage implements IStorage {
   async getRelationship(
     viewerDid: string,
     targetDid: string
-  ): Promise<{
-    following: string | undefined;
-    followedBy: string | undefined;
-    blocking: string | undefined;
-    blockedBy: boolean;
-    muting: boolean;
-  } | undefined> {
+  ): Promise<
+    | {
+        following: string | undefined;
+        followedBy: string | undefined;
+        blocking: string | undefined;
+        blockedBy: boolean;
+        muting: boolean;
+      }
+    | undefined
+  > {
     const relationships = await this.getRelationships(viewerDid, [targetDid]);
     return relationships.get(targetDid);
   }
@@ -2320,15 +2326,21 @@ export class DatabaseStorage implements IStorage {
         description: row.description,
         profileRecord: row.profile_record,
         searchVector: null,
-        createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
-        indexedAt: row.indexed_at instanceof Date ? row.indexed_at : new Date(row.indexed_at),
+        createdAt:
+          row.created_at instanceof Date
+            ? row.created_at
+            : new Date(row.created_at),
+        indexedAt:
+          row.indexed_at instanceof Date
+            ? row.indexed_at
+            : new Date(row.indexed_at),
       })
     );
 
     const nextCursor = hasMore
-      ? (followers[followers.length - 1].indexedAt instanceof Date
-          ? followers[followers.length - 1].indexedAt.toISOString()
-          : new Date(followers[followers.length - 1].indexedAt).toISOString())
+      ? followers[followers.length - 1].indexedAt instanceof Date
+        ? followers[followers.length - 1].indexedAt.toISOString()
+        : new Date(followers[followers.length - 1].indexedAt).toISOString()
       : undefined;
 
     return { followers, cursor: nextCursor, count: totalCount };
@@ -3190,7 +3202,9 @@ export class DatabaseStorage implements IStorage {
 
     const hasMore = results.length > limit;
     const listResults = hasMore ? results.slice(0, limit) : results;
-    const nextCursor = hasMore ? listResults[listResults.length - 1]?.indexedAt.toISOString() : undefined;
+    const nextCursor = hasMore
+      ? listResults[listResults.length - 1]?.indexedAt.toISOString()
+      : undefined;
 
     return {
       lists: listResults,
@@ -3240,7 +3254,9 @@ export class DatabaseStorage implements IStorage {
 
     const hasMore = items.length > limit;
     const resultItems = hasMore ? items.slice(0, limit) : items;
-    const nextCursor = hasMore ? resultItems[resultItems.length - 1]?.indexedAt.toISOString() : undefined;
+    const nextCursor = hasMore
+      ? resultItems[resultItems.length - 1]?.indexedAt.toISOString()
+      : undefined;
 
     return {
       items: resultItems,

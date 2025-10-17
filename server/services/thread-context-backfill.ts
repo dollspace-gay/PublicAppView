@@ -168,7 +168,8 @@ export class ThreadContextBackfillService {
 
             if (
               !postThread.data.thread ||
-              postThread.data.thread.$type !== 'app.bsky.feed.defs#threadViewPost'
+              postThread.data.thread.$type !==
+                'app.bsky.feed.defs#threadViewPost'
             ) {
               return;
             }
@@ -191,7 +192,8 @@ export class ThreadContextBackfillService {
             const services = (authorDidDoc as any).service || [];
             const pdsService = services.find(
               (s: any) =>
-                s.type === 'AtprotoPersonalDataServer' || s.id === '#atproto_pds'
+                s.type === 'AtprotoPersonalDataServer' ||
+                s.id === '#atproto_pds'
             );
 
             if (!pdsService?.serviceEndpoint) return;
@@ -300,5 +302,4 @@ export class ThreadContextBackfillService {
 }
 
 // Singleton instance
-export const threadContextBackfillService =
-  new ThreadContextBackfillService();
+export const threadContextBackfillService = new ThreadContextBackfillService();

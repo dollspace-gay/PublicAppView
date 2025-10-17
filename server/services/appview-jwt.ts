@@ -202,16 +202,20 @@ export class AppViewJWTService {
    * @param method - The lexicon method being called (e.g., app.bsky.actor.getPreferences)
    * @returns Signed service-auth JWT token
    */
-  signServiceAuthToken(userDid: string, pdsDid: string, method: string): string {
+  signServiceAuthToken(
+    userDid: string,
+    pdsDid: string,
+    method: string
+  ): string {
     const now = Math.floor(Date.now() / 1000);
 
     const payload = {
       iss: this.appViewDid, // AppView is issuing the token
-      aud: pdsDid,          // PDS is the audience
-      sub: userDid,         // User is the subject (who we're acting on behalf of)
-      exp: now + 60,        // 1 minute expiration
+      aud: pdsDid, // PDS is the audience
+      sub: userDid, // User is the subject (who we're acting on behalf of)
+      exp: now + 60, // 1 minute expiration
       iat: now,
-      lxm: method,          // Lexicon method
+      lxm: method, // Lexicon method
     };
 
     // Use ES256K with proper key ID for AT Protocol compatibility

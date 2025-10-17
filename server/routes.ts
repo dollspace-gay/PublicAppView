@@ -983,11 +983,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await autoBackfillLikesService.forceBackfill(userDid);
 
             // 3. Trigger follows/followers backfill
-            console.log(`[USER_BACKFILL] Starting follows/followers backfill...`);
+            console.log(
+              `[USER_BACKFILL] Starting follows/followers backfill...`
+            );
             await autoBackfillFollowsService.forceBackfill(userDid);
 
             // 4. Trigger feed subscriptions backfill
-            console.log(`[USER_BACKFILL] Starting feed subscriptions backfill...`);
+            console.log(
+              `[USER_BACKFILL] Starting feed subscriptions backfill...`
+            );
             await autoBackfillFeedsService.forceBackfill(userDid);
 
             // 5. Trigger notifications backfill
@@ -1250,9 +1254,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Trigger backfill in background (bypasses cooldown)
         (async () => {
           try {
-            const triggered = await autoBackfillLikesService.forceBackfill(
-              userDid
-            );
+            const triggered =
+              await autoBackfillLikesService.forceBackfill(userDid);
             if (triggered) {
               console.log(
                 `[MANUAL_BACKFILL_LIKES] Successfully triggered for ${userDid}`
@@ -1310,9 +1313,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Trigger backfill in background (bypasses cooldown)
         (async () => {
           try {
-            const triggered = await autoBackfillFollowsService.forceBackfill(
-              userDid
-            );
+            const triggered =
+              await autoBackfillFollowsService.forceBackfill(userDid);
             if (triggered) {
               console.log(
                 `[MANUAL_BACKFILL_FOLLOWS] Successfully triggered for ${userDid}`
@@ -3849,10 +3851,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.status(501).json({
         error: 'NotImplemented',
-        message: 'This endpoint is for Personal Data Servers (PDS), not AppView. ' +
-                 'Per ATProto specification, describeServer describes account creation requirements and capabilities. ' +
-                 'AppView aggregates public data but does not manage user accounts or provide account creation services. ' +
-                 'Please query your PDS for server description and account creation policies.',
+        message:
+          'This endpoint is for Personal Data Servers (PDS), not AppView. ' +
+          'Per ATProto specification, describeServer describes account creation requirements and capabilities. ' +
+          'AppView aggregates public data but does not manage user accounts or provide account creation services. ' +
+          'Please query your PDS for server description and account creation policies.',
       });
     } catch {
       res.status(500).json({ error: 'Failed to describe server' });

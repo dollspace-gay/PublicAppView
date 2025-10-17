@@ -67,7 +67,9 @@ export class EmbedResolver {
     visited = new Set<string>(),
     dataLoader?: any
   ): Promise<Map<string, ResolvedEmbed | null>> {
-    console.log(`[EMBED_RESOLVER] Resolving embeds for ${postUris.length} posts at depth ${depth}`);
+    console.log(
+      `[EMBED_RESOLVER] Resolving embeds for ${postUris.length} posts at depth ${depth}`
+    );
     if (depth >= this.MAX_DEPTH || postUris.length === 0) {
       return new Map();
     }
@@ -361,12 +363,18 @@ export class EmbedResolver {
   }
 
   private resolveImagesEmbed(embed: any, authorDid: string): ResolvedEmbed {
-    console.log(`[EMBED_RESOLVER] resolveImagesEmbed called with:`, JSON.stringify(embed).substring(0, 200));
+    console.log(
+      `[EMBED_RESOLVER] resolveImagesEmbed called with:`,
+      JSON.stringify(embed).substring(0, 200)
+    );
     const result = {
       $type: 'app.bsky.embed.images#view',
       images: (embed.images || [])
         .map((img: any) => {
-          console.log(`[EMBED_RESOLVER] Processing image:`, JSON.stringify(img).substring(0, 150));
+          console.log(
+            `[EMBED_RESOLVER] Processing image:`,
+            JSON.stringify(img).substring(0, 150)
+          );
           const thumb = this.blobToCdnUrl(
             img.image,
             authorDid,
@@ -378,7 +386,9 @@ export class EmbedResolver {
             'feed_fullsize'
           );
 
-          console.log(`[EMBED_RESOLVER] Blob URLs - thumb: ${thumb}, fullsize: ${fullsize}`);
+          console.log(
+            `[EMBED_RESOLVER] Blob URLs - thumb: ${thumb}, fullsize: ${fullsize}`
+          );
 
           // Only include images with valid URLs
           if (!thumb || !fullsize) {
@@ -395,7 +405,9 @@ export class EmbedResolver {
         })
         .filter((img: any) => img !== null), // Filter out null entries
     };
-    console.log(`[EMBED_RESOLVER] Final result has ${result.images.length} images`);
+    console.log(
+      `[EMBED_RESOLVER] Final result has ${result.images.length} images`
+    );
     return result;
   }
 
@@ -481,14 +493,19 @@ export class EmbedResolver {
       // Handle Uint8Array serialized as object from database
       // Convert bytes object to Uint8Array
       const bytesObj = blob.ref.bytes;
-      const bytesArray = new Uint8Array(Object.keys(bytesObj).map(k => bytesObj[k]));
+      const bytesArray = new Uint8Array(
+        Object.keys(bytesObj).map((k) => bytesObj[k])
+      );
 
       try {
         // Parse the bytes as a CID
         const cidObj = CID.decode(bytesArray);
         cid = cidObj.toString();
       } catch (error) {
-        console.error(`[EMBED_RESOLVER] Failed to decode CID from bytes:`, error);
+        console.error(
+          `[EMBED_RESOLVER] Failed to decode CID from bytes:`,
+          error
+        );
         return undefined;
       }
     } else {

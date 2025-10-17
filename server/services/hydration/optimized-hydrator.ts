@@ -454,9 +454,13 @@ export class OptimizedHydrator {
     const actorDids = Array.from(batchedData.actors.keys());
 
     // Resolve embeds in parallel
-    console.log(`[OPTIMIZED_HYDRATOR] Calling embedResolver.resolveEmbeds for ${postUris.length} posts`);
+    console.log(
+      `[OPTIMIZED_HYDRATOR] Calling embedResolver.resolveEmbeds for ${postUris.length} posts`
+    );
     const embedsMap = await this.embedResolver.resolveEmbeds(postUris);
-    console.log(`[OPTIMIZED_HYDRATOR] Got ${embedsMap.size} embeds back from resolver`);
+    console.log(
+      `[OPTIMIZED_HYDRATOR] Got ${embedsMap.size} embeds back from resolver`
+    );
 
     // Fetch labels
     const labelsMap = await this.labelPropagator.propagateActorLabels(

@@ -37,12 +37,13 @@ export async function createBookmark(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
-               'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
-               'Unlike likes (which are public records), bookmarks are private metadata similar to mutes. ' +
-               (pdsEndpoint
-                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.create`
-                 : 'Please check if your PDS supports bookmark functionality.'),
+      message:
+        'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+        'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
+        'Unlike likes (which are public records), bookmarks are private metadata similar to mutes. ' +
+        (pdsEndpoint
+          ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.create`
+          : 'Please check if your PDS supports bookmark functionality.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -69,11 +70,12 @@ export async function deleteBookmark(
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
-               'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
-               (pdsEndpoint
-                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.delete`
-                 : 'Please check if your PDS supports bookmark functionality.'),
+      message:
+        'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+        'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
+        (pdsEndpoint
+          ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.delete`
+          : 'Please check if your PDS supports bookmark functionality.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
@@ -97,12 +99,13 @@ export async function getBookmarks(req: Request, res: Response): Promise<void> {
 
     res.status(501).json({
       error: 'NotImplemented',
-      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
-               'Per ATProto architecture, bookmarks are private user data that should be fetched from the PDS. ' +
-               'Unlike public data (posts, likes), bookmarks are private metadata similar to mutes. ' +
-               (pdsEndpoint
-                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.list`
-                 : 'Please check if your PDS supports bookmark functionality.'),
+      message:
+        'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+        'Per ATProto architecture, bookmarks are private user data that should be fetched from the PDS. ' +
+        'Unlike public data (posts, likes), bookmarks are private metadata similar to mutes. ' +
+        (pdsEndpoint
+          ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.list`
+          : 'Please check if your PDS supports bookmark functionality.'),
       pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {

@@ -1,5 +1,12 @@
 import { db } from '../db';
-import { posts, likes, reposts, notifications, sessions, follows } from '../../shared/schema';
+import {
+  posts,
+  likes,
+  reposts,
+  notifications,
+  sessions,
+  follows,
+} from '../../shared/schema';
 import { sql, gt } from 'drizzle-orm';
 import { logCollector } from './log-collector';
 
@@ -70,12 +77,16 @@ export class DataPruningService {
         .select({ userDid: sessions.userDid })
         .from(sessions);
 
-      const registeredUserDids = [...new Set(allSessions.map(s => s.userDid))];
+      const registeredUserDids = [
+        ...new Set(allSessions.map((s) => s.userDid)),
+      ];
 
-      console.log(`[DATA_PRUNING] Found ${registeredUserDids.length} total users who have ever logged in`);
+      console.log(
+        `[DATA_PRUNING] Found ${registeredUserDids.length} total users who have ever logged in`
+      );
 
       // Add all registered users to protected list
-      registeredUserDids.forEach(did => protectedDids.add(did));
+      registeredUserDids.forEach((did) => protectedDids.add(did));
 
       // For each registered user, get their follows
       // This protects content from people they follow (their timeline content)
@@ -85,11 +96,12 @@ export class DataPruningService {
           .from(follows)
           .where(sql`${follows.followerDid} = ${userDid}`);
 
-        userFollows.forEach(f => protectedDids.add(f.followingDid));
+        userFollows.forEach((f) => protectedDids.add(f.followingDid));
       }
 
-      console.log(`[DATA_PRUNING] Protecting ${protectedDids.size} total DIDs (registered users + their follows)`);
-
+      console.log(
+        `[DATA_PRUNING] Protecting ${protectedDids.size} total DIDs (registered users + their follows)`
+      );
     } catch (error) {
       console.error('[DATA_PRUNING] Error getting protected DIDs:', error);
       // On error, return empty set (fail-safe: prune nothing rather than prune everything)
@@ -116,7 +128,9 @@ export class DataPruningService {
     const protectedDids = await this.getProtectedDids();
 
     if (protectedDids.size === 0) {
-      console.warn('[DATA_PRUNING] No protected DIDs found - skipping pruning for safety');
+      console.warn(
+        '[DATA_PRUNING] No protected DIDs found - skipping pruning for safety'
+      );
       return;
     }
 
@@ -144,7 +158,10 @@ export class DataPruningService {
             sql`${posts.uri} IN (
             SELECT uri FROM ${posts}
             WHERE ${posts.createdAt} < ${cutoffDate}
-            AND ${posts.authorDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
+            AND ${posts.authorDid} NOT IN (${sql.join(
+              Array.from(protectedDids).map((did) => sql`${did}`),
+              sql`, `
+            )})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -162,7 +179,10 @@ export class DataPruningService {
             sql`${likes.uri} IN (
             SELECT uri FROM ${likes}
             WHERE ${likes.createdAt} < ${cutoffDate}
-            AND ${likes.userDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
+            AND ${likes.userDid} NOT IN (${sql.join(
+              Array.from(protectedDids).map((did) => sql`${did}`),
+              sql`, `
+            )})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -180,7 +200,10 @@ export class DataPruningService {
             sql`${reposts.uri} IN (
             SELECT uri FROM ${reposts}
             WHERE ${reposts.createdAt} < ${cutoffDate}
-            AND ${reposts.userDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
+            AND ${reposts.userDid} NOT IN (${sql.join(
+              Array.from(protectedDids).map((did) => sql`${did}`),
+              sql`, `
+            )})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )
@@ -198,7 +221,10 @@ export class DataPruningService {
             sql`${notifications.uri} IN (
             SELECT uri FROM ${notifications}
             WHERE ${notifications.createdAt} < ${cutoffDate}
-            AND ${notifications.recipientDid} NOT IN (${sql.join(Array.from(protectedDids).map(did => sql`${did}`), sql`, `)})
+            AND ${notifications.recipientDid} NOT IN (${sql.join(
+              Array.from(protectedDids).map((did) => sql`${did}`),
+              sql`, `
+            )})
             LIMIT ${this.MAX_DELETION_PER_RUN}
           )`
           )

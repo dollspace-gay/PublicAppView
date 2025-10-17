@@ -20,7 +20,10 @@ export const sendInteractionsSchema = z.object({
   interactions: z
     .array(
       z.object({
-        item: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI').optional(),
+        item: z
+          .string()
+          .regex(/^at:\/\//, 'Must be a valid AT-URI')
+          .optional(),
         event: z
           .enum([
             'requestLess',
