@@ -2408,8 +2408,16 @@ export class DatabaseStorage implements IStorage {
 
     const followingDids = allFollows.map((f) => f.followingDid);
 
+    // Get users who have blocked the viewer (nuclear block)
+    const blockedByData = await this.db
+      .select({ blockerDid: blocks.blockerDid })
+      .from(blocks)
+      .where(eq(blocks.blockedDid, userDid));
+
+    const blockedByDids = blockedByData.map((b) => b.blockerDid);
+
     console.log(
-      `[STORAGE_DEBUG] getTimeline for ${userDid}: ${followingDids.length} follows`
+      `[STORAGE_DEBUG] getTimeline for ${userDid}: ${followingDids.length} follows, ${blockedByDids.length} blocked by`
     );
 
     if (followingDids.length === 0) {
@@ -2420,6 +2428,11 @@ export class DatabaseStorage implements IStorage {
         conditions.push(sql`${posts.indexedAt} < ${cursor}`);
       }
 
+      // Filter out posts from users who have blocked the viewer
+      if (blockedByDids.length > 0) {
+        conditions.push(sql`NOT ${inArray(posts.authorDid, blockedByDids)}`);
+      }
+
       const allPosts = await db
         .select()
         .from(posts)
@@ -2428,7 +2441,7 @@ export class DatabaseStorage implements IStorage {
         .limit(limit);
 
       console.log(
-        `[STORAGE_DEBUG] Retrieved ${allPosts.length} posts from all users`
+        `[STORAGE_DEBUG] Retrieved ${allPosts.length} posts from all users (blocked by filter applied)`
       );
       return allPosts;
     }
@@ -2446,12 +2459,17 @@ export class DatabaseStorage implements IStorage {
         OR
         -- Reposts by followed users
         EXISTS (
-          SELECT 1 FROM ${reposts} 
-          WHERE ${inArray(reposts.userDid, followingDids)} 
+          SELECT 1 FROM ${reposts}
+          WHERE ${inArray(reposts.userDid, followingDids)}
           AND ${reposts.postUri} = ${posts.uri}
         )
       )`,
     ];
+
+    // Filter out posts from users who have blocked the viewer (nuclear block)
+    if (blockedByDids.length > 0) {
+      conditions.push(sql`NOT ${inArray(posts.authorDid, blockedByDids)}`);
+    }
 
     if (cursor) {
       conditions.push(sql`${posts.indexedAt} < ${cursor}`);
@@ -2465,7 +2483,7 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
 
     console.log(
-      `[STORAGE_DEBUG] Retrieved ${timelinePosts.length} posts from followed users and reposts`
+      `[STORAGE_DEBUG] Retrieved ${timelinePosts.length} posts from followed users and reposts (blocked by filter applied)`
     );
     return timelinePosts;
   }

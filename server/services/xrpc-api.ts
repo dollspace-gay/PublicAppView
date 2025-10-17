@@ -2617,6 +2617,9 @@ export class XRPCApi {
     try {
       const params = getFeedSchema.parse(req.query);
 
+      // Get authenticated user DID for block filtering
+      const viewerDid = await this.getAuthenticatedDid(req);
+
       // Get feed generator info
       let feedGen = await storage.getFeedGenerator(params.feed);
       if (!feedGen) {
@@ -2652,6 +2655,7 @@ export class XRPCApi {
           viewerAuthorization: req.headers['authorization'] as
             | string
             | undefined,
+          viewerDid: viewerDid || undefined,
         }
       );
 

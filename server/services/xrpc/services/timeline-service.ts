@@ -375,6 +375,9 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
       `[XRPC] Getting feed from generator: ${feedGen.displayName} (${feedGen.did})`
     );
 
+    // Get viewer DID for block filtering and proper serialization
+    const viewerDid = await getAuthenticatedDid(req);
+
     // Call external feed generator service to get skeleton
     const { feed: hydratedFeed, cursor } = await feedGeneratorClient.getFeed(
       feedGen.did,
@@ -385,6 +388,7 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
       },
       {
         viewerAuthorization: req.headers['authorization'] as string | undefined,
+        viewerDid: viewerDid || undefined,
       }
     );
 
@@ -399,9 +403,6 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
     // Extract post URIs for batch fetching
     const postUris = hydratedFeed.map(({ post }) => post.uri);
     const posts = await storage.getPosts(postUris);
-
-    // Get viewer DID for proper serialization
-    const viewerDid = await getAuthenticatedDid(req);
 
     // Use existing serializePosts infrastructure for complete post objects
     const serializedPosts = await (xrpcApi as any).serializePosts(

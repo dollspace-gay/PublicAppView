@@ -3,6 +3,9 @@ import { didResolver } from './did-resolver';
 import { storage } from '../storage';
 import { appViewJWTService } from './appview-jwt';
 import type { Post } from '@shared/schema';
+import { db } from '../db';
+import { blocks } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 
 const skeletonPostSchema = z.object({
   post: z.string(),
@@ -105,7 +108,8 @@ export class FeedGeneratorClient {
   }
 
   async hydrateSkeleton(
-    skeleton: Array<{ post: string; reason?: any }>
+    skeleton: Array<{ post: string; reason?: any }>,
+    viewerDid?: string
   ): Promise<HydratedFeedPost[]> {
     if (skeleton.length === 0) {
       return [];
@@ -113,6 +117,20 @@ export class FeedGeneratorClient {
 
     const postUris = skeleton.map((item) => item.post);
     console.log(`[FeedGenClient] Hydrating ${postUris.length} posts`);
+
+    // Get users who have blocked the viewer (if viewer is authenticated)
+    let blockedByDids: string[] = [];
+    if (viewerDid) {
+      const blockedByData = await db
+        .select({ blockerDid: blocks.blockerDid })
+        .from(blocks)
+        .where(eq(blocks.blockedDid, viewerDid));
+      blockedByDids = blockedByData.map((b) => b.blockerDid);
+
+      if (blockedByDids.length > 0) {
+        console.log(`[FeedGenClient] Viewer ${viewerDid} is blocked by ${blockedByDids.length} users`);
+      }
+    }
 
     const posts = await storage.getPosts(postUris);
 
@@ -187,9 +205,16 @@ export class FeedGeneratorClient {
     }
 
     const hydrated: HydratedFeedPost[] = [];
+    let blockedCount = 0;
     for (const item of skeleton) {
       const post = postMap.get(item.post);
       if (post) {
+        // Filter out posts from users who have blocked the viewer (nuclear block)
+        if (blockedByDids.includes(post.authorDid)) {
+          blockedCount++;
+          continue;
+        }
+
         hydrated.push({
           post,
           reason: item.reason,
@@ -199,6 +224,10 @@ export class FeedGeneratorClient {
           `[FeedGenClient] Post still not found after fetch attempt: ${item.post}`
         );
       }
+    }
+
+    if (blockedCount > 0) {
+      console.log(`[FeedGenClient] Filtered out ${blockedCount} posts from users who blocked the viewer`);
     }
 
     console.log(
@@ -228,7 +257,7 @@ export class FeedGeneratorClient {
   async getFeed(
     serviceDid: string,
     params: FeedGeneratorParams,
-    options?: { viewerAuthorization?: string | undefined }
+    options?: { viewerAuthorization?: string | undefined; viewerDid?: string }
   ): Promise<{ feed: HydratedFeedPost[]; cursor?: string }> {
     const endpoint = await this.resolveFeedGeneratorEndpoint(serviceDid);
 
@@ -247,7 +276,7 @@ export class FeedGeneratorClient {
       viewerAuthorization: options?.viewerAuthorization,
     });
 
-    const hydrated = await this.hydrateSkeleton(skeleton.feed);
+    const hydrated = await this.hydrateSkeleton(skeleton.feed, options?.viewerDid);
 
     return {
       feed: hydrated,
