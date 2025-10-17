@@ -132,6 +132,10 @@ app.use((req, res, next) => {
       req.method === 'OPTIONS'
     ) {
       res.setHeader('Access-Control-Allow-Origin', '*');
+    } else if (req.path.startsWith('/xrpc/')) {
+      // XRPC endpoints use Authorization header auth, not cookies, so CSRF isn't a concern
+      // Allow cross-origin requests for ATProto clients
+      res.setHeader('Access-Control-Allow-Origin', '*');
     } else {
       // For state-changing operations without origin, reject to prevent CSRF
       return res.status(403).json({

@@ -3114,7 +3114,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${notifications.indexedAt} <= ${seenAt}`);
     }
 
-    return await db
+    return await this.db
       .select()
       .from(notifications)
       .where(and(...conditions))
@@ -3123,7 +3123,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUnreadNotificationCount(recipientDid: string): Promise<number> {
-    const result = await db
+    const result = await this.db
       .select({ count: sql<number>`count(*)` })
       .from(notifications)
       .where(
@@ -3155,7 +3155,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createList(list: InsertList): Promise<List> {
-    const [newList] = await db.insert(lists).values(list).returning();
+    const [newList] = await this.db.insert(lists).values(list).returning();
     return newList;
   }
 
@@ -3709,12 +3709,12 @@ export class DatabaseStorage implements IStorage {
 
   // Video job operations
   async createVideoJob(job: InsertVideoJob): Promise<VideoJob> {
-    const [videoJob] = await db.insert(videoJobs).values(job).returning();
+    const [videoJob] = await this.db.insert(videoJobs).values(job).returning();
     return videoJob;
   }
 
   async getVideoJob(jobId: string): Promise<VideoJob | undefined> {
-    const [job] = await db
+    const [job] = await this.db
       .select()
       .from(videoJobs)
       .where(eq(videoJobs.jobId, jobId))
