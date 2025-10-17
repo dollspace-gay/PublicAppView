@@ -6,7 +6,7 @@ import { z } from 'zod';
  */
 
 export const getListSchema = z.object({
-  list: z.string(),
+  list: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
@@ -15,10 +15,11 @@ export const getListsSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
+  purposes: z.array(z.string()).optional(), // Filter by list purpose (modlist, curatelist, etc.)
 });
 
 export const getListFeedSchema = z.object({
-  list: z.string(),
+  list: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
@@ -27,6 +28,7 @@ export const getListsWithMembershipSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
+  purposes: z.array(z.string()).optional(), // Filter by list purpose (modlist, curatelist, etc.)
 });
 
 export const getListMutesSchema = z.object({

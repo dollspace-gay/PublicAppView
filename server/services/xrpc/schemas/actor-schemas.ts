@@ -59,6 +59,6 @@ export const searchActorsTypeaheadSchema = z
   });
 
 export const suggestedUsersUnspeccedSchema = z.object({
-  limit: z.coerce.number().min(1).max(100).default(25),
-  cursor: z.string().optional(),
+  category: z.string().optional(),
+  limit: z.coerce.number().min(1).max(50).default(25),
 });

@@ -354,20 +354,6 @@ const unregisterPushSchema = z.object({
   token: z.string(),
 });
 
-// Actor preferences schemas - proper validation like Bluesky
-const putActorPreferencesSchema = z.object({
-  preferences: z
-    .array(
-      z
-        .object({
-          $type: z.string().min(1, 'Preference must have a $type'),
-          // Allow any additional properties for flexibility
-        })
-        .passthrough()
-    )
-    .default([]),
-});
-
 const getActorStarterPacksSchema = z.object({
   actor: z.string(),
   limit: z.coerce.number().min(1).max(100).default(50),
@@ -422,13 +408,6 @@ const suggestedUsersUnspeccedSchema = z.object({
 const unspeccedNoParamsSchema = z.object({});
 
 export class XRPCApi {
-  // Preferences cache: DID -> { preferences: any[], timestamp: number }
-  private preferencesCache = new Map<
-    string,
-    { preferences: any[]; timestamp: number }
-  >();
-  private readonly PREFERENCES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
   // Handle resolution cache: handle -> { did: string, timestamp: number }
   private handleResolutionCache = new Map<
     string,
@@ -439,7 +418,6 @@ export class XRPCApi {
   constructor() {
     // Clear expired cache entries every minute
     setInterval(() => {
-      this.cleanExpiredPreferencesCache();
       this.cleanExpiredHandleResolutionCache();
     }, 60 * 1000);
   }
@@ -458,34 +436,6 @@ export class XRPCApi {
     const host =
       req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
     return `${protocol}://${host}`;
-  }
-
-  /**
-   * Check if preferences cache entry is expired
-   */
-  private isPreferencesCacheExpired(cached: {
-    preferences: any[];
-    timestamp: number;
-  }): boolean {
-    return Date.now() - cached.timestamp > this.PREFERENCES_CACHE_TTL;
-  }
-
-  /**
-   * Clean expired entries from preferences cache
-   */
-  private cleanExpiredPreferencesCache(): void {
-    const now = Date.now();
-    const expiredDids: string[] = [];
-
-    this.preferencesCache.forEach((cached, did) => {
-      if (now - cached.timestamp > this.PREFERENCES_CACHE_TTL) {
-        expiredDids.push(did);
-      }
-    });
-
-    expiredDids.forEach((did) => {
-      this.preferencesCache.delete(did);
-    });
   }
 
   /**
@@ -530,14 +480,6 @@ export class XRPCApi {
       }
     }
     return null;
-  }
-
-  /**
-   * Invalidate preferences cache for a specific user
-   */
-  public invalidatePreferencesCache(userDid: string): void {
-    this.preferencesCache.delete(userDid);
-    console.log(`[PREFERENCES] Cache invalidated for ${userDid}`);
   }
 
   private async getUserPdsEndpoint(userDid: string): Promise<string | null> {
@@ -2066,140 +2008,6 @@ export class XRPCApi {
     return profiles;
   }
 
-  async getPreferences(req: Request, res: Response) {
-    try {
-      // Get authenticated user DID using OAuth token verification
-      const userDid = await this.requireAuthDid(req, res);
-      if (!userDid) return;
-
-      // Check cache first
-      const cached = this.preferencesCache.get(userDid);
-      if (cached && !this.isPreferencesCacheExpired(cached)) {
-        console.log(`[PREFERENCES] Cache hit for ${userDid}`);
-        return res.json({ preferences: cached.preferences });
-      }
-
-      // Cache miss - fetch from user's PDS
-      console.log(`[PREFERENCES] Cache miss for ${userDid}, fetching from PDS`);
-
-      try {
-        // Get user's PDS endpoint from DID document
-        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
-        if (!pdsEndpoint) {
-          console.log(
-            `[PREFERENCES] No PDS endpoint found for ${userDid}, returning empty preferences`
-          );
-          return res.json({ preferences: [] });
-        }
-
-        // Forward request to user's PDS
-        const pdsResponse = await fetch(
-          `${pdsEndpoint}/xrpc/app.bsky.actor.getPreferences`,
-          {
-            headers: {
-              Authorization: req.headers.authorization || '',
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-
-        if (pdsResponse.ok) {
-          const pdsData = await pdsResponse.json();
-
-          // Cache the response
-          this.preferencesCache.set(userDid, {
-            preferences: pdsData.preferences || [],
-            timestamp: Date.now(),
-          });
-
-          console.log(
-            `[PREFERENCES] Retrieved ${pdsData.preferences?.length || 0} preferences from PDS for ${userDid}`
-          );
-          return res.json({ preferences: pdsData.preferences || [] });
-        } else {
-          console.warn(
-            `[PREFERENCES] PDS request failed for ${userDid}:`,
-            pdsResponse.status
-          );
-          return res.json({ preferences: [] });
-        }
-      } catch (pdsError) {
-        console.error(
-          `[PREFERENCES] Error fetching from PDS for ${userDid}:`,
-          pdsError
-        );
-        return res.json({ preferences: [] });
-      }
-    } catch (error) {
-      this._handleError(res, error, 'getPreferences');
-    }
-  }
-
-  async putPreferences(req: Request, res: Response) {
-    try {
-      // Get authenticated user DID using OAuth token verification
-      const userDid = await this.requireAuthDid(req, res);
-      if (!userDid) return;
-
-      // Parse the preferences from request body
-      const body = putActorPreferencesSchema.parse(req.body);
-
-      try {
-        // Get user's PDS endpoint from DID document
-        const pdsEndpoint = await this.getUserPdsEndpoint(userDid);
-        if (!pdsEndpoint) {
-          return res.status(400).json({
-            error: 'InvalidRequest',
-            message: 'No PDS endpoint found for user',
-          });
-        }
-
-        // Forward request to user's PDS (let PDS handle validation)
-        const pdsResponse = await fetch(
-          `${pdsEndpoint}/xrpc/app.bsky.actor.putPreferences`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: req.headers.authorization || '',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          }
-        );
-
-        if (pdsResponse.ok) {
-          // Invalidate cache after successful update
-          this.invalidatePreferencesCache(userDid);
-
-          console.log(
-            `[PREFERENCES] Updated preferences via PDS for ${userDid}`
-          );
-
-          // Return success response (no body, like Bluesky)
-          return res.status(200).end();
-        } else {
-          const errorText = await pdsResponse.text();
-          console.error(
-            `[PREFERENCES] PDS request failed for ${userDid}:`,
-            pdsResponse.status,
-            errorText
-          );
-          return res.status(pdsResponse.status).send(errorText);
-        }
-      } catch (pdsError) {
-        console.error(
-          `[PREFERENCES] Error updating preferences via PDS for ${userDid}:`,
-          pdsError
-        );
-        return res.status(500).json({
-          error: 'InternalServerError',
-          message: 'Failed to update preferences',
-        });
-      }
-    } catch (error) {
-      this._handleError(res, error, 'putPreferences');
-    }
-  }
 
   async getFollows(req: Request, res: Response) {
     try {

@@ -13,6 +13,7 @@ import {
   getJobStatusSchema,
   sendInteractionsSchema,
 } from '../schemas/utility-schemas';
+import { xrpcApi } from '../../xrpc-api';
 
 /**
  * Get labeler services for given DIDs
@@ -31,101 +32,79 @@ export async function getServices(req: Request, res: Response): Promise<void> {
     );
 
     // Flatten array of arrays
-    const services = allServices.flat();
+    const services = allServices.flat() as {
+      uri: string;
+      cid: string;
+      creatorDid: string;
+      likeCount: number;
+      indexedAt: Date;
+      policies?: unknown;
+    }[];
 
-    const views = await Promise.all(
-      services.map(async (service) => {
-        const creator = await storage.getUser(
-          (service as { creatorDid: string }).creatorDid
-        );
+    if (services.length === 0) {
+      return res.json({ views: [] });
+    }
 
-        // Skip services from creators without valid handles
-        if (!creator || !creator.handle) {
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(services.map(s => s.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Batch fetch labels for all services
+    const serviceUris = services.map(s => s.uri);
+    const allLabels = await storage.getLabelsForSubjects(serviceUris);
+
+    // Create labels map
+    const labelsMap = new Map<string, typeof allLabels>();
+    allLabels.forEach((label) => {
+      const existing = labelsMap.get(label.subject) || [];
+      existing.push(label);
+      labelsMap.set(label.subject, existing);
+    });
+
+    // Build views
+    const views = services
+      .map((service) => {
+        const creatorProfile = profileMap.get(service.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping labeler service ${(service as { uri: string }).uri} - creator ${(service as { creatorDid: string }).creatorDid} has no handle`
+            `[XRPC] Skipping labeler service ${service.uri} - creator ${service.creatorDid} profile not found`
           );
           return null;
         }
 
-        const creatorView: {
-          did: string;
-          handle: string;
-          displayName?: string;
-          avatar?: string;
-        } = {
-          did: (service as { creatorDid: string }).creatorDid,
-          handle: creator.handle,
+        const view: any = {
+          uri: service.uri,
+          cid: service.cid,
+          creator: creatorProfile, // Full profileView
+          likeCount: service.likeCount || 0,
+          indexedAt: service.indexedAt.toISOString(),
         };
 
-        if (creator?.displayName) creatorView.displayName = creator.displayName;
-        if (creator?.avatarUrl) {
-          const avatarUri = transformBlobToCdnUrl(
-            creator.avatarUrl,
-            creator.did,
-            'avatar',
-            req
-          );
-          if (
-            avatarUri &&
-            typeof avatarUri === 'string' &&
-            avatarUri.trim() !== ''
-          ) {
-            creatorView.avatar = avatarUri;
-          }
+        // Add policies (required for detailed view, optional for basic view)
+        if (params.detailed && service.policies) {
+          view.policies = service.policies;
         }
 
-        const view: {
-          uri: string;
-          cid: string;
-          creator: typeof creatorView;
-          likeCount: number;
-          indexedAt: string;
-          policies?: unknown;
-          labels?: unknown[];
-        } = {
-          uri: (service as { uri: string }).uri,
-          cid: (service as { cid: string }).cid,
-          creator: creatorView,
-          likeCount: (service as { likeCount: number }).likeCount,
-          indexedAt: (service as { indexedAt: Date }).indexedAt.toISOString(),
-        };
-
-        // Add policies
-        if ((service as { policies?: unknown }).policies) {
-          view.policies = (service as { policies: unknown }).policies;
-        }
-
-        // Get labels applied to this labeler service
-        const labels = await storage.getLabelsForSubject(
-          (service as { uri: string }).uri
-        );
-        if (labels.length > 0) {
-          view.labels = labels.map((label) => {
-            const labelView: {
-              src: string;
-              uri: string;
-              val: string;
-              cts: string;
-              neg?: boolean;
-            } = {
-              src: (label as { src: string }).src,
-              uri: (label as { subject: string }).subject,
-              val: (label as { val: string }).val,
-              cts: (label as { createdAt: Date }).createdAt.toISOString(),
-            };
-            if ((label as { neg?: boolean }).neg) labelView.neg = true;
-            return labelView;
-          });
+        // Add labels
+        const serviceLabels = labelsMap.get(service.uri);
+        if (serviceLabels && serviceLabels.length > 0) {
+          view.labels = serviceLabels.map((label) => ({
+            src: label.src,
+            uri: label.subject,
+            val: label.val,
+            cts: label.createdAt.toISOString(),
+            ...(label.neg && { neg: true }),
+          }));
         }
 
         return view;
       })
-    );
+      .filter(Boolean);
 
-    // Filter out null entries (services from creators without valid handles)
-    const validViews = views.filter((view) => view !== null);
-
-    res.json({ views: validViews });
+    res.json({ views });
   } catch (error) {
     handleError(res, error, 'getServices');
   }
@@ -134,44 +113,24 @@ export async function getServices(req: Request, res: Response): Promise<void> {
 /**
  * Get video job status
  * GET /xrpc/app.bsky.video.getJobStatus
+ *
+ * NOTE: This endpoint is for video processing services, not AppView.
+ * Per ATProto architecture, video processing is handled by dedicated video services
+ * (e.g., video.bsky.app) that manage video transcoding, storage, and job tracking.
+ *
+ * AppView aggregates public data but does not process videos or maintain video job state.
+ * Users should interact with video services directly or via PDS proxy using service auth.
  */
 export async function getJobStatus(req: Request, res: Response): Promise<void> {
   try {
-    const params = getJobStatusSchema.parse(req.query);
+    getJobStatusSchema.parse(req.query);
 
-    // Get video job
-    const job = await storage.getVideoJob(params.jobId);
-
-    if (!job) {
-      res.status(404).json({ error: 'Job not found' });
-      return;
-    }
-
-    // Build response
-    const response: {
-      jobId: string;
-      did: string;
-      state: string;
-      progress: number;
-      blob?: unknown;
-      error?: string;
-    } = {
-      jobId: (job as { jobId: string }).jobId,
-      did: (job as { userDid: string }).userDid,
-      state: (job as { state: string }).state,
-      progress: (job as { progress: number }).progress,
-    };
-
-    // Add optional fields
-    if ((job as { blobRef?: unknown }).blobRef) {
-      response.blob = (job as { blobRef: unknown }).blobRef;
-    }
-
-    if ((job as { error?: string }).error) {
-      response.error = (job as { error: string }).error;
-    }
-
-    res.json({ jobStatus: response });
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'This endpoint is for video processing services, not AppView. ' +
+               'Video processing (upload, transcoding, job tracking) is handled by dedicated video services. ' +
+               'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
+    });
   } catch (error) {
     handleError(res, error, 'getJobStatus');
   }
@@ -180,6 +139,13 @@ export async function getJobStatus(req: Request, res: Response): Promise<void> {
 /**
  * Get video upload limits
  * GET /xrpc/app.bsky.video.getUploadLimits
+ *
+ * NOTE: This endpoint is for video processing services, not AppView.
+ * Per ATProto architecture, video upload quotas and limits are managed by dedicated
+ * video services (e.g., video.bsky.app) that handle video processing and storage.
+ *
+ * AppView aggregates public data but does not manage user-specific video upload quotas.
+ * Users should check upload limits via video service endpoint or via PDS proxy with service auth.
  */
 export async function getUploadLimits(
   req: Request,
@@ -189,25 +155,11 @@ export async function getUploadLimits(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const DAILY_VIDEO_LIMIT = Number(process.env.VIDEO_DAILY_LIMIT || 10);
-    const DAILY_BYTES_LIMIT = Number(
-      process.env.VIDEO_DAILY_BYTES || 100 * 1024 * 1024
-    );
-
-    const todayJobs = await storage.getUserVideoJobs(userDid, 1000);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const usedVideos = todayJobs.filter(
-      (j) => (j as { createdAt: Date }).createdAt >= today
-    ).length;
-    const canUpload = usedVideos < DAILY_VIDEO_LIMIT;
-
-    res.json({
-      canUpload,
-      remainingDailyVideos: Math.max(0, DAILY_VIDEO_LIMIT - usedVideos),
-      remainingDailyBytes: DAILY_BYTES_LIMIT,
-      message: canUpload ? undefined : 'Daily upload limit reached',
-      error: undefined,
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'This endpoint is for video processing services, not AppView. ' +
+               'Video upload limits are managed by dedicated video services. ' +
+               'Please use a video service endpoint (e.g., video.bsky.app) directly or via PDS proxy with service auth.',
     });
   } catch (error) {
     handleError(res, error, 'getUploadLimits');
@@ -229,11 +181,12 @@ export async function sendInteractions(
 
     // Record basic metrics; future: persist interactions for ranking signals
     const { metricsService } = await import('../../metrics');
-    for (const _ of (body as { interactions: unknown[] }).interactions) {
+    for (const _ of body.interactions) {
       metricsService.recordApiRequest();
     }
 
-    res.json({ success: true });
+    // AT Protocol spec: return empty object
+    res.json({});
   } catch (error) {
     handleError(res, error, 'sendInteractions');
   }

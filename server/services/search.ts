@@ -30,32 +30,153 @@ export interface ActorSearchResult {
 
 class SearchService {
   /**
-   * Search for posts using full-text search
+   * Search for posts using full-text search with PostgreSQL
    * @param query - Search query string
-   * @param limit - Maximum number of results (default 25)
-   * @param cursor - Pagination cursor (rank threshold)
+   * @param options - Search options including filters and pagination
    * @param userDid - Optional user DID for personalized filtering
    */
   async searchPosts(
     query: string,
-    limit = 25,
-    cursor?: string,
+    options: {
+      limit?: number;
+      cursor?: string;
+      sort?: 'top' | 'latest';
+      since?: string;
+      until?: string;
+      mentions?: string;
+      author?: string;
+      lang?: string;
+      domain?: string;
+      url?: string;
+      tag?: string[];
+    },
     userDid?: string
   ): Promise<{ posts: PostSearchResult[]; cursor?: string }> {
     const trimmedQuery = query.trim();
+    const {
+      limit = 25,
+      cursor,
+      sort = 'top',
+      since,
+      until,
+      mentions,
+      author,
+      lang,
+      domain,
+      url,
+      tag,
+    } = options;
 
     if (!trimmedQuery) {
       return { posts: [] };
     }
 
-    // Use plainto_tsquery which safely handles Unicode, punctuation, and special characters
-    const sqlQuery = cursor
-      ? `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) AND ts_rank(search_vector, plainto_tsquery('english', $1)) < $2 ORDER BY rank DESC LIMIT $3`
-      : `SELECT uri, cid, author_did as "authorDid", text, embed, parent_uri as "parentUri", root_uri as "rootUri", created_at as "createdAt", indexed_at as "indexedAt", ts_rank(search_vector, plainto_tsquery('english', $1)) as rank FROM posts WHERE search_vector @@ plainto_tsquery('english', $1) ORDER BY rank DESC LIMIT $2`;
+    // Build WHERE conditions
+    const conditions: string[] = [
+      `search_vector @@ plainto_tsquery('english', $1)`,
+    ];
+    const params: any[] = [trimmedQuery];
+    let paramIndex = 2;
 
-    const params = cursor
-      ? [trimmedQuery, parseFloat(cursor), limit + 1]
-      : [trimmedQuery, limit + 1];
+    // Time range filters
+    if (since) {
+      conditions.push(`created_at >= $${paramIndex}`);
+      params.push(new Date(since));
+      paramIndex++;
+    }
+    if (until) {
+      conditions.push(`created_at <= $${paramIndex}`);
+      params.push(new Date(until));
+      paramIndex++;
+    }
+
+    // Author filter
+    if (author) {
+      conditions.push(`author_did = $${paramIndex}`);
+      params.push(author);
+      paramIndex++;
+    }
+
+    // Mentions filter - check if text contains the DID or handle
+    if (mentions) {
+      conditions.push(`(text ILIKE $${paramIndex} OR embed::text ILIKE $${paramIndex})`);
+      params.push(`%${mentions}%`);
+      paramIndex++;
+    }
+
+    // Language filter (stored in langs column)
+    if (lang) {
+      conditions.push(`langs @> ARRAY[$${paramIndex}]::varchar[]`);
+      params.push(lang);
+      paramIndex++;
+    }
+
+    // Domain filter - check if embed contains domain
+    if (domain) {
+      conditions.push(`embed::text ILIKE $${paramIndex}`);
+      params.push(`%${domain}%`);
+      paramIndex++;
+    }
+
+    // URL filter - check if embed contains URL
+    if (url) {
+      conditions.push(`embed::text ILIKE $${paramIndex}`);
+      params.push(`%${url}%`);
+      paramIndex++;
+    }
+
+    // Tag filter - check if tags column contains any of the specified tags
+    if (tag && tag.length > 0) {
+      conditions.push(`tags && ARRAY[${tag.map((_, i) => `$${paramIndex + i}`).join(', ')}]::varchar[]`);
+      params.push(...tag);
+      paramIndex += tag.length;
+    }
+
+    // Determine sort and cursor handling
+    let orderBy: string;
+    let cursorCondition: string | null = null;
+
+    if (sort === 'latest') {
+      orderBy = 'ORDER BY created_at DESC';
+      if (cursor) {
+        cursorCondition = `created_at < $${paramIndex}`;
+        params.push(new Date(cursor));
+        paramIndex++;
+      }
+    } else {
+      // Default: sort by relevance (top)
+      orderBy = `ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC`;
+      if (cursor) {
+        cursorCondition = `ts_rank(search_vector, plainto_tsquery('english', $1)) < $${paramIndex}`;
+        params.push(parseFloat(cursor));
+        paramIndex++;
+      }
+    }
+
+    if (cursorCondition) {
+      conditions.push(cursorCondition);
+    }
+
+    // Build and execute query
+    const sqlQuery = `
+      SELECT
+        uri,
+        cid,
+        author_did as "authorDid",
+        text,
+        embed,
+        parent_uri as "parentUri",
+        root_uri as "rootUri",
+        created_at as "createdAt",
+        indexed_at as "indexedAt",
+        ${sort === 'top' ? `ts_rank(search_vector, plainto_tsquery('english', $1)) as rank` : `EXTRACT(EPOCH FROM created_at) as rank`}
+      FROM posts
+      WHERE ${conditions.join(' AND ')}
+      ${orderBy}
+      LIMIT $${paramIndex}
+    `;
+    params.push(limit + 1);
+
     const queryResult = await pool.query(sqlQuery, params);
     const results = {
       rows: queryResult.rows as (PostSearchResult & { rank: number })[],
@@ -78,7 +199,9 @@ class SearchService {
     const postsToReturn = filteredResults.slice(0, limit);
     const nextCursor =
       hasMore && postsToReturn.length > 0
-        ? postsToReturn[postsToReturn.length - 1].rank.toString()
+        ? sort === 'latest'
+          ? postsToReturn[postsToReturn.length - 1].createdAt.toISOString()
+          : postsToReturn[postsToReturn.length - 1].rank.toString()
         : undefined;
 
     return {

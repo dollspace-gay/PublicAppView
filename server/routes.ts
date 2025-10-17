@@ -3843,24 +3843,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // AT Protocol server metadata endpoint (required for service discovery)
+  // AT Protocol server metadata endpoint
+  // NOTE: This endpoint is for PDS (Personal Data Server), not AppView
   app.get('/xrpc/com.atproto.server.describeServer', async (_req, res) => {
     try {
-      const appviewDid = process.env.APPVIEW_DID;
-
-      // In production, APPVIEW_DID is required - fail fast if missing
-      if (process.env.NODE_ENV === 'production' && !appviewDid) {
-        return res.status(500).json({
-          error: 'APPVIEW_DID environment variable is required in production',
-        });
-      }
-
-      // Return standard AT Protocol response - no custom fields allowed
-      res.json({
-        did: appviewDid,
-        availableUserDomains: [],
-        inviteCodeRequired: false,
-        phoneVerificationRequired: false,
+      res.status(501).json({
+        error: 'NotImplemented',
+        message: 'This endpoint is for Personal Data Servers (PDS), not AppView. ' +
+                 'Per ATProto specification, describeServer describes account creation requirements and capabilities. ' +
+                 'AppView aggregates public data but does not manage user accounts or provide account creation services. ' +
+                 'Please query your PDS for server description and account creation policies.',
       });
     } catch {
       res.status(500).json({ error: 'Failed to describe server' });

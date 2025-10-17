@@ -14,10 +14,16 @@ import {
   getKnownFollowersSchema,
   getFollowsSchema,
 } from '../schemas';
+import { xrpcApi } from '../../xrpc-api';
 
 /**
  * Get relationships between an actor and other actors
  * GET /xrpc/app.bsky.graph.getRelationships
+ *
+ * NOTE: Per ATProto spec, relationship objects only include follow relationships.
+ * Blocks and mutes are intentionally excluded from this endpoint.
+ * - Blocks: Public records but not exposed via getRelationships
+ * - Mutes: Private preferences that should never be exposed by AppView
  */
 export async function getRelationships(
   req: Request,
@@ -38,9 +44,7 @@ export async function getRelationships(
         did,
         following: rel.following || undefined,
         followedBy: rel.followedBy || undefined,
-        blocking: rel.blocking || undefined,
-        blockedBy: rel.blockedBy || undefined,
-        muted: rel.muting || undefined,
+        // Per ATProto spec: blocking, blockedBy, muted are NOT included
       })),
     });
   } catch (error) {
@@ -71,41 +75,30 @@ export async function getKnownFollowers(
       params.cursor
     );
 
-    // Get the actor's handle for the subject
-    const actor = await storage.getUser(actorDid);
+    // Build full profileView objects using _getProfiles helper
+    const followerDids = followers.map((f) => f.did);
+    const allDids = [actorDid, ...followerDids];
+    const profiles = await (xrpcApi as any)._getProfiles(allDids, req);
+
+    // Create a map of DID -> profile for quick lookup
+    const profileMap = new Map(profiles.map((p: any) => [p.did, p]));
+
+    // Extract subject profile
+    const subject = profileMap.get(actorDid);
+
+    // Extract follower profiles in order
+    const followerProfiles = followerDids
+      .map((did) => profileMap.get(did))
+      .filter(Boolean);
 
     res.json({
-      subject: {
+      subject: subject || {
         $type: 'app.bsky.actor.defs#profileView',
         did: actorDid,
-        handle: actor?.handle || params.actor,
-        displayName: actor?.displayName || actor?.handle || params.actor,
-        ...maybeAvatar(actor?.avatarUrl, actor?.did || actorDid, req),
-        indexedAt: actor?.indexedAt?.toISOString(),
-        viewer: {
-          muted: false,
-          blockedBy: false,
-          blocking: undefined,
-          following: undefined,
-          followedBy: undefined,
-        },
+        handle: actorDid,
       },
       cursor,
-      followers: followers.map((user) => ({
-        $type: 'app.bsky.actor.defs#profileView',
-        did: user.did,
-        handle: user.handle,
-        displayName: user.displayName || user.handle,
-        ...maybeAvatar(user.avatarUrl, user.did, req),
-        indexedAt: user.indexedAt?.toISOString(),
-        viewer: {
-          muted: false,
-          blockedBy: false,
-          blocking: undefined,
-          following: undefined,
-          followedBy: undefined,
-        },
-      })),
+      followers: followerProfiles,
     });
   } catch (error) {
     handleError(res, error, 'getKnownFollowers');
@@ -152,40 +145,53 @@ export async function getFollows(req: Request, res: Response): Promise<void> {
           followedBy: undefined,
         },
       },
-      follows: followsList
-        .map((f) => {
-          const user = userMap.get(f.followingDid);
-          if (!user) return null;
+      follows: followsList.map((f) => {
+        const user = userMap.get(f.followingDid);
 
-          const viewerState = viewerDid
-            ? relationships.get(f.followingDid)
-            : null;
-          const viewer: {
-            muted: boolean;
-            blockedBy: boolean;
-            blocking?: string;
-            following?: string;
-            followedBy?: string;
-          } = {
-            muted: viewerState ? !!viewerState.muting : false,
-            blockedBy: viewerState?.blockedBy || false,
-          };
-          if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-          if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy)
-            viewer.followedBy = viewerState.followedBy;
-
+        // If user profile not found, create minimal profile with DID
+        // This ensures follows always show up even if profile fetch is pending
+        if (!user) {
           return {
             $type: 'app.bsky.actor.defs#profileView',
-            did: user.did,
-            handle: user.handle,
-            displayName: user.displayName || user.handle,
-            ...maybeAvatar(user.avatarUrl, user.did, req),
-            indexedAt: user.indexedAt?.toISOString(),
-            viewer,
+            did: f.followingDid,
+            handle: f.followingDid, // Use DID as fallback handle
+            displayName: f.followingDid,
+            indexedAt: f.indexedAt?.toISOString(),
+            viewer: {
+              muted: false,
+              blockedBy: false,
+            },
           };
-        })
-        .filter((follow) => follow !== null),
+        }
+
+        const viewerState = viewerDid
+          ? relationships.get(f.followingDid)
+          : null;
+        const viewer: {
+          muted: boolean;
+          blockedBy: boolean;
+          blocking?: string;
+          following?: string;
+          followedBy?: string;
+        } = {
+          muted: viewerState ? !!viewerState.muting : false,
+          blockedBy: viewerState?.blockedBy || false,
+        };
+        if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+        if (viewerState?.following) viewer.following = viewerState.following;
+        if (viewerState?.followedBy)
+          viewer.followedBy = viewerState.followedBy;
+
+        return {
+          $type: 'app.bsky.actor.defs#profileView',
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName || user.handle,
+          ...maybeAvatar(user.avatarUrl, user.did, req),
+          indexedAt: user.indexedAt?.toISOString(),
+          viewer,
+        };
+      }),
       cursor: nextCursor,
     });
   } catch (error) {
@@ -233,40 +239,53 @@ export async function getFollowers(req: Request, res: Response): Promise<void> {
           followedBy: undefined,
         },
       },
-      followers: followersList
-        .map((f) => {
-          const user = userMap.get(f.followerDid);
-          if (!user) return null;
+      followers: followersList.map((f) => {
+        const user = userMap.get(f.followerDid);
 
-          const viewerState = viewerDid
-            ? relationships.get(f.followerDid)
-            : null;
-          const viewer: {
-            muted: boolean;
-            blockedBy: boolean;
-            blocking?: string;
-            following?: string;
-            followedBy?: string;
-          } = {
-            muted: viewerState ? !!viewerState.muting : false,
-            blockedBy: viewerState?.blockedBy || false,
-          };
-          if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-          if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy)
-            viewer.followedBy = viewerState.followedBy;
-
+        // If user profile not found, create minimal profile with DID
+        // This ensures followers always show up even if profile fetch is pending
+        if (!user) {
           return {
             $type: 'app.bsky.actor.defs#profileView',
-            did: user.did,
-            handle: user.handle,
-            displayName: user.displayName || user.handle,
-            ...maybeAvatar(user.avatarUrl, user.did, req),
-            indexedAt: user.indexedAt?.toISOString(),
-            viewer,
+            did: f.followerDid,
+            handle: f.followerDid, // Use DID as fallback handle
+            displayName: f.followerDid,
+            indexedAt: f.indexedAt?.toISOString(),
+            viewer: {
+              muted: false,
+              blockedBy: false,
+            },
           };
-        })
-        .filter((follower) => follower !== null),
+        }
+
+        const viewerState = viewerDid
+          ? relationships.get(f.followerDid)
+          : null;
+        const viewer: {
+          muted: boolean;
+          blockedBy: boolean;
+          blocking?: string;
+          following?: string;
+          followedBy?: string;
+        } = {
+          muted: viewerState ? !!viewerState.muting : false,
+          blockedBy: viewerState?.blockedBy || false,
+        };
+        if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+        if (viewerState?.following) viewer.following = viewerState.following;
+        if (viewerState?.followedBy)
+          viewer.followedBy = viewerState.followedBy;
+
+        return {
+          $type: 'app.bsky.actor.defs#profileView',
+          did: user.did,
+          handle: user.handle,
+          displayName: user.displayName || user.handle,
+          ...maybeAvatar(user.avatarUrl, user.did, req),
+          indexedAt: user.indexedAt?.toISOString(),
+          viewer,
+        };
+      }),
       cursor: nextCursor,
     });
   } catch (error) {

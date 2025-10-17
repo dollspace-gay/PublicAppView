@@ -19,12 +19,15 @@ import {
 import { xrpcApi } from '../../xrpc-api';
 
 /**
- * Get a specific list by URI
+ * Get a specific list by URI with items
  * GET /xrpc/app.bsky.graph.getList
  */
 export async function getList(req: Request, res: Response): Promise<void> {
   try {
     const params = getListSchema.parse(req.query);
+    const viewerDid = await getAuthenticatedDid(req);
+
+    // Get list metadata
     const list = await storage.getList(params.list);
 
     if (!list) {
@@ -35,15 +38,88 @@ export async function getList(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Get list items with pagination
+    const { items: listItems, cursor: nextCursor } = await storage.getListItemsWithPagination(
+      params.list,
+      params.limit,
+      params.cursor
+    );
+
+    // Hydrate creator profile
+    const creatorProfiles = await (xrpcApi as any)._getProfiles([list.creatorDid], req);
+    const creator = creatorProfiles[0];
+
+    if (!creator) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Failed to fetch list creator profile',
+      });
+      return;
+    }
+
+    // Hydrate subject profiles for list items
+    const subjectDids = listItems.map((item) => item.subjectDid);
+    let subjects: any[] = [];
+
+    if (subjectDids.length > 0) {
+      subjects = await (xrpcApi as any)._getProfiles(subjectDids, req);
+    }
+
+    // Create subject map for quick lookup
+    const subjectMap = new Map(subjects.map((s) => [s.did, s]));
+
+    // Build list item views
+    const itemViews = listItems
+      .map((item) => {
+        const subject = subjectMap.get(item.subjectDid);
+        if (!subject) return null;
+
+        return {
+          uri: item.uri,
+          subject,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    // Count total list items (for listItemCount field)
+    const allItems = await storage.getListItems(params.list, 10000);
+    const listItemCount = allItems.length;
+
+    // Build viewer state if authenticated
+    let viewer: any = undefined;
+    if (viewerDid) {
+      // Check if viewer has muted this list
+      const { mutes } = await storage.getListMutes(viewerDid, 1000, undefined);
+      const isMuted = mutes.some((m) => m.listUri === params.list);
+
+      // Check if viewer has blocked this list
+      const { blocks } = await storage.getListBlocks(viewerDid, 1000, undefined);
+      const isBlocked = blocks.some((b) => b.listUri === params.list);
+
+      if (isMuted || isBlocked) {
+        viewer = {
+          muted: isMuted || undefined,
+          blocked: isBlocked ? params.list : undefined,
+        };
+      }
+    }
+
+    // Build ATProto-compliant response
     res.json({
+      cursor: nextCursor,
       list: {
         uri: list.uri,
         cid: list.cid,
+        creator,
         name: list.name,
         purpose: list.purpose,
-        createdAt: list.createdAt.toISOString(),
+        description: list.description || undefined,
+        avatar: list.avatarUrl || undefined,
+        listItemCount,
         indexedAt: list.indexedAt.toISOString(),
+        ...(viewer && { viewer }),
       },
+      items: itemViews,
     });
   } catch (error) {
     handleError(res, error, 'getList');
@@ -57,20 +133,96 @@ export async function getList(req: Request, res: Response): Promise<void> {
 export async function getLists(req: Request, res: Response): Promise<void> {
   try {
     const params = getListsSchema.parse(req.query);
+    const viewerDid = await getAuthenticatedDid(req);
+
+    // Resolve actor to DID
     const did = await resolveActor(res, params.actor);
     if (!did) return;
 
-    const lists = await storage.getUserLists(did, params.limit);
+    // Get lists with pagination and optional purpose filtering
+    const { lists: userLists, cursor: nextCursor } = await storage.getUserListsWithPagination(
+      did,
+      params.limit,
+      params.cursor,
+      params.purposes
+    );
+
+    if (userLists.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        lists: [],
+      });
+      return;
+    }
+
+    // Hydrate creator profile for all lists (should be same creator)
+    const creatorProfiles = await (xrpcApi as any)._getProfiles([did], req);
+    const creator = creatorProfiles[0];
+
+    if (!creator) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Failed to fetch list creator profile',
+      });
+      return;
+    }
+
+    // Build viewer states if authenticated
+    let viewerMutes: Set<string> = new Set();
+    let viewerBlocks: Set<string> = new Set();
+
+    if (viewerDid) {
+      const { mutes } = await storage.getListMutes(viewerDid, 1000, undefined);
+      viewerMutes = new Set(mutes.map((m) => m.listUri));
+
+      const { blocks } = await storage.getListBlocks(viewerDid, 1000, undefined);
+      viewerBlocks = new Set(blocks.map((b) => b.listUri));
+    }
+
+    // Get list item counts for all lists
+    const listItemCounts = await Promise.all(
+      userLists.map(async (list) => {
+        const items = await storage.getListItems(list.uri, 10000);
+        return { uri: list.uri, count: items.length };
+      })
+    );
+    const countMap = new Map(listItemCounts.map((c) => [c.uri, c.count]));
+
+    // Build full listView objects
+    const listViews = userLists.map((list) => {
+      const listItemCount = countMap.get(list.uri) || 0;
+
+      // Build viewer state if authenticated
+      let viewer: any = undefined;
+      if (viewerDid) {
+        const isMuted = viewerMutes.has(list.uri);
+        const isBlocked = viewerBlocks.has(list.uri);
+
+        if (isMuted || isBlocked) {
+          viewer = {
+            muted: isMuted || undefined,
+            blocked: isBlocked ? list.uri : undefined,
+          };
+        }
+      }
+
+      return {
+        uri: list.uri,
+        cid: list.cid,
+        creator,
+        name: list.name,
+        purpose: list.purpose,
+        description: list.description || undefined,
+        avatar: list.avatarUrl || undefined,
+        listItemCount,
+        indexedAt: list.indexedAt.toISOString(),
+        ...(viewer && { viewer }),
+      };
+    });
 
     res.json({
-      lists: lists.map((l) => ({
-        uri: l.uri,
-        cid: l.cid,
-        name: l.name,
-        purpose: l.purpose,
-        createdAt: l.createdAt.toISOString(),
-        indexedAt: l.indexedAt.toISOString(),
-      })),
+      cursor: nextCursor,
+      lists: listViews,
     });
   } catch (error) {
     handleError(res, error, 'getLists');
@@ -84,6 +236,18 @@ export async function getLists(req: Request, res: Response): Promise<void> {
 export async function getListFeed(req: Request, res: Response): Promise<void> {
   try {
     const params = getListFeedSchema.parse(req.query);
+
+    // Check if list exists (ATProto spec requires UnknownList error)
+    const list = await storage.getList(params.list);
+    if (!list) {
+      res.status(400).json({
+        error: 'UnknownList',
+        message: 'List not found',
+      });
+      return;
+    }
+
+    // Fetch posts from list members with limit+1 for pagination
     const posts = await storage.getListFeed(
       params.list,
       params.limit,
@@ -92,18 +256,22 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
 
     const viewerDid = await getAuthenticatedDid(req);
 
-    // Use legacy API for complex post serialization
-    // TODO: Extract serializePosts to utils in future iteration
+    // Use serializePosts for proper post hydration with viewer context
+    // This handles: embeds, author profiles, viewer state (likes/reposts),
+    // reply counts, repost counts, quote counts, labels, and thread context
     const serialized = await (xrpcApi as any).serializePosts(
       posts,
       viewerDid || undefined,
       req
     );
 
-    const oldest = posts.length ? posts[posts.length - 1] : null;
+    // Generate cursor from last post if results exist
+    const cursor = posts.length > 0
+      ? posts[posts.length - 1].indexedAt.toISOString()
+      : undefined;
 
     res.json({
-      cursor: oldest ? oldest.indexedAt.toISOString() : undefined,
+      cursor,
       feed: serialized.map((p: any) => ({ post: p })),
     });
   } catch (error) {
@@ -114,6 +282,9 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
 /**
  * Get lists with membership information for an actor
  * GET /xrpc/app.bsky.graph.getListsWithMembership
+ *
+ * Returns lists created by the authenticated user, with membership info
+ * about the specified actor in each list.
  */
 export async function getListsWithMembership(
   req: Request,
@@ -121,19 +292,150 @@ export async function getListsWithMembership(
 ): Promise<void> {
   try {
     const params = getListsWithMembershipSchema.parse(req.query);
-    const did = await resolveActor(res, params.actor);
-    if (!did) return;
 
-    const lists = await storage.getUserLists(did, params.limit);
+    // Requires authentication - lists are created by session user
+    const sessionDid = await requireAuthDid(req, res);
+    if (!sessionDid) return;
+
+    // Resolve the actor to check for membership
+    const actorDid = await resolveActor(res, params.actor);
+    if (!actorDid) return;
+
+    // Get lists created by authenticated user with pagination and optional filtering
+    const { lists: userLists, cursor: nextCursor } = await storage.getUserListsWithPagination(
+      sessionDid,
+      params.limit,
+      params.cursor,
+      params.purposes
+    );
+
+    if (userLists.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        listsWithMembership: [],
+      });
+      return;
+    }
+
+    // Get creator profile (session user)
+    const creator = await storage.getUser(sessionDid);
+    if (!creator || !(creator as { handle?: string }).handle) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Creator profile not available',
+      });
+      return;
+    }
+
+    const creatorData = creator as {
+      handle: string;
+      displayName?: string;
+      avatarUrl?: string;
+      did: string;
+    };
+
+    // Build creator ProfileView (will be same for all lists)
+    const creatorProfiles = await (xrpcApi as any)._getProfiles([sessionDid], req);
+    const creatorView = creatorProfiles[0];
+
+    if (!creatorView) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Failed to fetch creator profile',
+      });
+      return;
+    }
+
+    // Get all list URIs to check membership
+    const listUris = userLists.map((l) => l.uri);
+
+    // Batch fetch list items to check membership
+    const membershipPromises = listUris.map(async (listUri) => {
+      const items = await storage.getListItems(listUri, 10000);
+      return { listUri, items };
+    });
+    const membershipResults = await Promise.all(membershipPromises);
+    const membershipMap = new Map(
+      membershipResults.map((r) => [r.listUri, r.items])
+    );
+
+    // Get actor profile for listItem views
+    const actorProfiles = await (xrpcApi as any)._getProfiles([actorDid], req);
+    const actorProfile = actorProfiles[0];
+
+    // Batch fetch list item counts
+    const listItemCounts = await Promise.all(
+      userLists.map(async (list) => {
+        const items = await storage.getListItems(list.uri, 10000);
+        return { uri: list.uri, count: items.length };
+      })
+    );
+    const countMap = new Map(listItemCounts.map((c) => [c.uri, c.count]));
+
+    // Build viewer states if needed
+    const viewerDid = sessionDid;
+    const { mutes } = await storage.getListMutes(viewerDid, 1000, undefined);
+    const viewerMutes = new Set(mutes.map((m) => m.listUri));
+
+    const { blocks } = await storage.getListBlocks(viewerDid, 1000, undefined);
+    const viewerBlocks = new Set(blocks.map((b) => b.listUri));
+
+    // Build listsWithMembership response
+    const listsWithMembership = userLists.map((list) => {
+      const listItemCount = countMap.get(list.uri) || 0;
+
+      // Build viewer state
+      let viewer: any = undefined;
+      const isMuted = viewerMutes.has(list.uri);
+      const isBlocked = viewerBlocks.has(list.uri);
+
+      if (isMuted || isBlocked) {
+        viewer = {
+          muted: isMuted || undefined,
+          blocked: isBlocked ? list.uri : undefined,
+        };
+      }
+
+      // Build full listView
+      const listView = {
+        uri: list.uri,
+        cid: list.cid,
+        creator: creatorView,
+        name: list.name,
+        purpose: list.purpose,
+        description: list.description || undefined,
+        avatar: list.avatarUrl || undefined,
+        listItemCount,
+        indexedAt: list.indexedAt.toISOString(),
+        ...(viewer && { viewer }),
+      };
+
+      // Check if actor is a member of this list
+      const listItems = membershipMap.get(list.uri) || [];
+      const memberItem = listItems.find((item) => item.subjectDid === actorDid);
+
+      // Build response object
+      const response: {
+        list: typeof listView;
+        listItem?: { uri: string; subject: any };
+      } = {
+        list: listView,
+      };
+
+      // Include listItem if actor is a member
+      if (memberItem && actorProfile) {
+        response.listItem = {
+          uri: memberItem.uri,
+          subject: actorProfile,
+        };
+      }
+
+      return response;
+    });
 
     res.json({
-      cursor: undefined,
-      lists: lists.map((l) => ({
-        uri: l.uri,
-        cid: l.cid,
-        name: l.name,
-        purpose: l.purpose,
-      })),
+      cursor: nextCursor,
+      listsWithMembership,
     });
   } catch (error) {
     handleError(res, error, 'getListsWithMembership');
@@ -150,26 +452,85 @@ export async function getListMutes(req: Request, res: Response): Promise<void> {
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const { mutes, cursor } = await storage.getListMutes(
+    // Get muted list URIs with pagination
+    const { mutes, cursor: nextCursor } = await storage.getListMutes(
       userDid,
       params.limit,
       params.cursor
     );
 
+    if (mutes.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        lists: [],
+      });
+      return;
+    }
+
+    // Batch fetch all muted lists
+    const listUris = mutes.map((m) => m.listUri);
+    const lists = await Promise.all(
+      listUris.map((uri) => storage.getList(uri))
+    );
+
+    // Filter out nulls (lists that no longer exist)
+    const existingLists = lists.filter((list): list is NonNullable<typeof list> => list !== null);
+
+    if (existingLists.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        lists: [],
+      });
+      return;
+    }
+
+    // Get unique creator DIDs
+    const creatorDids = [...new Set(existingLists.map((list) => list.creatorDid))];
+
+    // Batch fetch all creator profiles
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Batch fetch list item counts
+    const listItemCounts = await Promise.all(
+      existingLists.map(async (list) => {
+        const items = await storage.getListItems(list.uri, 10000);
+        return { uri: list.uri, count: items.length };
+      })
+    );
+    const countMap = new Map(listItemCounts.map((c) => [c.uri, c.count]));
+
+    // Build full listView objects
+    const listViews = existingLists
+      .map((list) => {
+        const creator = creatorMap.get(list.creatorDid);
+        if (!creator) return null;
+
+        const listItemCount = countMap.get(list.uri) || 0;
+
+        // All these lists are muted by the viewer (by definition)
+        const viewer = {
+          muted: true,
+        };
+
+        return {
+          uri: list.uri,
+          cid: list.cid,
+          creator,
+          name: list.name,
+          purpose: list.purpose,
+          description: list.description || undefined,
+          avatar: list.avatarUrl || undefined,
+          listItemCount,
+          indexedAt: list.indexedAt.toISOString(),
+          viewer,
+        };
+      })
+      .filter((list): list is NonNullable<typeof list> => list !== null);
+
     res.json({
-      cursor,
-      lists: await Promise.all(
-        mutes.map(async (listMute) => {
-          const list = await storage.getList(listMute.listUri);
-          return list
-            ? {
-                uri: list.uri,
-                name: list.name,
-                purpose: list.purpose,
-              }
-            : null;
-        })
-      ),
+      cursor: nextCursor,
+      lists: listViews,
     });
   } catch (error) {
     handleError(res, error, 'getListMutes');
@@ -189,26 +550,85 @@ export async function getListBlocks(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const { blocks, cursor } = await storage.getListBlocks(
+    // Get blocked list URIs with pagination
+    const { blocks, cursor: nextCursor } = await storage.getListBlocks(
       userDid,
       params.limit,
       params.cursor
     );
 
+    if (blocks.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        lists: [],
+      });
+      return;
+    }
+
+    // Batch fetch all blocked lists
+    const listUris = blocks.map((b) => b.listUri);
+    const lists = await Promise.all(
+      listUris.map((uri) => storage.getList(uri))
+    );
+
+    // Filter out nulls (lists that no longer exist)
+    const existingLists = lists.filter((list): list is NonNullable<typeof list> => list !== null);
+
+    if (existingLists.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        lists: [],
+      });
+      return;
+    }
+
+    // Get unique creator DIDs
+    const creatorDids = [...new Set(existingLists.map((list) => list.creatorDid))];
+
+    // Batch fetch all creator profiles
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+    const creatorMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Batch fetch list item counts
+    const listItemCounts = await Promise.all(
+      existingLists.map(async (list) => {
+        const items = await storage.getListItems(list.uri, 10000);
+        return { uri: list.uri, count: items.length };
+      })
+    );
+    const countMap = new Map(listItemCounts.map((c) => [c.uri, c.count]));
+
+    // Build full listView objects
+    const listViews = existingLists
+      .map((list) => {
+        const creator = creatorMap.get(list.creatorDid);
+        if (!creator) return null;
+
+        const listItemCount = countMap.get(list.uri) || 0;
+
+        // All these lists are blocked by the viewer (by definition)
+        const viewer = {
+          blocked: list.uri,
+        };
+
+        return {
+          uri: list.uri,
+          cid: list.cid,
+          creator,
+          name: list.name,
+          purpose: list.purpose,
+          description: list.description || undefined,
+          avatar: list.avatarUrl || undefined,
+          listItemCount,
+          indexedAt: list.indexedAt.toISOString(),
+          viewer,
+        };
+      })
+      .filter((list): list is NonNullable<typeof list> => list !== null);
+
     res.json({
-      cursor,
-      lists: await Promise.all(
-        blocks.map(async (listBlock) => {
-          const list = await storage.getList(listBlock.listUri);
-          return list
-            ? {
-                uri: list.uri,
-                name: list.name,
-                purpose: list.purpose,
-              }
-            : null;
-        })
-      ),
+      cursor: nextCursor,
+      lists: listViews,
     });
   } catch (error) {
     handleError(res, error, 'getListBlocks');

@@ -19,24 +19,29 @@ export async function registerPush(req: Request, res: Response): Promise<void> {
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
+    // Validate serviceDid matches this AppView's DID (if configured)
+    // For now, we accept any serviceDid as this AppView handles push for all users
+    // In production, you might want to validate: params.serviceDid === process.env.SERVICE_DID
+
     // Create or update push subscription
-    const subscription = await storage.createPushSubscription({
+    await storage.createPushSubscription({
       userDid,
       platform: params.platform,
       token: params.token,
       appId: params.appId,
+      endpoint: params.endpoint,
+      keys: params.keys ? JSON.stringify(params.keys) : undefined,
     } as {
       userDid: string;
       platform: string;
       token: string;
       appId?: string;
+      endpoint?: string;
+      keys?: string;
     });
 
-    res.json({
-      id: (subscription as { id: string }).id,
-      platform: (subscription as { platform: string }).platform,
-      createdAt: (subscription as { createdAt: Date }).createdAt.toISOString(),
-    });
+    // AT Protocol spec: return empty object on success
+    res.json({});
   } catch (error) {
     handleError(res, error, 'registerPush');
   }
@@ -54,8 +59,28 @@ export async function unregisterPush(
     const params = unregisterPushSchema.parse(req.body);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    await storage.deletePushSubscriptionByToken(params.token);
-    res.json({ success: true });
+
+    // Validate serviceDid matches this AppView's DID (if configured)
+    const serviceDid = process.env.SERVICE_DID;
+    if (serviceDid && params.serviceDid !== serviceDid) {
+      res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'serviceDid does not match this service',
+      });
+      return;
+    }
+
+    // Delete push subscription with full validation
+    // Ensures user can only unregister their own devices
+    await storage.deletePushSubscriptionByDetails(
+      userDid,
+      params.token,
+      params.platform,
+      params.appId
+    );
+
+    // AT Protocol spec: return empty object on success
+    res.json({});
   } catch (error) {
     handleError(res, error, 'unregisterPush');
   }

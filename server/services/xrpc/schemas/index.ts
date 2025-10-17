@@ -63,12 +63,14 @@ export { putActorPreferencesSchema } from './preferences-schemas';
 // Notification Schemas
 export {
   listNotificationsSchema,
+  getUnreadCountSchema,
   updateSeenSchema,
   registerPushSchema,
   unregisterPushSchema,
   getNotificationPreferencesSchema,
   putNotificationPreferencesSchema,
   putNotificationPreferencesV2Schema,
+  getNotificationPreferencesV2Schema,
   listActivitySubscriptionsSchema,
   putActivitySubscriptionSchema,
 } from './notification-schemas';
@@ -82,6 +84,7 @@ export {
   getSuggestedFeedsSchema,
   getPopularFeedGeneratorsSchema,
   describeFeedGeneratorSchema,
+  getSuggestedFeedsUnspeccedSchema,
 } from './feed-generator-schemas';
 
 // Starter Pack Schemas
@@ -91,6 +94,7 @@ export {
   getActorStarterPacksSchema,
   getStarterPacksWithMembershipSchema,
   searchStarterPacksSchema,
+  getOnboardingSuggestedStarterPacksSchema,
 } from './starter-pack-schemas';
 
 // Search Schemas
@@ -102,4 +106,5 @@ export {
   getJobStatusSchema,
   sendInteractionsSchema,
   unspeccedNoParamsSchema,
+  getTrendsSchema,
 } from './utility-schemas';

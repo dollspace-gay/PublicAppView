@@ -12,7 +12,8 @@
       "Bash(npm run:*)",
       "Bash(npm audit:*)",
       "Bash(npm install)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

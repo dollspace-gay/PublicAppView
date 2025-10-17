@@ -103,7 +103,7 @@ export function MetricsCards({
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-muted-foreground">
-              Active Users
+              Total Users
             </h3>
             <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center">
               <Users className="h-5 w-5 text-warning" />
@@ -116,7 +116,7 @@ export function MetricsCards({
             >
               {activeUsers.toLocaleString()}
             </p>
-            <p className="text-xs text-muted-foreground">24h active</p>
+            <p className="text-xs text-muted-foreground">In database</p>
           </div>
         </CardContent>
       </Card>

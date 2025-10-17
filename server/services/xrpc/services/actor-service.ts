@@ -75,17 +75,37 @@ export async function getSuggestions(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const users = await storage.getSuggestedUsers(userDid, params.limit);
+    // Get suggested users with pagination support
+    const { users, cursor } = await storage.getSuggestedUsers(
+      userDid,
+      params.limit,
+      params.cursor
+    );
 
-    res.json({
-      actors: users.map((user) => ({
-        did: user.did,
-        handle: user.handle,
-        displayName: user.displayName || user.handle,
-        ...(user.description && { description: user.description }),
-        ...maybeAvatar(user.avatarUrl, user.did, req),
-      })),
-    });
+    // Convert users to DIDs for profile hydration
+    const userDids = users.map((u) => u.did);
+
+    // Use the full _getProfiles helper to build complete profileView objects
+    const actors = await (xrpcApi as any)._getProfiles(userDids, req);
+
+    // Build response with optional cursor and recId
+    const response: {
+      actors: any[];
+      cursor?: string;
+      recId?: number;
+    } = {
+      actors,
+    };
+
+    if (cursor) {
+      response.cursor = cursor;
+    }
+
+    // Generate recId for recommendation tracking (snowflake-like ID)
+    // Using timestamp + random component for uniqueness
+    response.recId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+
+    res.json(response);
   } catch (error) {
     handleError(res, error, 'getSuggestions');
   }
@@ -109,14 +129,26 @@ export async function getSuggestedFollowsByActor(
       params.limit
     );
 
+    // Check if we have suggestions (not fallback)
+    if (suggestions.length === 0) {
+      return res.json({
+        suggestions: [],
+        isFallback: true,
+      });
+    }
+
+    // Build full profileView objects using _getProfiles helper
+    const suggestionDids = suggestions.map((u) => u.did);
+    const profiles = await (xrpcApi as any)._getProfiles(suggestionDids, req);
+
+    // Generate recId for recommendation tracking (snowflake-like ID)
+    // Using timestamp + random component for uniqueness
+    const recId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+
     res.json({
-      suggestions: suggestions.map((user) => ({
-        did: user.did,
-        handle: user.handle,
-        displayName: user.displayName || user.handle,
-        ...(user.description && { description: user.description }),
-        ...maybeAvatar(user.avatarUrl, user.did, req),
-      })),
+      suggestions: profiles,
+      isFallback: false,
+      recId,
     });
   } catch (error) {
     handleError(res, error, 'getSuggestedFollowsByActor');
@@ -125,7 +157,10 @@ export async function getSuggestedFollowsByActor(
 
 /**
  * Get suggested users (unspecced)
- * GET /xrpc/app.bsky.unspecced.getSuggestedUsersUnspecced
+ * GET /xrpc/app.bsky.unspecced.getSuggestedUsers
+ *
+ * IMPORTANT: This endpoint is experimental and marked as "unspecced" in the ATProto specification.
+ * Returns a list of suggested users with complete profileView objects.
  */
 export async function getSuggestedUsersUnspecced(
   req: Request,
@@ -136,16 +171,17 @@ export async function getSuggestedUsersUnspecced(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const users = await storage.getSuggestedUsers(userDid, params.limit);
+    // TODO: Implement category-based filtering when params.category is provided
+    // For now, category parameter is accepted but not used
+    const { users } = await storage.getSuggestedUsers(userDid, params.limit);
 
-    res.json({
-      users: users.map((u) => ({
-        did: u.did,
-        handle: u.handle,
-        displayName: u.displayName,
-        ...maybeAvatar(u.avatarUrl, u.did, req),
-      })),
-    });
+    // Convert users to DIDs for profile hydration
+    const userDids = users.map((u) => u.did);
+
+    // Use the full _getProfiles helper to build complete profileView objects
+    const actors = await (xrpcApi as any)._getProfiles(userDids, req);
+
+    res.json({ actors });
   } catch (error) {
     handleError(res, error, 'getSuggestedUsersUnspecced');
   }

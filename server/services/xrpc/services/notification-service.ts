@@ -10,6 +10,7 @@ import { handleError } from '../utils/error-handler';
 import { transformBlobToCdnUrl } from '../utils/serializers';
 import {
   listNotificationsSchema,
+  getUnreadCountSchema,
   updateSeenSchema,
   getNotificationPreferencesSchema,
   putNotificationPreferencesSchema,
@@ -51,7 +52,8 @@ export async function listNotifications(
     const notificationsList = await storage.getNotifications(
       userDid,
       params.limit,
-      params.cursor
+      params.cursor,
+      params.seenAt ? new Date(params.seenAt) : undefined
     );
     console.log(
       `[listNotifications] Found ${notificationsList.length} notifications`
@@ -62,12 +64,13 @@ export async function listNotifications(
       .map((n) => (n as { reasonSubject?: string }).reasonSubject)
       .filter((uri): uri is string => !!uri);
 
+    // Batch fetch all posts at once (not one by one)
+    const postsMap = new Map<string, any>();
     if (postUris.length > 0) {
-      // Check which posts exist
       const existingPosts = await storage.getPosts(postUris);
-      const existingUris = new Set(existingPosts.map((p) => p.uri));
-      const missingUris = postUris.filter((uri) => !existingUris.has(uri));
+      existingPosts.forEach((post) => postsMap.set(post.uri, post));
 
+      const missingUris = postUris.filter((uri) => !postsMap.has(uri));
       if (missingUris.length > 0) {
         console.log(
           `[listNotifications] ${missingUris.length} notification posts not in database (will be backfilled on login)`
@@ -84,6 +87,9 @@ export async function listNotifications(
     // Author profiles should be available from firehose events
     const authors = await storage.getUsers(authorDids);
     const authorMap = new Map(authors.map((a) => [a.did, a]));
+
+    // Get viewer relationships with all authors
+    const relationships = await storage.getRelationships(userDid, authorDids);
 
     const items = await Promise.all(
       notificationsList.map(async (n) => {
@@ -122,43 +128,33 @@ export async function listNotifications(
         };
 
         if (reasonSubject) {
-          try {
-            // For post-related notifications, check if the post still exists
-            if (
-              notification.reason === 'like' ||
-              notification.reason === 'repost' ||
-              notification.reason === 'reply' ||
-              notification.reason === 'quote'
-            ) {
-              const post = await storage.getPost(reasonSubject);
-              if (!post) {
-                // Post was deleted, filter out this notification
-                return null;
-              }
-              const postData = post as {
-                text: string;
-                createdAt: Date;
-                embed?: unknown;
-                facets?: unknown;
-              };
-              record = {
-                $type: 'app.bsky.feed.post',
-                text: postData.text,
-                createdAt: postData.createdAt.toISOString(),
-              };
-              if (postData.embed)
-                (record as { embed?: unknown }).embed = postData.embed;
-              if (postData.facets)
-                (record as { facets?: unknown }).facets = postData.facets;
+          // For post-related notifications, check if the post still exists
+          if (
+            notification.reason === 'like' ||
+            notification.reason === 'repost' ||
+            notification.reason === 'reply' ||
+            notification.reason === 'quote'
+          ) {
+            const post = postsMap.get(reasonSubject);
+            if (!post) {
+              // Post was deleted or not found, filter out this notification
+              return null;
             }
-          } catch (error) {
-            console.warn(
-              '[NOTIFICATIONS] Failed to fetch record for subject:',
-              { reasonSubject },
-              error
-            );
-            // If we can't fetch the record, filter out this notification
-            return null;
+            const postData = post as {
+              text: string;
+              createdAt: Date;
+              embed?: unknown;
+              facets?: unknown;
+            };
+            record = {
+              $type: 'app.bsky.feed.post',
+              text: postData.text,
+              createdAt: postData.createdAt.toISOString(),
+            };
+            if (postData.embed)
+              (record as { embed?: unknown }).embed = postData.embed;
+            if (postData.facets)
+              (record as { facets?: unknown }).facets = postData.facets;
           }
         } else {
           // For notifications without a reasonSubject (like follows), create a fallback
@@ -191,6 +187,22 @@ export async function listNotifications(
           createdAt?: Date;
         };
 
+        // Get actual viewer state for this author
+        const viewerState = relationships.get(authorData.did);
+        const viewer: {
+          muted: boolean;
+          blockedBy: boolean;
+          blocking?: string;
+          following?: string;
+          followedBy?: string;
+        } = {
+          muted: viewerState ? !!viewerState.muting : false,
+          blockedBy: viewerState?.blockedBy || false,
+        };
+        if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
+        if (viewerState?.following) viewer.following = viewerState.following;
+        if (viewerState?.followedBy) viewer.followedBy = viewerState.followedBy;
+
         const view = {
           $type: 'app.bsky.notification.listNotifications#notification',
           uri: notificationUri,
@@ -209,31 +221,7 @@ export async function listNotifications(
             displayName: authorData.displayName ?? authorData.handle,
             pronouns: authorData.pronouns,
             ...maybeAvatar(authorData.avatarUrl, authorData.did, req),
-            associated: {
-              $type: 'app.bsky.actor.defs#profileAssociated',
-              lists: 0,
-              feedgens: 0,
-              starterPacks: 0,
-              labeler: false,
-              chat: undefined,
-              activitySubscription: undefined,
-            },
-            viewer: {
-              $type: 'app.bsky.actor.defs#viewerState',
-              muted: false,
-              mutedByList: undefined,
-              blockedBy: false,
-              blocking: undefined,
-              blockingByList: undefined,
-              following: undefined,
-              followedBy: undefined,
-              knownFollowers: undefined,
-              activitySubscription: undefined,
-            },
-            labels: [],
-            createdAt: authorData.createdAt?.toISOString(),
-            verification: undefined,
-            status: undefined,
+            viewer,
           },
         };
         return view;
@@ -274,10 +262,38 @@ export async function getUnreadCount(
   res: Response
 ): Promise<void> {
   try {
+    const params = getUnreadCountSchema.parse(req.query);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    const count = await storage.getUnreadNotificationCount(userDid);
-    res.json({ count });
+
+    // If seenAt is provided, count only notifications after that time
+    let count: number;
+    if (params.seenAt) {
+      const seenAtDate = new Date(params.seenAt);
+      const allNotifications = await storage.getNotifications(
+        userDid,
+        1000, // High limit to get all recent
+        undefined,
+        undefined // No seenAt filter here
+      );
+      // Count unread notifications that occurred after seenAt
+      count = allNotifications.filter(
+        (n) => !n.isRead && n.indexedAt > seenAtDate
+      ).length;
+    } else {
+      // No seenAt filter - just count all unread
+      count = await storage.getUnreadNotificationCount(userDid);
+    }
+
+    // Get user's last seenAt from preferences
+    const prefs = await storage.getUserPreferences(userDid);
+    const lastSeenAt = (prefs as { lastNotificationSeenAt?: Date })
+      ?.lastNotificationSeenAt;
+
+    res.json({
+      count,
+      ...(lastSeenAt && { seenAt: lastSeenAt.toISOString() }),
+    });
   } catch (error) {
     handleError(res, error, 'getUnreadCount');
   }
@@ -292,11 +308,28 @@ export async function updateSeen(req: Request, res: Response): Promise<void> {
     const params = updateSeenSchema.parse(req.body);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    await storage.markNotificationsAsRead(
-      userDid,
-      params.seenAt ? new Date(params.seenAt) : undefined
-    );
-    res.json({ success: true });
+
+    const seenAtDate = new Date(params.seenAt);
+
+    // Mark notifications as read up to the seenAt timestamp
+    await storage.markNotificationsAsRead(userDid, seenAtDate);
+
+    // Update user's lastNotificationSeenAt preference for cross-device sync
+    const prefs = await storage.getUserPreferences(userDid);
+    if (prefs) {
+      await storage.updateUserPreferences(userDid, {
+        lastNotificationSeenAt: seenAtDate,
+      } as any);
+    } else {
+      // Create preferences if they don't exist
+      await storage.createUserPreferences({
+        userDid,
+        lastNotificationSeenAt: seenAtDate,
+      } as any);
+    }
+
+    // AT Protocol spec: return empty object on success
+    res.json({});
   } catch (error) {
     handleError(res, error, 'updateSeen');
   }
@@ -305,6 +338,20 @@ export async function updateSeen(req: Request, res: Response): Promise<void> {
 /**
  * Get notification preferences
  * GET /xrpc/app.bsky.notification.getPreferences
+ *
+ * NOTE: Unlike app.bsky.actor.getPreferences (which retrieves general account preferences
+ * from the PDS), notification preferences are stored on the AppView because they control
+ * how THIS AppView delivers notifications to the user.
+ *
+ * Architectural rationale:
+ * - Notification preferences are service-level settings specific to each AppView instance
+ * - These settings control how the AppView processes and filters notifications
+ * - The AppView needs direct access to these preferences to deliver notifications
+ * - These are NOT portable user preferences that should travel between services
+ *
+ * Per ATProto architecture, this pattern is acknowledged as "not ideal" but is the
+ * current design for notification delivery services. The app.bsky.notification.*
+ * namespace is intentionally distinct from app.bsky.actor.* to reflect this difference.
  */
 export async function getNotificationPreferences(
   req: Request,
@@ -332,6 +379,20 @@ export async function getNotificationPreferences(
 /**
  * Update notification preferences
  * POST /xrpc/app.bsky.notification.putPreferences
+ *
+ * NOTE: Unlike app.bsky.actor.putPreferences (which stores general account preferences
+ * on the PDS), notification preferences are stored on the AppView because they control
+ * how THIS AppView delivers notifications to the user.
+ *
+ * Architectural rationale:
+ * - Notification preferences are service-level settings specific to each AppView instance
+ * - These settings control how the AppView processes and filters notifications
+ * - The AppView needs direct access to these preferences to deliver notifications
+ * - These are NOT portable user preferences that should travel between services
+ *
+ * Per ATProto architecture, this pattern is acknowledged as "not ideal" but is the
+ * current design for notification delivery services. The app.bsky.notification.*
+ * namespace is intentionally distinct from app.bsky.actor.* to reflect this difference.
  */
 export async function putNotificationPreferences(
   req: Request,
@@ -376,6 +437,22 @@ export async function putNotificationPreferences(
 /**
  * Update notification preferences (V2)
  * POST /xrpc/app.bsky.notification.putPreferencesV2
+ *
+ * ATProto-compliant notification preferences supporting all 13 notification categories
+ *
+ * NOTE: Unlike app.bsky.actor.putPreferences (which stores general account preferences
+ * on the PDS), notification preferences are stored on the AppView because they control
+ * how THIS AppView delivers notifications to the user.
+ *
+ * Architectural rationale:
+ * - Notification preferences are service-level settings specific to each AppView instance
+ * - These settings control how the AppView processes and filters notifications
+ * - The AppView needs direct access to these preferences to deliver notifications
+ * - These are NOT portable user preferences that should travel between services
+ *
+ * Per ATProto architecture, this pattern is acknowledged as "not ideal" but is the
+ * current design for notification delivery services. The app.bsky.notification.*
+ * namespace is intentionally distinct from app.bsky.actor.* to reflect this difference.
  */
 export async function putNotificationPreferencesV2(
   req: Request,
@@ -385,31 +462,61 @@ export async function putNotificationPreferencesV2(
     const params = putNotificationPreferencesV2Schema.parse(req.body);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    let prefs = await storage.getUserPreferences(userDid);
-    if (!prefs) {
-      prefs = await storage.createUserPreferences({
+
+    // Get existing preferences or create with defaults
+    let userPrefs = await storage.getUserPreferences(userDid);
+    if (!userPrefs) {
+      userPrefs = await storage.createUserPreferences({
         userDid,
-        notificationPriority: !!params.priority,
-      } as {
-        userDid: string;
-        notificationPriority: boolean;
-      });
-    } else {
-      prefs = await storage.updateUserPreferences(userDid, {
-        notificationPriority:
-          params.priority ??
-          (prefs as { notificationPriority: boolean }).notificationPriority,
-      });
+      } as any);
     }
+
+    // Get current notification preferences V2 (or use defaults)
+    const currentPrefs = (userPrefs as any).notificationPreferencesV2 || {
+      chat: { include: 'accepted', push: true },
+      follow: { list: true, push: true, include: 'all' },
+      like: { list: true, push: false, include: 'follows' },
+      mention: { list: true, push: true, include: 'all' },
+      reply: { list: true, push: true, include: 'all' },
+      repost: { list: true, push: false, include: 'follows' },
+      quote: { list: true, push: true, include: 'all' },
+      likeViaRepost: { list: false, push: false, include: 'all' },
+      repostViaRepost: { list: false, push: false, include: 'all' },
+      starterpackJoined: { list: true, push: false },
+      subscribedPost: { list: true, push: true },
+      unverified: { list: true, push: false },
+      verified: { list: true, push: true },
+    };
+
+    // Merge new preferences with existing (partial update)
+    const updatedPrefs = {
+      chat: params.chat ?? currentPrefs.chat,
+      follow: params.follow ?? currentPrefs.follow,
+      like: params.like ?? currentPrefs.like,
+      mention: params.mention ?? currentPrefs.mention,
+      reply: params.reply ?? currentPrefs.reply,
+      repost: params.repost ?? currentPrefs.repost,
+      quote: params.quote ?? currentPrefs.quote,
+      likeViaRepost: params.likeViaRepost ?? currentPrefs.likeViaRepost,
+      repostViaRepost: params.repostViaRepost ?? currentPrefs.repostViaRepost,
+      starterpackJoined:
+        params.starterpackJoined ?? currentPrefs.starterpackJoined,
+      subscribedPost: params.subscribedPost ?? currentPrefs.subscribedPost,
+      unverified: params.unverified ?? currentPrefs.unverified,
+      verified: params.verified ?? currentPrefs.verified,
+    };
+
+    // Update preferences in database
+    await storage.updateUserPreferences(userDid, {
+      notificationPreferencesV2: updatedPrefs,
+    } as any);
+
+    // Return preferences in ATProto format (object, not array)
     res.json({
-      preferences: [
-        {
-          $type: 'app.bsky.notification.defs#preferences',
-          priority:
-            (prefs as { notificationPriority?: boolean })
-              ?.notificationPriority ?? false,
-        },
-      ],
+      preferences: {
+        $type: 'app.bsky.notification.defs#preferences',
+        ...updatedPrefs,
+      },
     });
   } catch (error) {
     handleError(res, error, 'putNotificationPreferencesV2');
@@ -417,34 +524,104 @@ export async function putNotificationPreferencesV2(
 }
 
 /**
+ * Get notification preferences (V2)
+ * GET /xrpc/app.bsky.notification.getPreferencesV2
+ *
+ * Returns full notification preferences for all 13 categories
+ *
+ * NOTE: Unlike app.bsky.actor.getPreferences (which retrieves general account preferences
+ * from the PDS), notification preferences are stored on the AppView because they control
+ * how THIS AppView delivers notifications to the user.
+ *
+ * Architectural rationale:
+ * - Notification preferences are service-level settings specific to each AppView instance
+ * - These settings control how the AppView processes and filters notifications
+ * - The AppView needs direct access to these preferences to deliver notifications
+ * - These are NOT portable user preferences that should travel between services
+ *
+ * Per ATProto architecture, this pattern is acknowledged as "not ideal" but is the
+ * current design for notification delivery services. The app.bsky.notification.*
+ * namespace is intentionally distinct from app.bsky.actor.* to reflect this difference.
+ */
+export async function getNotificationPreferencesV2(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const userDid = await requireAuthDid(req, res);
+    if (!userDid) return;
+
+    const userPrefs = await storage.getUserPreferences(userDid);
+
+    // Get notification preferences V2 (or use defaults)
+    const prefs = (userPrefs as any)?.notificationPreferencesV2 || {
+      chat: { include: 'accepted', push: true },
+      follow: { list: true, push: true, include: 'all' },
+      like: { list: true, push: false, include: 'follows' },
+      mention: { list: true, push: true, include: 'all' },
+      reply: { list: true, push: true, include: 'all' },
+      repost: { list: true, push: false, include: 'follows' },
+      quote: { list: true, push: true, include: 'all' },
+      likeViaRepost: { list: false, push: false, include: 'all' },
+      repostViaRepost: { list: false, push: false, include: 'all' },
+      starterpackJoined: { list: true, push: false },
+      subscribedPost: { list: true, push: true },
+      unverified: { list: true, push: false },
+      verified: { list: true, push: true },
+    };
+
+    res.json({
+      preferences: {
+        $type: 'app.bsky.notification.defs#preferences',
+        ...prefs,
+      },
+    });
+  } catch (error) {
+    handleError(res, error, 'getNotificationPreferencesV2');
+  }
+}
+
+/**
  * List activity subscriptions
  * GET /xrpc/app.bsky.notification.listActivitySubscriptions
+ *
+ * Returns profile views of accounts the user has subscribed to for activity notifications
+ * Per ATProto spec: "Enumerate all accounts to which the requesting account is subscribed to receive notifications for."
  */
 export async function listActivitySubscriptions(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    listActivitySubscriptionsSchema.parse(req.query);
+    const params = listActivitySubscriptionsSchema.parse(req.query);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    const subs = await storage.getUserPushSubscriptions(userDid);
+
+    // Get activity subscriptions (accounts user is subscribed to)
+    const result = await storage.getActivitySubscriptions(
+      userDid,
+      params.limit,
+      params.cursor
+    );
+
+    // Extract subject DIDs (accounts user is subscribed to)
+    const subjectDids = result.subscriptions.map((sub) => sub.subjectDid);
+
+    if (subjectDids.length === 0) {
+      res.json({
+        subscriptions: [],
+        cursor: result.cursor,
+      });
+      return;
+    }
+
+    // Get full profile views for subscribed accounts
+    const { xrpcApi } = await import('../../xrpc-api');
+    const profiles = await (xrpcApi as any)._getProfiles(subjectDids, req);
+
     res.json({
-      subscriptions: (
-        subs as {
-          id: string;
-          platform: string;
-          appId?: string;
-          createdAt: Date;
-          updatedAt: Date;
-        }[]
-      ).map((s) => ({
-        id: s.id,
-        platform: s.platform,
-        appId: s.appId,
-        createdAt: s.createdAt.toISOString(),
-        updatedAt: s.updatedAt.toISOString(),
-      })),
+      subscriptions: profiles,
+      cursor: result.cursor,
     });
   } catch (error) {
     handleError(res, error, 'listActivitySubscriptions');
@@ -454,6 +631,9 @@ export async function listActivitySubscriptions(
 /**
  * Update activity subscription
  * POST /xrpc/app.bsky.notification.putActivitySubscription
+ *
+ * Creates or updates an activity subscription for a specific account
+ * Per ATProto spec: "Puts an activity subscription entry. The key should be omitted for creation and provided for updates."
  */
 export async function putActivitySubscription(
   req: Request,
@@ -463,23 +643,67 @@ export async function putActivitySubscription(
     const body = putActivitySubscriptionSchema.parse(req.body);
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
-    // Upsert a synthetic web subscription for parity
-    await storage.createPushSubscription({
-      userDid,
-      platform: 'web',
-      token: `activity-${userDid}`,
-      endpoint: undefined,
-      keys: undefined,
-      appId: body.subject || undefined,
-    } as {
-      userDid: string;
-      platform: string;
-      token: string;
-      endpoint?: string;
-      keys?: string;
-      appId?: string;
+
+    // Validate that subject is a valid DID
+    if (!body.subject || !body.subject.startsWith('did:')) {
+      res.status(400).json({
+        error: 'InvalidRequest',
+        message: 'Subject must be a valid DID',
+      });
+      return;
+    }
+
+    // Check if subject user exists
+    const subjectUser = await storage.getUser(body.subject);
+    if (!subjectUser) {
+      res.status(404).json({
+        error: 'NotFound',
+        message: 'Subject account not found',
+      });
+      return;
+    }
+
+    // Create AT URI for the activity subscription
+    // Format: at://{subscriberDid}/app.bsky.notification.activitySubscription/{rkey}
+    // Use subjectDid as rkey for uniqueness
+    const rkey = body.subject.replace(/[^a-zA-Z0-9]/g, '-');
+    const uri = `at://${userDid}/app.bsky.notification.activitySubscription/${rkey}`;
+
+    // Generate a CID (in production, this would be calculated from the record)
+    const cid = `bafyrei${Buffer.from(`${uri}-${Date.now()}`).toString('base64url').slice(0, 44)}`;
+
+    // Check if subscription already exists
+    const existing = await storage.getActivitySubscription(uri);
+
+    if (existing) {
+      // Update existing subscription
+      // Note: For now, we don't have an update method, so we'll delete and recreate
+      await storage.deleteActivitySubscription(uri);
+    }
+
+    // Create/update the activity subscription
+    const subscription = await storage.createActivitySubscription({
+      uri,
+      cid,
+      subscriberDid: userDid,
+      subjectDid: body.subject,
+      priority: body.activitySubscription.post || body.activitySubscription.reply,
+      createdAt: new Date(),
     });
-    res.json({ success: true });
+
+    // Get profile view for the subject
+    const { xrpcApi } = await import('../../xrpc-api');
+    const profiles = await (xrpcApi as any)._getProfiles([body.subject], req);
+
+    res.json({
+      subject: body.subject,
+      activitySubscription: {
+        post: body.activitySubscription.post,
+        reply: body.activitySubscription.reply,
+      },
+      // Return profile view for convenience
+      profile: profiles[0] || null,
+    });
   } catch (error) {
     handleError(res, error, 'putActivitySubscription');
   }

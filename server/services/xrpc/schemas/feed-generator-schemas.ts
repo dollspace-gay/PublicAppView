@@ -41,3 +41,7 @@ export const getPopularFeedGeneratorsSchema = z.object({
 export const describeFeedGeneratorSchema = z.object({
   // No required params
 });
+
+export const getSuggestedFeedsUnspeccedSchema = z.object({
+  limit: z.coerce.number().min(1).max(25).default(10),
+});

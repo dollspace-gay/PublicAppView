@@ -22,7 +22,7 @@ export const getActorStarterPacksSchema = z.object({
 });
 
 export const getStarterPacksWithMembershipSchema = z.object({
-  actor: z.string().optional(),
+  actor: z.string(), // Required - the account to check for membership
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
@@ -31,4 +31,8 @@ export const searchStarterPacksSchema = z.object({
   q: z.string().min(1),
   limit: z.coerce.number().min(1).max(100).default(25),
   cursor: z.string().optional(),
+});
+
+export const getOnboardingSuggestedStarterPacksSchema = z.object({
+  limit: z.coerce.number().min(1).max(25).default(10),
 });

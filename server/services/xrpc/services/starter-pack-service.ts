@@ -6,14 +6,16 @@
 import type { Request, Response } from 'express';
 import { storage } from '../../../storage';
 import { handleError } from '../utils/error-handler';
-import { resolveActor } from '../utils/resolvers';
+import { resolveActor, requireAuthDid } from '../utils/resolvers';
 import { transformBlobToCdnUrl } from '../utils/serializers';
 import {
   getStarterPackSchema,
   getStarterPacksSchema,
   getActorStarterPacksSchema,
   getStarterPacksWithMembershipSchema,
+  getOnboardingSuggestedStarterPacksSchema,
 } from '../schemas';
+import { xrpcApi } from '../../xrpc-api';
 
 /**
  * Get a single starter pack by URI
@@ -43,97 +45,45 @@ export async function getStarterPack(
       indexedAt: Date;
     };
 
-    // Creator profile should be available from firehose events
-    const creator = await storage.getUser(packData.creatorDid);
+    // Use _getProfiles for complete creator profileViewBasic
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      [packData.creatorDid],
+      req
+    );
 
-    if (!creator || !(creator as { handle?: string }).handle) {
+    if (creatorProfiles.length === 0) {
       return res.status(500).json({
         error: 'Starter pack creator profile not available',
         message: 'Unable to load creator information',
       });
     }
 
-    const creatorData = creator as {
-      handle: string;
-      displayName?: string;
-      avatarUrl?: string;
-      did: string;
-    };
-
-    let list = null;
-    if (packData.listUri) {
-      list = await storage.getList(packData.listUri);
-    }
-
-    const creatorView: {
-      did: string;
-      handle: string;
-      displayName?: string;
-      avatar?: string;
-    } = {
-      did: packData.creatorDid,
-      handle: creatorData.handle,
-    };
-    if (creatorData.displayName)
-      creatorView.displayName = creatorData.displayName;
-    if (creatorData.avatarUrl) {
-      const avatarUrl = transformBlobToCdnUrl(
-        creatorData.avatarUrl,
-        creatorData.did,
-        'avatar',
-        req
-      );
-      if (
-        avatarUrl &&
-        typeof avatarUrl === 'string' &&
-        avatarUrl.trim() !== ''
-      ) {
-        creatorView.avatar = avatarUrl;
-      }
-    }
-
-    const record: {
-      name: string;
-      list?: string;
-      feeds?: unknown[];
-      createdAt: string;
-      description?: string;
-    } = {
-      name: packData.name,
-      list: packData.listUri,
-      feeds: packData.feeds,
-      createdAt: packData.createdAt.toISOString(),
-    };
-    if (packData.description) record.description = packData.description;
-
-    const starterPackView: {
-      uri: string;
-      cid: string;
-      record: typeof record;
-      creator: typeof creatorView;
-      indexedAt: string;
-      list?: { uri: string; cid: string; name: string; purpose: string };
-    } = {
+    // Build starter pack view
+    const starterPackView: any = {
       uri: packData.uri,
       cid: packData.cid,
-      record,
-      creator: creatorView,
+      record: {
+        name: packData.name,
+        list: packData.listUri,
+        feeds: packData.feeds,
+        createdAt: packData.createdAt.toISOString(),
+        ...(packData.description && { description: packData.description }),
+      },
+      creator: creatorProfiles[0], // Full profileViewBasic
       indexedAt: packData.indexedAt.toISOString(),
     };
 
-    if (list) {
-      const listData = list as {
-        uri: string;
-        cid: string;
-        name: string;
-        purpose: string;
-      };
-      starterPackView.list = {
-        uri: listData.uri,
-        cid: listData.cid,
-        name: listData.name,
-        purpose: listData.purpose,
-      };
+    // Add optional list info if exists
+    if (packData.listUri) {
+      const list = await storage.getList(packData.listUri);
+      if (list) {
+        starterPackView.list = {
+          uri: list.uri,
+          cid: list.cid,
+          name: list.name,
+          purpose: list.purpose,
+        };
+      }
     }
 
     res.json({ starterPack: starterPackView });
@@ -153,122 +103,72 @@ export async function getStarterPacks(
   try {
     const params = getStarterPacksSchema.parse(req.query);
 
-    const packs = await storage.getStarterPacks(params.uris);
+    const packs = await storage.getStarterPacks(params.uris) as {
+      creatorDid: string;
+      listUri?: string;
+      name: string;
+      description?: string;
+      feeds?: unknown[];
+      uri: string;
+      cid: string;
+      createdAt: Date;
+      indexedAt: Date;
+    }[];
 
-    // Creator profiles should be available from firehose events
+    if (packs.length === 0) {
+      return res.json({ starterPacks: [] });
+    }
+
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(packs.map(p => p.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
     const views = await Promise.all(
-      (
-        packs as {
-          creatorDid: string;
-          listUri?: string;
-          name: string;
-          description?: string;
-          feeds?: unknown[];
-          uri: string;
-          cid: string;
-          createdAt: Date;
-          indexedAt: Date;
-        }[]
-      ).map(async (pack) => {
-        const creator = await storage.getUser(pack.creatorDid);
-
-        // Skip packs from creators without valid handles
-        if (!creator || !(creator as { handle?: string }).handle) {
+      packs.map(async (pack) => {
+        const creatorProfile = profileMap.get(pack.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} has no handle`
+            `[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} profile not found`
           );
           return null;
         }
 
-        const creatorData = creator as {
-          handle: string;
-          displayName?: string;
-          avatarUrl?: string;
-          did: string;
-        };
-
-        let list = null;
-        if (pack.listUri) {
-          list = await storage.getList(pack.listUri);
-        }
-
-        const creatorView: {
-          did: string;
-          handle: string;
-          displayName?: string;
-          avatar?: string;
-        } = {
-          did: pack.creatorDid,
-          handle: creatorData.handle,
-        };
-        if (creatorData.displayName)
-          creatorView.displayName = creatorData.displayName;
-        if (creatorData.avatarUrl) {
-          const avatarUri = transformBlobToCdnUrl(
-            creatorData.avatarUrl,
-            creatorData.did,
-            'avatar',
-            req
-          );
-          if (
-            avatarUri &&
-            typeof avatarUri === 'string' &&
-            avatarUri.trim() !== ''
-          ) {
-            creatorView.avatar = avatarUri;
-          }
-        }
-
-        const record: {
-          name: string;
-          list?: string;
-          feeds?: unknown[];
-          createdAt: string;
-          description?: string;
-        } = {
-          name: pack.name,
-          list: pack.listUri,
-          feeds: pack.feeds,
-          createdAt: pack.createdAt.toISOString(),
-        };
-        if (pack.description) record.description = pack.description;
-
-        const view: {
-          uri: string;
-          cid: string;
-          record: typeof record;
-          creator: typeof creatorView;
-          indexedAt: string;
-          list?: { uri: string; cid: string; name: string; purpose: string };
-        } = {
+        const view: any = {
           uri: pack.uri,
           cid: pack.cid,
-          record,
-          creator: creatorView,
+          record: {
+            name: pack.name,
+            list: pack.listUri,
+            feeds: pack.feeds,
+            createdAt: pack.createdAt.toISOString(),
+            ...(pack.description && { description: pack.description }),
+          },
+          creator: creatorProfile, // Full profileViewBasic
           indexedAt: pack.indexedAt.toISOString(),
         };
 
-        if (list) {
-          const listData = list as {
-            uri: string;
-            cid: string;
-            name: string;
-            purpose: string;
-          };
-          view.list = {
-            uri: listData.uri,
-            cid: listData.cid,
-            name: listData.name,
-            purpose: listData.purpose,
-          };
+        // Add optional list info if exists
+        if (pack.listUri) {
+          const list = await storage.getList(pack.listUri);
+          if (list) {
+            view.list = {
+              uri: list.uri,
+              cid: list.cid,
+              name: list.name,
+              purpose: list.purpose,
+            };
+          }
         }
 
         return view;
       })
     );
 
-    // Filter out null entries (packs from creators without valid handles)
-    const validViews = views.filter((view) => view !== null);
+    const validViews = views.filter(Boolean);
 
     res.json({ starterPacks: validViews });
   } catch (error) {
@@ -288,33 +188,110 @@ export async function getActorStarterPacks(
     const params = getActorStarterPacksSchema.parse(req.query);
     const did = await resolveActor(res, params.actor);
     if (!did) return;
-    const { starterPacks, cursor } = await storage.getStarterPacksByCreator(
+
+    const { starterPacks, cursor: nextCursor } = await storage.getStarterPacksByCreator(
       did,
       params.limit,
       params.cursor
     );
-    res.json({
-      cursor,
-      starterPacks: (
+
+    if (starterPacks.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        starterPacks: [],
+      });
+      return;
+    }
+
+    // Use _getProfiles for complete creator profileViewBasic (all packs have same creator)
+    const creatorProfiles = await (xrpcApi as any)._getProfiles([did], req);
+
+    if (creatorProfiles.length === 0) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Creator profile not available',
+      });
+      return;
+    }
+
+    const creatorView = creatorProfiles[0];
+
+    // Get all starter pack URIs for batch label fetching
+    const packUris = starterPacks.map((p: any) => p.uri);
+
+    // Batch fetch labels for all starter packs
+    const allLabels = await storage.getLabelsForSubjects(packUris);
+    const labelsMap = new Map<string, typeof allLabels>();
+
+    allLabels.forEach((label) => {
+      const existing = labelsMap.get(label.subject) || [];
+      existing.push(label);
+      labelsMap.set(label.subject, existing);
+    });
+
+    // Build starterPackViewBasic objects
+    const starterPackViews = await Promise.all(
+      (
         starterPacks as {
           uri: string;
           cid: string;
           name: string;
+          description?: string;
           listUri?: string;
           feeds?: unknown[];
           createdAt: Date;
+          indexedAt: Date;
         }[]
-      ).map((p) => ({
-        uri: p.uri,
-        cid: p.cid,
-        record: {
-          name: p.name,
-          list: p.listUri,
-          feeds: p.feeds,
-          createdAt: p.createdAt.toISOString(),
-        },
-      })),
-      feeds: [],
+      ).map(async (pack) => {
+        const record: {
+          name: string;
+          list?: string;
+          feeds?: unknown[];
+          createdAt: string;
+          description?: string;
+        } = {
+          name: pack.name,
+          list: pack.listUri,
+          feeds: pack.feeds,
+          createdAt: pack.createdAt.toISOString(),
+        };
+
+        if (pack.description) {
+          record.description = pack.description;
+        }
+
+        // Calculate listItemCount if list exists
+        let listItemCount: number | undefined = undefined;
+        if (pack.listUri) {
+          const items = await storage.getListItems(pack.listUri, 10000);
+          listItemCount = items.length;
+        }
+
+        // Get labels for this pack
+        const packLabels = labelsMap.get(pack.uri);
+        const labels = packLabels?.map((label) => ({
+          src: label.src,
+          uri: label.uri,
+          val: label.val,
+          cts: label.createdAt.toISOString(),
+          ...(label.neg && { neg: true }),
+        }));
+
+        return {
+          uri: pack.uri,
+          cid: pack.cid,
+          record,
+          creator: creatorView,
+          indexedAt: pack.indexedAt.toISOString(),
+          ...(listItemCount !== undefined && { listItemCount }),
+          ...(labels && labels.length > 0 && { labels }),
+        };
+      })
+    );
+
+    res.json({
+      cursor: nextCursor,
+      starterPacks: starterPackViews,
     });
   } catch (error) {
     handleError(res, error, 'getActorStarterPacks');
@@ -324,6 +301,9 @@ export async function getActorStarterPacks(
 /**
  * Get starter packs with membership info
  * GET /xrpc/app.bsky.graph.getStarterPacksWithMembership
+ *
+ * Returns starter packs created by the authenticated user, with membership info
+ * about the specified actor in each pack's associated list.
  */
 export async function getStarterPacksWithMembership(
   req: Request,
@@ -331,15 +311,153 @@ export async function getStarterPacksWithMembership(
 ): Promise<void> {
   try {
     const params = getStarterPacksWithMembershipSchema.parse(req.query);
-    const did = params.actor ? await resolveActor(res, params.actor) : null;
-    const { starterPacks, cursor } = did
-      ? await storage.getStarterPacksByCreator(did, params.limit, params.cursor)
-      : await storage.listStarterPacks(params.limit, params.cursor);
+
+    // Requires authentication - starter packs are created by session user
+    const sessionDid = await requireAuthDid(req, res);
+    if (!sessionDid) return;
+
+    // Resolve the actor to check for membership
+    const actorDid = await resolveActor(res, params.actor);
+    if (!actorDid) return;
+
+    // Get starter packs created by authenticated user
+    const { starterPacks, cursor: nextCursor } = await storage.getStarterPacksByCreator(
+      sessionDid,
+      params.limit,
+      params.cursor
+    );
+
+    if (starterPacks.length === 0) {
+      res.json({
+        cursor: nextCursor,
+        starterPacksWithMembership: [],
+      });
+      return;
+    }
+
+    // Use _getProfiles for both creator and actor profiles
+    const profiles = await (xrpcApi as any)._getProfiles([sessionDid, actorDid], req);
+
+    if (profiles.length === 0) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Profiles not available',
+      });
+      return;
+    }
+
+    const profileMap = new Map(profiles.map((p: any) => [p.did, p]));
+    const creatorView = profileMap.get(sessionDid);
+    const actorProfile = profileMap.get(actorDid);
+
+    if (!creatorView) {
+      res.status(500).json({
+        error: 'InternalServerError',
+        message: 'Creator profile not available',
+      });
+      return;
+    }
+
+    // Get all starter pack URIs for batch label fetching
+    const packUris = starterPacks.map((p: any) => p.uri);
+
+    // Batch fetch labels for all starter packs
+    const allLabels = await storage.getLabelsForSubjects(packUris);
+    const labelsMap = new Map<string, typeof allLabels>();
+
+    allLabels.forEach((label) => {
+      const existing = labelsMap.get(label.subject) || [];
+      existing.push(label);
+      labelsMap.set(label.subject, existing);
+    });
+
+    // Build starterPacksWithMembership response
+    const starterPacksWithMembershipData = await Promise.all(
+      (
+        starterPacks as {
+          uri: string;
+          cid: string;
+          name: string;
+          description?: string;
+          listUri?: string;
+          feeds?: unknown[];
+          createdAt: Date;
+          indexedAt: Date;
+        }[]
+      ).map(async (pack) => {
+        const record: {
+          name: string;
+          list?: string;
+          feeds?: unknown[];
+          createdAt: string;
+          description?: string;
+        } = {
+          name: pack.name,
+          list: pack.listUri,
+          feeds: pack.feeds,
+          createdAt: pack.createdAt.toISOString(),
+        };
+
+        if (pack.description) {
+          record.description = pack.description;
+        }
+
+        // Calculate listItemCount if list exists
+        let listItemCount: number | undefined = undefined;
+        let memberItem = null;
+
+        if (pack.listUri) {
+          const listItems = await storage.getListItems(pack.listUri, 10000);
+          listItemCount = listItems.length;
+
+          // Check if actor is a member of this pack's list
+          memberItem = listItems.find((item) => item.subjectDid === actorDid);
+        }
+
+        // Get labels for this pack
+        const packLabels = labelsMap.get(pack.uri);
+        const labels = packLabels?.map((label) => ({
+          src: label.src,
+          uri: label.uri,
+          val: label.val,
+          cts: label.createdAt.toISOString(),
+          ...(label.neg && { neg: true }),
+        }));
+
+        // Build full starterPackViewBasic
+        const starterPackView = {
+          uri: pack.uri,
+          cid: pack.cid,
+          record,
+          creator: creatorView,
+          indexedAt: pack.indexedAt.toISOString(),
+          ...(listItemCount !== undefined && { listItemCount }),
+          ...(labels && labels.length > 0 && { labels }),
+        };
+
+        // Build response object
+        const response: {
+          starterPack: typeof starterPackView;
+          listItem?: { uri: string; subject: any };
+        } = {
+          starterPack: starterPackView,
+        };
+
+        // Include listItem if actor is a member of the pack's list
+        if (memberItem && actorProfile) {
+          response.listItem = {
+            uri: memberItem.uri,
+            subject: actorProfile,
+          };
+        }
+
+        return response;
+      })
+    );
+
     res.json({
-      cursor,
-      starterPacks: (starterPacks as { uri: string; cid: string }[]).map(
-        (p) => ({ uri: p.uri, cid: p.cid })
-      ),
+      cursor: nextCursor,
+      starterPacksWithMembership: starterPacksWithMembershipData,
     });
   } catch (error) {
     handleError(res, error, 'getStarterPacksWithMembership');
@@ -349,23 +467,91 @@ export async function getStarterPacksWithMembership(
 /**
  * Get suggested starter packs for onboarding
  * GET /xrpc/app.bsky.unspecced.getOnboardingSuggestedStarterPacks
+ *
+ * IMPORTANT: This endpoint is experimental and marked as "unspecced" in the ATProto specification.
+ * Returns a list of suggested starter packs for new user onboarding with complete starterPackView objects.
  */
 export async function getOnboardingSuggestedStarterPacks(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
+    const params = getOnboardingSuggestedStarterPacksSchema.parse(req.query);
+
     // Return recent starter packs as onboarding suggestions
-    const { starterPacks } = await storage.listStarterPacks(10);
-    res.json({
-      starterPacks: (
-        starterPacks as { uri: string; cid: string; createdAt: Date }[]
-      ).map((p) => ({
-        uri: p.uri,
-        cid: p.cid,
-        createdAt: p.createdAt.toISOString(),
-      })),
-    });
+    const { starterPacks } = (await storage.listStarterPacks(params.limit)) as {
+      starterPacks: {
+        uri: string;
+        cid: string;
+        creatorDid: string;
+        listUri?: string;
+        name: string;
+        description?: string;
+        feeds?: unknown[];
+        createdAt: Date;
+        indexedAt: Date;
+      }[];
+    };
+
+    if (starterPacks.length === 0) {
+      return res.json({ starterPacks: [] });
+    }
+
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(starterPacks.map((p) => p.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const views = await Promise.all(
+      starterPacks.map(async (pack) => {
+        const creatorProfile = profileMap.get(pack.creatorDid);
+        if (!creatorProfile) {
+          console.warn(
+            `[XRPC] Skipping starter pack ${pack.uri} - creator ${pack.creatorDid} profile not found`
+          );
+          return null;
+        }
+
+        const view: any = {
+          uri: pack.uri,
+          cid: pack.cid,
+          record: {
+            name: pack.name,
+            list: pack.listUri,
+            feeds: pack.feeds,
+            createdAt: pack.createdAt.toISOString(),
+            ...(pack.description && { description: pack.description }),
+          },
+          creator: creatorProfile, // Full profileViewBasic
+          indexedAt: pack.indexedAt.toISOString(),
+        };
+
+        // Add optional list info if exists
+        if (pack.listUri) {
+          const list = await storage.getList(pack.listUri);
+          if (list) {
+            view.list = {
+              uri: list.uri,
+              cid: list.cid,
+              name: list.name,
+              purpose: list.purpose,
+            };
+          }
+        }
+
+        return view;
+      })
+    );
+
+    const validViews = views.filter(Boolean);
+
+    res.json({ starterPacks: validViews });
   } catch (error) {
     handleError(res, error, 'getOnboardingSuggestedStarterPacks');
   }

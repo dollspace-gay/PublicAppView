@@ -38,7 +38,7 @@ export const unmuteActorListSchema = z.object({
 });
 
 export const muteThreadSchema = z.object({
-  root: z.string(), // URI of the thread root post
+  root: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'), // URI of the thread root post
 });
 
 export const queryLabelsSchema = z.object({

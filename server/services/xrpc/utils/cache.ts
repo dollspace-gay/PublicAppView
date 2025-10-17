@@ -13,6 +13,11 @@ interface HandleResolutionCache {
   timestamp: number;
 }
 
+interface PdsEndpointCache {
+  endpoint: string;
+  timestamp: number;
+}
+
 export class CacheManager {
   // Preferences cache: DID -> { preferences: unknown[], timestamp: number }
   private preferencesCache = new Map<string, PreferencesCache>();
@@ -22,11 +27,16 @@ export class CacheManager {
   private handleResolutionCache = new Map<string, HandleResolutionCache>();
   private readonly HANDLE_RESOLUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
+  // PDS endpoint cache: DID -> { endpoint: string, timestamp: number }
+  private pdsEndpointCache = new Map<string, PdsEndpointCache>();
+  private readonly PDS_ENDPOINT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
   constructor() {
     // Clear expired cache entries every minute
     setInterval(() => {
       this.cleanExpiredPreferencesCache();
       this.cleanExpiredHandleResolutionCache();
+      this.cleanExpiredPdsEndpointCache();
     }, 60 * 1000);
   }
 
@@ -132,6 +142,52 @@ export class CacheManager {
 
     expiredHandles.forEach((handle) => {
       this.handleResolutionCache.delete(handle);
+    });
+  }
+
+  /**
+   * Get PDS endpoint from cache
+   */
+  getPdsEndpoint(userDid: string): string | null {
+    const cached = this.pdsEndpointCache.get(userDid);
+    if (cached && !this.isPdsEndpointCacheExpired(cached)) {
+      return cached.endpoint;
+    }
+    return null;
+  }
+
+  /**
+   * Cache PDS endpoint for a DID
+   */
+  cachePdsEndpoint(userDid: string, endpoint: string): void {
+    this.pdsEndpointCache.set(userDid, {
+      endpoint,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Check if PDS endpoint cache entry is expired
+   */
+  private isPdsEndpointCacheExpired(cached: PdsEndpointCache): boolean {
+    return Date.now() - cached.timestamp > this.PDS_ENDPOINT_CACHE_TTL;
+  }
+
+  /**
+   * Clean expired entries from PDS endpoint cache
+   */
+  private cleanExpiredPdsEndpointCache(): void {
+    const now = Date.now();
+    const expiredDids: string[] = [];
+
+    this.pdsEndpointCache.forEach((cached, did) => {
+      if (now - cached.timestamp > this.PDS_ENDPOINT_CACHE_TTL) {
+        expiredDids.push(did);
+      }
+    });
+
+    expiredDids.forEach((did) => {
+      this.pdsEndpointCache.delete(did);
     });
   }
 }

@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import { storage } from '../../../storage';
 import { handleError } from '../utils/error-handler';
 import { maybeAvatar } from '../utils/serializers';
-import { getAuthenticatedDid } from '../utils/auth-helpers';
+import { getAuthenticatedDid, requireAuthDid } from '../utils/auth-helpers';
 import {
   getPostsSchema,
   getLikesSchema,
@@ -69,18 +69,95 @@ export async function getLikes(req: Request, res: Response): Promise<void> {
       params.limit,
       params.cursor
     );
-    const userDids = likes.map((like) => like.userDid);
-    const users = await storage.getUsers(userDids);
-    const userMap = new Map(users.map((u) => [u.did, u]));
 
-    const relationships = viewerDid
-      ? await storage.getRelationships(viewerDid, userDids)
-      : new Map();
+    if (likes.length === 0) {
+      return res.json({
+        uri: params.uri,
+        cid: params.cid,
+        cursor,
+        likes: [],
+      });
+    }
+
+    const userDids = likes.map((like) => like.userDid);
+
+    // Batch fetch all required data
+    const [
+      users,
+      relationships,
+      listMutes,
+      listBlocks,
+      allLabels,
+      listCounts,
+      feedgenCounts,
+      starterPackCounts,
+      labelerStatuses,
+    ] = await Promise.all([
+      storage.getUsers(userDids),
+      viewerDid
+        ? storage.getRelationships(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      viewerDid
+        ? storage.getListMutesForUsers(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      viewerDid
+        ? storage.getListBlocksForUsers(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      storage.getLabelsForSubjects(userDids),
+      storage.getUsersListCounts(userDids),
+      storage.getUsersFeedGeneratorCounts(userDids),
+      Promise.all(
+        userDids.map(async (did) => {
+          const packs = await storage.getStarterPacksByCreator(did);
+          return { did, count: packs.starterPacks.length };
+        })
+      ),
+      Promise.all(
+        userDids.map(async (did) => {
+          const labelers = await storage.getLabelerServicesByCreator(did);
+          return { did, isLabeler: labelers.length > 0 };
+        })
+      ),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.did, u]));
+    const starterPackCountMap = new Map(
+      starterPackCounts.map((sp) => [sp.did, sp.count])
+    );
+    const labelerStatusMap = new Map(
+      labelerStatuses.map((ls) => [ls.did, ls.isLabeler])
+    );
+
+    // Fetch list data for mutes/blocks
+    const listUris = new Set<string>();
+    listMutes.forEach((mute) => listUris.add(mute.listUri));
+    listBlocks.forEach((block) => listUris.add(block.listUri));
+
+    const listData = new Map<string, any>();
+    if (listUris.size > 0) {
+      const lists = await Promise.all(
+        Array.from(listUris).map((uri) => storage.getList(uri))
+      );
+      lists.forEach((list, index) => {
+        if (list) {
+          listData.set(Array.from(listUris)[index], list);
+        }
+      });
+    }
+
+    // Group labels by subject
+    const labelsBySubject = new Map<string, any[]>();
+    allLabels.forEach((label) => {
+      if (!labelsBySubject.has(label.subject)) {
+        labelsBySubject.set(label.subject, []);
+      }
+      labelsBySubject.get(label.subject)!.push(label);
+    });
 
     res.json({
       uri: params.uri,
       cid: params.cid,
-      cursor: cursor,
+      cursor,
       likes: likes
         .map((like) => {
           const user = userMap.get(like.userDid);
@@ -89,25 +166,102 @@ export async function getLikes(req: Request, res: Response): Promise<void> {
           const viewerState = viewerDid
             ? relationships.get(like.userDid)
             : null;
-          const viewer: any = {
-            muted: viewerState ? !!viewerState.muting : false,
-            blockedBy: viewerState?.blockedBy || false,
+          const mutingList = viewerDid ? listMutes.get(like.userDid) : null;
+          const blockingList = viewerDid ? listBlocks.get(like.userDid) : null;
+
+          // Build viewer state
+          const viewer: any = {};
+          if (viewerDid) {
+            viewer.muted = !!viewerState?.muting || !!mutingList;
+            if (mutingList) {
+              const list = listData.get(mutingList.listUri);
+              if (list) {
+                viewer.mutedByList = {
+                  $type: 'app.bsky.graph.defs#listViewBasic',
+                  uri: list.uri,
+                  name: list.name,
+                  purpose: list.purpose,
+                };
+              }
+            }
+            viewer.blockedBy = viewerState?.blockedBy || false;
+            if (blockingList) {
+              const list = listData.get(blockingList.listUri);
+              if (list) {
+                viewer.blocking = blockingList.uri;
+                viewer.blockingByList = {
+                  $type: 'app.bsky.graph.defs#listViewBasic',
+                  uri: list.uri,
+                  name: list.name,
+                  purpose: list.purpose,
+                };
+              }
+            } else if (viewerState?.blocking) {
+              viewer.blocking = viewerState.blocking;
+            }
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
+          }
+
+          // Build full profileView
+          const profileView: any = {
+            $type: 'app.bsky.actor.defs#profileView',
+            did: user.did,
+            handle: user.handle,
+            displayName: user.displayName || user.handle,
           };
-          if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-          if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy)
-            viewer.followedBy = viewerState.followedBy;
+
+          // Add optional fields
+          if (user.description) {
+            profileView.description = user.description;
+          }
+
+          const avatar = maybeAvatar(user.avatarUrl, user.did, req);
+          if (avatar.avatar) {
+            profileView.avatar = avatar.avatar;
+          }
+
+          // Add associated counts
+          profileView.associated = {
+            $type: 'app.bsky.actor.defs#profileAssociated',
+            lists: listCounts.get(like.userDid) || 0,
+            feedgens: feedgenCounts.get(like.userDid) || 0,
+            starterPacks: starterPackCountMap.get(like.userDid) || 0,
+            labeler: labelerStatusMap.get(like.userDid) || false,
+          };
+
+          // Add indexedAt
+          if (user.indexedAt) {
+            profileView.indexedAt = user.indexedAt.toISOString();
+          }
+
+          // Add createdAt
+          if (user.createdAt) {
+            profileView.createdAt = user.createdAt.toISOString();
+          }
+
+          // Add viewer state
+          if (Object.keys(viewer).length > 0) {
+            profileView.viewer = viewer;
+          }
+
+          // Add labels
+          const labels = labelsBySubject.get(like.userDid) || [];
+          if (labels.length > 0) {
+            profileView.labels = labels.map((l: any) => ({
+              src: l.src,
+              uri: l.uri,
+              val: l.val,
+              neg: l.neg,
+              cts: l.createdAt.toISOString(),
+            }));
+          }
 
           return {
-            actor: {
-              did: user.did,
-              handle: user.handle,
-              displayName: user.displayName || user.handle,
-              ...maybeAvatar(user.avatarUrl, user.did, req),
-              viewer,
-            },
-            createdAt: like.createdAt.toISOString(),
             indexedAt: like.indexedAt.toISOString(),
+            createdAt: like.createdAt.toISOString(),
+            actor: profileView,
           };
         })
         .filter(Boolean),
@@ -134,18 +288,95 @@ export async function getRepostedBy(
       params.limit,
       params.cursor
     );
-    const userDids = reposts.map((repost) => repost.userDid);
-    const users = await storage.getUsers(userDids);
-    const userMap = new Map(users.map((u) => [u.did, u]));
 
-    const relationships = viewerDid
-      ? await storage.getRelationships(viewerDid, userDids)
-      : new Map();
+    if (reposts.length === 0) {
+      return res.json({
+        uri: params.uri,
+        cid: params.cid,
+        cursor,
+        repostedBy: [],
+      });
+    }
+
+    const userDids = reposts.map((repost) => repost.userDid);
+
+    // Batch fetch all required data
+    const [
+      users,
+      relationships,
+      listMutes,
+      listBlocks,
+      allLabels,
+      listCounts,
+      feedgenCounts,
+      starterPackCounts,
+      labelerStatuses,
+    ] = await Promise.all([
+      storage.getUsers(userDids),
+      viewerDid
+        ? storage.getRelationships(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      viewerDid
+        ? storage.getListMutesForUsers(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      viewerDid
+        ? storage.getListBlocksForUsers(viewerDid, userDids)
+        : Promise.resolve(new Map()),
+      storage.getLabelsForSubjects(userDids),
+      storage.getUsersListCounts(userDids),
+      storage.getUsersFeedGeneratorCounts(userDids),
+      Promise.all(
+        userDids.map(async (did) => {
+          const packs = await storage.getStarterPacksByCreator(did);
+          return { did, count: packs.starterPacks.length };
+        })
+      ),
+      Promise.all(
+        userDids.map(async (did) => {
+          const labelers = await storage.getLabelerServicesByCreator(did);
+          return { did, isLabeler: labelers.length > 0 };
+        })
+      ),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.did, u]));
+    const starterPackCountMap = new Map(
+      starterPackCounts.map((sp) => [sp.did, sp.count])
+    );
+    const labelerStatusMap = new Map(
+      labelerStatuses.map((ls) => [ls.did, ls.isLabeler])
+    );
+
+    // Fetch list data for mutes/blocks
+    const listUris = new Set<string>();
+    listMutes.forEach((mute) => listUris.add(mute.listUri));
+    listBlocks.forEach((block) => listUris.add(block.listUri));
+
+    const listData = new Map<string, any>();
+    if (listUris.size > 0) {
+      const lists = await Promise.all(
+        Array.from(listUris).map((uri) => storage.getList(uri))
+      );
+      lists.forEach((list, index) => {
+        if (list) {
+          listData.set(Array.from(listUris)[index], list);
+        }
+      });
+    }
+
+    // Group labels by subject
+    const labelsBySubject = new Map<string, any[]>();
+    allLabels.forEach((label) => {
+      if (!labelsBySubject.has(label.subject)) {
+        labelsBySubject.set(label.subject, []);
+      }
+      labelsBySubject.get(label.subject)!.push(label);
+    });
 
     res.json({
       uri: params.uri,
       cid: params.cid,
-      cursor: cursor,
+      cursor,
       repostedBy: reposts
         .map((repost) => {
           const user = userMap.get(repost.userDid);
@@ -154,23 +385,99 @@ export async function getRepostedBy(
           const viewerState = viewerDid
             ? relationships.get(repost.userDid)
             : null;
-          const viewer: any = {
-            muted: viewerState ? !!viewerState.muting : false,
-            blockedBy: viewerState?.blockedBy || false,
-          };
-          if (viewerState?.blocking) viewer.blocking = viewerState.blocking;
-          if (viewerState?.following) viewer.following = viewerState.following;
-          if (viewerState?.followedBy)
-            viewer.followedBy = viewerState.followedBy;
+          const mutingList = viewerDid ? listMutes.get(repost.userDid) : null;
+          const blockingList = viewerDid ? listBlocks.get(repost.userDid) : null;
 
-          return {
+          // Build viewer state
+          const viewer: any = {};
+          if (viewerDid) {
+            viewer.muted = !!viewerState?.muting || !!mutingList;
+            if (mutingList) {
+              const list = listData.get(mutingList.listUri);
+              if (list) {
+                viewer.mutedByList = {
+                  $type: 'app.bsky.graph.defs#listViewBasic',
+                  uri: list.uri,
+                  name: list.name,
+                  purpose: list.purpose,
+                };
+              }
+            }
+            viewer.blockedBy = viewerState?.blockedBy || false;
+            if (blockingList) {
+              const list = listData.get(blockingList.listUri);
+              if (list) {
+                viewer.blocking = blockingList.uri;
+                viewer.blockingByList = {
+                  $type: 'app.bsky.graph.defs#listViewBasic',
+                  uri: list.uri,
+                  name: list.name,
+                  purpose: list.purpose,
+                };
+              }
+            } else if (viewerState?.blocking) {
+              viewer.blocking = viewerState.blocking;
+            }
+            if (viewerState?.following) viewer.following = viewerState.following;
+            if (viewerState?.followedBy)
+              viewer.followedBy = viewerState.followedBy;
+          }
+
+          // Build full profileView
+          const profileView: any = {
+            $type: 'app.bsky.actor.defs#profileView',
             did: user.did,
             handle: user.handle,
             displayName: user.displayName || user.handle,
-            ...maybeAvatar(user.avatarUrl, user.did, req),
-            viewer,
-            indexedAt: repost.indexedAt.toISOString(),
           };
+
+          // Add optional fields
+          if (user.description) {
+            profileView.description = user.description;
+          }
+
+          const avatar = maybeAvatar(user.avatarUrl, user.did, req);
+          if (avatar.avatar) {
+            profileView.avatar = avatar.avatar;
+          }
+
+          // Add associated counts
+          profileView.associated = {
+            $type: 'app.bsky.actor.defs#profileAssociated',
+            lists: listCounts.get(repost.userDid) || 0,
+            feedgens: feedgenCounts.get(repost.userDid) || 0,
+            starterPacks: starterPackCountMap.get(repost.userDid) || 0,
+            labeler: labelerStatusMap.get(repost.userDid) || false,
+          };
+
+          // Add indexedAt (profile indexed time, not repost time)
+          if (user.indexedAt) {
+            profileView.indexedAt = user.indexedAt.toISOString();
+          }
+
+          // Add createdAt
+          if (user.createdAt) {
+            profileView.createdAt = user.createdAt.toISOString();
+          }
+
+          // Add viewer state
+          if (Object.keys(viewer).length > 0) {
+            profileView.viewer = viewer;
+          }
+
+          // Add labels
+          const labels = labelsBySubject.get(repost.userDid) || [];
+          if (labels.length > 0) {
+            profileView.labels = labels.map((l: any) => ({
+              src: l.src,
+              uri: l.uri,
+              val: l.val,
+              neg: l.neg,
+              cts: l.createdAt.toISOString(),
+            }));
+          }
+
+          return profileView;
         })
         .filter(Boolean),
     });
@@ -212,6 +519,8 @@ export async function getQuotes(req: Request, res: Response): Promise<void> {
 /**
  * Get posts liked by an actor
  * GET /xrpc/app.bsky.feed.getActorLikes
+ *
+ * IMPORTANT: ATProto spec requires authentication and actor must be the requesting account
  */
 export async function getActorLikes(
   req: Request,
@@ -219,8 +528,12 @@ export async function getActorLikes(
 ): Promise<void> {
   try {
     const params = getActorLikesSchema.parse(req.query);
-    const viewerDid = await getAuthenticatedDid(req);
 
+    // Require authentication (per ATProto spec)
+    const viewerDid = await requireAuthDid(req, res);
+    if (!viewerDid) return;
+
+    // Resolve actor to DID
     let actorDid = params.actor;
     if (!params.actor.startsWith('did:')) {
       const user = await storage.getUserByHandle(params.actor);
@@ -228,6 +541,31 @@ export async function getActorLikes(
         return res.status(404).json({ error: 'Actor not found' });
       }
       actorDid = user.did;
+    }
+
+    // Check for block relationships
+    const relationship = await storage.getRelationship(viewerDid, actorDid);
+    if (relationship) {
+      if (relationship.blocking) {
+        return res.status(400).json({
+          error: 'BlockedActor',
+          message: 'Requesting user has blocked the target actor',
+        });
+      }
+      if (relationship.blockedBy) {
+        return res.status(400).json({
+          error: 'BlockedByActor',
+          message: 'Target actor has blocked the requesting user',
+        });
+      }
+    }
+
+    // Authorization check: actor must be the requesting account
+    if (actorDid !== viewerDid) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Actor must be the requesting account',
+      });
     }
 
     console.log(
@@ -269,7 +607,7 @@ export async function getActorLikes(
 
     const serialized = await (xrpcApi as any).serializePosts(
       postsWithLikes.map(({ post }) => post),
-      viewerDid || undefined,
+      viewerDid,
       req
     );
 

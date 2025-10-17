@@ -29,14 +29,17 @@ export async function getPreferences(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    console.log(
-      `[PREFERENCES] GET request for ${userDid} - directing to PDS`
-    );
+    // Use debug-level logging to reduce log volume
+    if (process.env.DEBUG_LOGGING === 'true') {
+      console.log(
+        `[PREFERENCES] GET request for ${userDid} - directing to PDS`
+      );
+    }
 
     // Get user's PDS endpoint to include in error message
     const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    return res.status(501).json({
+    res.status(501).json({
       error: 'NotImplemented',
       message: 'Preferences must be fetched directly from your PDS, not through the AppView. ' +
                'Per ATProto architecture, preferences are private user data stored on the PDS. ' +
@@ -65,14 +68,17 @@ export async function putPreferences(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    console.log(
-      `[PREFERENCES] PUT request for ${userDid} - directing to PDS`
-    );
+    // Use debug-level logging to reduce log volume
+    if (process.env.DEBUG_LOGGING === 'true') {
+      console.log(
+        `[PREFERENCES] PUT request for ${userDid} - directing to PDS`
+      );
+    }
 
     // Get user's PDS endpoint to include in error message
     const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    return res.status(501).json({
+    res.status(501).json({
       error: 'NotImplemented',
       message: 'Preferences must be updated directly on your PDS, not through the AppView. ' +
                'Per ATProto architecture, preferences are private user data stored on the PDS. ' +

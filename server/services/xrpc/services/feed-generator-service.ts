@@ -15,10 +15,13 @@ import {
   getSuggestedFeedsSchema,
   describeFeedGeneratorSchema,
   getPopularFeedGeneratorsSchema,
+  getSuggestedFeedsUnspeccedSchema,
 } from '../schemas';
+import { xrpcApi } from '../../xrpc-api';
 
 /**
  * Helper to serialize a feed generator view
+ * Now accepts full profileView from _getProfiles for complete creator data
  */
 function serializeFeedGeneratorView(
   generator: {
@@ -32,55 +35,19 @@ function serializeFeedGeneratorView(
     likeCount: number;
     indexedAt: Date;
   },
-  creator: {
-    did: string;
-    handle: string;
-    displayName?: string;
-    avatarUrl?: string;
-  },
+  creatorProfile: any, // Full profileView from _getProfiles
   req?: Request
 ) {
-  const creatorView: {
-    did: string;
-    handle: string;
-    displayName?: string;
-    avatar?: string;
-  } = {
-    did: generator.creatorDid,
-    handle: creator.handle,
-  };
-  if (creator.displayName) creatorView.displayName = creator.displayName;
-  if (creator.avatarUrl) {
-    const avatarUri = transformBlobToCdnUrl(
-      creator.avatarUrl,
-      creator.did,
-      'avatar',
-      req
-    );
-    if (avatarUri && typeof avatarUri === 'string' && avatarUri.trim() !== '') {
-      creatorView.avatar = avatarUri;
-    }
-  }
-
-  const view: {
-    uri: string;
-    cid: string;
-    did: string;
-    creator: typeof creatorView;
-    displayName: string;
-    likeCount: number;
-    indexedAt: string;
-    description?: string;
-    avatar?: string;
-  } = {
+  const view: any = {
     uri: generator.uri,
     cid: generator.cid,
     did: generator.did,
-    creator: creatorView,
+    creator: creatorProfile, // Full profileView object
     displayName: generator.displayName || 'Unnamed Feed',
     likeCount: generator.likeCount,
     indexedAt: generator.indexedAt.toISOString(),
   };
+
   if (generator.description) view.description = generator.description;
   if (generator.avatarUrl) {
     const avatarUri = transformBlobToCdnUrl(
@@ -125,10 +92,13 @@ export async function getFeedGenerator(
       indexedAt: Date;
     };
 
-    // Creator profile should be available from firehose events
-    const creator = await storage.getUser(generatorData.creatorDid);
+    // Use _getProfiles for complete creator profileView
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      [generatorData.creatorDid],
+      req
+    );
 
-    if (!creator || !(creator as { handle?: string }).handle) {
+    if (creatorProfiles.length === 0) {
       return res.status(500).json({
         error: 'Feed generator creator profile not available',
         message: 'Unable to load creator information',
@@ -137,12 +107,7 @@ export async function getFeedGenerator(
 
     const view = serializeFeedGeneratorView(
       generatorData,
-      creator as {
-        did: string;
-        handle: string;
-        displayName?: string;
-        avatarUrl?: string;
-      },
+      creatorProfiles[0],
       req
     );
 
@@ -167,50 +132,45 @@ export async function getFeedGenerators(
   try {
     const params = getFeedGeneratorsSchema.parse(req.query);
 
-    const generators = await storage.getFeedGenerators(params.feeds);
+    const generators = await storage.getFeedGenerators(params.feeds) as {
+      uri: string;
+      cid: string;
+      did: string;
+      creatorDid: string;
+      displayName?: string;
+      description?: string;
+      avatarUrl?: string;
+      likeCount: number;
+      indexedAt: Date;
+    }[];
 
-    // Creator profiles should be available from firehose events
-    const views = await Promise.all(
-      (
-        generators as {
-          uri: string;
-          cid: string;
-          did: string;
-          creatorDid: string;
-          displayName?: string;
-          description?: string;
-          avatarUrl?: string;
-          likeCount: number;
-          indexedAt: Date;
-        }[]
-      ).map(async (generator) => {
-        const creator = await storage.getUser(generator.creatorDid);
+    if (generators.length === 0) {
+      return res.json({ feeds: [] });
+    }
 
-        // Skip generators from creators without valid handles
-        if (!creator || !(creator as { handle?: string }).handle) {
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const views = generators
+      .map((generator) => {
+        const creatorProfile = profileMap.get(generator.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} profile not found`
           );
           return null;
         }
 
-        return serializeFeedGeneratorView(
-          generator,
-          creator as {
-            did: string;
-            handle: string;
-            displayName?: string;
-            avatarUrl?: string;
-          },
-          req
-        );
+        return serializeFeedGeneratorView(generator, creatorProfile, req);
       })
-    );
+      .filter(Boolean);
 
-    // Filter out null entries (generators from creators without valid handles)
-    const validViews = views.filter((view) => view !== null);
-
-    res.json({ feeds: validViews });
+    res.json({ feeds: views });
   } catch (error) {
     handleError(res, error, 'getFeedGenerators');
   }
@@ -234,45 +194,46 @@ export async function getActorFeeds(
       actorDid,
       params.limit,
       params.cursor
-    );
+    ) as {
+      generators: {
+        uri: string;
+        cid: string;
+        did: string;
+        creatorDid: string;
+        displayName?: string;
+        description?: string;
+        avatarUrl?: string;
+        likeCount: number;
+        indexedAt: Date;
+      }[];
+      cursor?: string;
+    };
 
-    // Creator profiles should be available from firehose events
-    const feeds = await Promise.all(
-      (
-        generators as {
-          uri: string;
-          cid: string;
-          did: string;
-          creatorDid: string;
-          displayName?: string;
-          description?: string;
-          avatarUrl?: string;
-          likeCount: number;
-          indexedAt: Date;
-        }[]
-      ).map(async (generator) => {
-        const creator = await storage.getUser(generator.creatorDid);
+    if (generators.length === 0) {
+      return res.json({ cursor, feeds: [] });
+    }
 
-        // Skip generators from creators without valid handles
-        if (!creator || !(creator as { handle?: string }).handle) {
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const feeds = generators
+      .map((generator) => {
+        const creatorProfile = profileMap.get(generator.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} profile not found`
           );
           return null;
         }
 
-        return serializeFeedGeneratorView(
-          generator,
-          creator as {
-            did: string;
-            handle: string;
-            displayName?: string;
-            avatarUrl?: string;
-          },
-          req
-        );
+        return serializeFeedGeneratorView(generator, creatorProfile, req);
       })
-    );
+      .filter(Boolean);
 
     res.json({ cursor, feeds });
   } catch (error) {
@@ -294,50 +255,48 @@ export async function getSuggestedFeeds(
     const { generators, cursor } = await storage.getSuggestedFeeds(
       params.limit,
       params.cursor
-    );
+    ) as {
+      generators: {
+        uri: string;
+        cid: string;
+        did: string;
+        creatorDid: string;
+        displayName?: string;
+        description?: string;
+        avatarUrl?: string;
+        likeCount: number;
+        indexedAt: Date;
+      }[];
+      cursor?: string;
+    };
 
-    // Creator profiles should be available from firehose events
-    const feeds = await Promise.all(
-      (
-        generators as {
-          uri: string;
-          cid: string;
-          did: string;
-          creatorDid: string;
-          displayName?: string;
-          description?: string;
-          avatarUrl?: string;
-          likeCount: number;
-          indexedAt: Date;
-        }[]
-      ).map(async (generator) => {
-        const creator = await storage.getUser(generator.creatorDid);
+    if (generators.length === 0) {
+      return res.json({ cursor, feeds: [] });
+    }
 
-        // Skip generators from creators without valid handles
-        if (!creator || !(creator as { handle?: string }).handle) {
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const feeds = generators
+      .map((generator) => {
+        const creatorProfile = profileMap.get(generator.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} profile not found`
           );
           return null;
         }
 
-        return serializeFeedGeneratorView(
-          generator,
-          creator as {
-            did: string;
-            handle: string;
-            displayName?: string;
-            avatarUrl?: string;
-          },
-          req
-        );
+        return serializeFeedGeneratorView(generator, creatorProfile, req);
       })
-    );
+      .filter(Boolean);
 
-    // Filter out null entries (generators from creators without valid handles)
-    const validFeeds = feeds.filter((feed) => feed !== null);
-
-    res.json({ cursor, feeds: validFeeds });
+    res.json({ cursor, feeds });
   } catch (error) {
     handleError(res, error, 'getSuggestedFeeds');
   }
@@ -346,6 +305,12 @@ export async function getSuggestedFeeds(
 /**
  * Describe the feed generator service
  * GET /xrpc/app.bsky.feed.describeFeedGenerator
+ *
+ * NOTE: Per ATProto spec, this endpoint is "implemented by Feed Generator services (not App View)."
+ * This is an AppView, not a Feed Generator service. Feed Generator services are external
+ * services that generate custom feeds, which this AppView consumes via feedGeneratorClient.
+ *
+ * Returns 501 Not Implemented to indicate this endpoint belongs on Feed Generator services.
  */
 export async function describeFeedGenerator(
   req: Request,
@@ -354,18 +319,11 @@ export async function describeFeedGenerator(
   try {
     describeFeedGeneratorSchema.parse(req.query);
 
-    const appviewDid = process.env.APPVIEW_DID;
-    if (!appviewDid) {
-      return res.status(500).json({ error: 'APPVIEW_DID not configured' });
-    }
-
-    res.json({
-      did: appviewDid,
-      feeds: [
-        {
-          uri: `at://${appviewDid}/app.bsky.feed.generator/reverse-chron`,
-        },
-      ],
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'This endpoint is for Feed Generator services, not AppView. ' +
+               'Feed Generator services implement this endpoint to describe their feed offerings. ' +
+               'This is an AppView that consumes feeds from external Feed Generator services.',
     });
   } catch (error) {
     handleError(res, error, 'describeFeedGenerator');
@@ -383,7 +341,17 @@ export async function getPopularFeedGenerators(
   try {
     const params = getPopularFeedGeneratorsSchema.parse(req.query);
 
-    let generators: unknown[];
+    let generators: {
+      uri: string;
+      cid: string;
+      did: string;
+      creatorDid: string;
+      displayName?: string;
+      description?: string;
+      avatarUrl?: string;
+      likeCount: number;
+      indexedAt: Date;
+    }[];
     let cursor: string | undefined;
 
     // If query is provided, search for feed generators by name/description
@@ -394,7 +362,7 @@ export async function getPopularFeedGenerators(
         params.limit,
         params.cursor
       );
-      generators = (searchResults as { feedGenerators: unknown[] })
+      generators = (searchResults as { feedGenerators: typeof generators })
         .feedGenerators;
       cursor = (searchResults as { cursor?: string }).cursor;
     } else {
@@ -402,70 +370,100 @@ export async function getPopularFeedGenerators(
         params.limit,
         params.cursor
       );
-      generators = (suggestedResults as { generators: unknown[] }).generators;
+      generators = (suggestedResults as { generators: typeof generators }).generators;
       cursor = (suggestedResults as { cursor?: string }).cursor;
     }
 
-    // Creator profiles should be available from firehose events
-    const feeds = await Promise.all(
-      (
-        generators as {
-          uri: string;
-          cid: string;
-          did: string;
-          creatorDid: string;
-          displayName?: string;
-          description?: string;
-          avatarUrl?: string;
-          likeCount: number;
-          indexedAt: Date;
-        }[]
-      ).map(async (generator) => {
-        const creator = await storage.getUser(generator.creatorDid);
+    if (generators.length === 0) {
+      return res.json({ cursor, feeds: [] });
+    }
 
-        // Skip generators from creators without valid handles
-        if (!creator || !(creator as { handle?: string }).handle) {
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(generators.map(g => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(creatorDids, req);
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const feeds = generators
+      .map((generator) => {
+        const creatorProfile = profileMap.get(generator.creatorDid);
+        if (!creatorProfile) {
           console.warn(
-            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} has no handle`
+            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} profile not found`
           );
           return null;
         }
 
-        return serializeFeedGeneratorView(
-          generator,
-          creator as {
-            did: string;
-            handle: string;
-            displayName?: string;
-            avatarUrl?: string;
-          },
-          req
-        );
+        return serializeFeedGeneratorView(generator, creatorProfile, req);
       })
-    );
+      .filter(Boolean);
 
-    // Filter out null entries (generators from creators without valid handles)
-    const validFeeds = feeds.filter((feed) => feed !== null);
-
-    res.json({ cursor, feeds: validFeeds });
+    res.json({ cursor, feeds });
   } catch (error) {
     handleError(res, error, 'getPopularFeedGenerators');
   }
 }
 
 /**
- * Get suggested feeds (unspecced version - minimal response)
- * GET /xrpc/app.bsky.unspecced.getSuggestedFeedsUnspecced
+ * Get suggested feeds (unspecced)
+ * GET /xrpc/app.bsky.unspecced.getSuggestedFeeds
+ *
+ * IMPORTANT: This endpoint is experimental and marked as "unspecced" in the ATProto specification.
+ * Returns a list of suggested feed generators with complete generatorView objects.
  */
 export async function getSuggestedFeedsUnspecced(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const { generators } = await storage.getSuggestedFeeds(10);
-    res.json({
-      feeds: (generators as { uri: string }[]).map((g) => g.uri),
-    });
+    const params = getSuggestedFeedsUnspeccedSchema.parse(req.query);
+
+    const { generators } = (await storage.getSuggestedFeeds(params.limit)) as {
+      generators: {
+        uri: string;
+        cid: string;
+        did: string;
+        creatorDid: string;
+        displayName?: string;
+        description?: string;
+        avatarUrl?: string;
+        likeCount: number;
+        indexedAt: Date;
+      }[];
+    };
+
+    if (generators.length === 0) {
+      return res.json({ feeds: [] });
+    }
+
+    // Batch fetch all creator profiles
+    const creatorDids = [...new Set(generators.map((g) => g.creatorDid))];
+    const creatorProfiles = await (xrpcApi as any)._getProfiles(
+      creatorDids,
+      req
+    );
+
+    // Create map for quick lookup
+    const profileMap = new Map(creatorProfiles.map((p: any) => [p.did, p]));
+
+    // Build views with complete creator profiles
+    const feeds = generators
+      .map((generator) => {
+        const creatorProfile = profileMap.get(generator.creatorDid);
+        if (!creatorProfile) {
+          console.warn(
+            `[XRPC] Skipping feed generator ${generator.uri} - creator ${generator.creatorDid} profile not found`
+          );
+          return null;
+        }
+
+        return serializeFeedGeneratorView(generator, creatorProfile, req);
+      })
+      .filter(Boolean);
+
+    res.json({ feeds });
   } catch (error) {
     handleError(res, error, 'getSuggestedFeedsUnspecced');
   }

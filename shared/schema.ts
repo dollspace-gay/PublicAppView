@@ -422,7 +422,26 @@ export const userPreferences = pgTable('user_preferences', {
   savedFeeds: jsonb('saved_feeds').default([]).notNull(), // savedFeedsPrefV2 items
   notificationPriority: boolean('notification_priority')
     .default(false)
-    .notNull(), // Push notification priority
+    .notNull(), // Push notification priority (legacy)
+  notificationPreferencesV2: jsonb('notification_preferences_v2')
+    .default(
+      sql`'{
+      "chat": {"include": "accepted", "push": true},
+      "follow": {"list": true, "push": true, "include": "all"},
+      "like": {"list": true, "push": false, "include": "follows"},
+      "mention": {"list": true, "push": true, "include": "all"},
+      "reply": {"list": true, "push": true, "include": "all"},
+      "repost": {"list": true, "push": false, "include": "follows"},
+      "quote": {"list": true, "push": true, "include": "all"},
+      "likeViaRepost": {"list": false, "push": false, "include": "all"},
+      "repostViaRepost": {"list": false, "push": false, "include": "all"},
+      "starterpackJoined": {"list": true, "push": false},
+      "subscribedPost": {"list": true, "push": true},
+      "unverified": {"list": true, "push": false},
+      "verified": {"list": true, "push": true}
+    }'::jsonb`
+    )
+    .notNull(), // ATProto v2 notification preferences
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

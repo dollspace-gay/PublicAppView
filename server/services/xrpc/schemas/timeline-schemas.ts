@@ -38,30 +38,30 @@ export const getPostsSchema = z.object({
     .transform((val) => (Array.isArray(val) ? val : [val]))
     .pipe(
       z
-        .array(z.string())
+        .array(z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'))
         .min(1, 'uris parameter cannot be empty')
         .max(25, 'Maximum 25 uris allowed')
     ),
 });
 
 export const getLikesSchema = z.object({
-  uri: z.string(),
+  uri: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
   cid: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
 
 export const getRepostedBySchema = z.object({
-  uri: z.string(),
+  uri: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
   cid: z.string().optional(),
   limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
 
 export const getQuotesSchema = z.object({
-  uri: z.string(),
+  uri: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
   cid: z.string().optional(),
-  limit: z.coerce.number().min(1).max(50).default(50),
+  limit: z.coerce.number().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
 
@@ -73,15 +73,15 @@ export const getActorLikesSchema = z.object({
 
 // V2 Thread schemas (unspecced but compatible)
 export const getPostThreadV2Schema = z.object({
-  anchor: z.string(),
-  depth: z.coerce.number().min(0).max(50).default(6),
-  prioritizeFollowedUsers: z.coerce.boolean().optional(),
-  sort: z.string().optional(),
-  branchStartDepth: z.coerce.number().optional(),
-  branchEndDepth: z.coerce.number().optional(),
+  anchor: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
+  above: z.coerce.boolean().default(true),
+  below: z.coerce.number().min(0).max(20).default(6),
+  branchingFactor: z.coerce.number().min(0).max(100).default(10),
+  prioritizeFollowedUsers: z.coerce.boolean().default(false),
+  sort: z.enum(['newest', 'oldest', 'top']).default('oldest'),
 });
 
 export const getPostThreadOtherV2Schema = z.object({
-  anchor: z.string(),
-  depth: z.coerce.number().min(0).max(50).default(3),
+  anchor: z.string().regex(/^at:\/\//, 'Must be a valid AT-URI'),
+  prioritizeFollowedUsers: z.coerce.boolean().default(false),
 });

@@ -123,7 +123,11 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(did: string, data: Partial<InsertUser>): Promise<User | undefined>;
   upsertUserHandle(did: string, handle: string): Promise<void>;
-  getSuggestedUsers(viewerDid?: string, limit?: number): Promise<User[]>;
+  getSuggestedUsers(
+    viewerDid?: string,
+    limit?: number,
+    cursor?: string
+  ): Promise<{ users: User[]; cursor?: string }>;
   getUserFollowerCount(did: string): Promise<number>;
   getUsersFollowerCounts(dids: string[]): Promise<Map<string, number>>;
   getUserFollowingCount(did: string): Promise<number>;
@@ -326,6 +330,10 @@ export interface IStorage {
   // Thread mute operations
   createThreadMute(threadMute: InsertThreadMute): Promise<ThreadMute>;
   deleteThreadMute(uri: string): Promise<void>;
+  deleteThreadMuteByRoot(
+    muterDid: string,
+    threadRootUri: string
+  ): Promise<void>;
   getThreadMutes(
     muterDid: string,
     limit?: number,
@@ -482,7 +490,8 @@ export interface IStorage {
   getNotifications(
     recipientDid: string,
     limit?: number,
-    cursor?: string
+    cursor?: string,
+    seenAt?: Date
   ): Promise<Notification[]>;
   getUnreadNotificationCount(recipientDid: string): Promise<number>;
   markNotificationsAsRead(recipientDid: string, seenAt?: Date): Promise<void>;
@@ -492,11 +501,22 @@ export interface IStorage {
   deleteList(uri: string): Promise<void>;
   getList(uri: string): Promise<List | undefined>;
   getUserLists(creatorDid: string, limit?: number): Promise<List[]>;
+  getUserListsWithPagination(
+    creatorDid: string,
+    limit?: number,
+    cursor?: string,
+    purposes?: string[]
+  ): Promise<{ lists: List[]; cursor?: string }>;
 
   // List item operations
   createListItem(item: InsertListItem): Promise<ListItem>;
   deleteListItem(uri: string): Promise<void>;
   getListItems(listUri: string, limit?: number): Promise<ListItem[]>;
+  getListItemsWithPagination(
+    listUri: string,
+    limit?: number,
+    cursor?: string
+  ): Promise<{ items: ListItem[]; cursor?: string }>;
   getListFeed(
     listUri: string,
     limit?: number,
@@ -565,6 +585,12 @@ export interface IStorage {
   ): Promise<PushSubscription>;
   deletePushSubscription(id: number): Promise<void>;
   deletePushSubscriptionByToken(token: string): Promise<void>;
+  deletePushSubscriptionByDetails(
+    userDid: string,
+    token: string,
+    platform: string,
+    appId: string
+  ): Promise<void>;
   getUserPushSubscriptions(userDid: string): Promise<PushSubscription[]>;
   getPushSubscription(id: number): Promise<PushSubscription | undefined>;
   updatePushSubscription(
@@ -766,7 +792,13 @@ export class DatabaseStorage implements IStorage {
     return await this.db.select().from(users).where(inArray(users.did, dids));
   }
 
-  async getSuggestedUsers(viewerDid?: string, limit = 25): Promise<User[]> {
+  async getSuggestedUsers(
+    viewerDid?: string,
+    limit = 25,
+    cursor?: string
+  ): Promise<{ users: User[]; cursor?: string }> {
+    const conditions: SQL<unknown>[] = [];
+
     if (viewerDid) {
       const followedDids = await db
         .select({ did: follows.followingDid })
@@ -775,29 +807,44 @@ export class DatabaseStorage implements IStorage {
 
       const followedDidList = followedDids.map((f) => f.did);
 
+      conditions.push(sql`${users.did} != ${viewerDid}`);
+
       if (followedDidList.length > 0) {
-        return await db
-          .select()
-          .from(users)
-          .where(
-            and(
-              sql`${users.did} != ${viewerDid}`,
-              sql`${users.did} NOT IN (${sql.join(
-                followedDidList.map((did) => sql`${did}`),
-                sql`, `
-              )})`
-            )
-          )
-          .orderBy(desc(users.createdAt))
-          .limit(limit);
+        conditions.push(
+          sql`${users.did} NOT IN (${sql.join(
+            followedDidList.map((did) => sql`${did}`),
+            sql`, `
+          )})`
+        );
       }
     }
 
-    return await db
+    // Add cursor condition for pagination
+    if (cursor) {
+      conditions.push(sql`${users.createdAt} < ${new Date(cursor)}`);
+    }
+
+    const query = db
       .select()
       .from(users)
       .orderBy(desc(users.createdAt))
-      .limit(limit);
+      .limit(limit + 1);
+
+    const results =
+      conditions.length > 0
+        ? await query.where(and(...conditions))
+        : await query;
+
+    const hasMore = results.length > limit;
+    const userResults = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore
+      ? userResults[userResults.length - 1]?.createdAt.toISOString()
+      : undefined;
+
+    return {
+      users: userResults,
+      cursor: nextCursor,
+    };
   }
 
   async getUserFollowerCount(did: string): Promise<number> {
@@ -2012,6 +2059,20 @@ export class DatabaseStorage implements IStorage {
     await this.db.delete(threadMutes).where(eq(threadMutes.uri, uri));
   }
 
+  async deleteThreadMuteByRoot(
+    muterDid: string,
+    threadRootUri: string
+  ): Promise<void> {
+    await this.db
+      .delete(threadMutes)
+      .where(
+        and(
+          eq(threadMutes.muterDid, muterDid),
+          eq(threadMutes.threadRootUri, threadRootUri)
+        )
+      );
+  }
+
   async getThreadMutes(
     muterDid: string,
     limit = 100,
@@ -2991,12 +3052,18 @@ export class DatabaseStorage implements IStorage {
   async getNotifications(
     recipientDid: string,
     limit = 50,
-    cursor?: string
+    cursor?: string,
+    seenAt?: Date
   ): Promise<Notification[]> {
     const conditions = [eq(notifications.recipientDid, recipientDid)];
 
     if (cursor) {
       conditions.push(sql`${notifications.indexedAt} < ${new Date(cursor)}`);
+    }
+
+    // Filter by seenAt if provided (only return notifications before this time)
+    if (seenAt) {
+      conditions.push(sql`${notifications.indexedAt} <= ${seenAt}`);
     }
 
     return await db
@@ -3062,6 +3129,39 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getUserListsWithPagination(
+    creatorDid: string,
+    limit = 50,
+    cursor?: string,
+    purposes?: string[]
+  ): Promise<{ lists: List[]; cursor?: string }> {
+    const conditions = [eq(lists.creatorDid, creatorDid)];
+
+    if (cursor) {
+      conditions.push(sql`${lists.indexedAt} < ${new Date(cursor)}`);
+    }
+
+    if (purposes && purposes.length > 0) {
+      conditions.push(inArray(lists.purpose, purposes));
+    }
+
+    const results = await this.db
+      .select()
+      .from(lists)
+      .where(and(...conditions))
+      .orderBy(desc(lists.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = results.length > limit;
+    const listResults = hasMore ? results.slice(0, limit) : results;
+    const nextCursor = hasMore ? listResults[listResults.length - 1]?.indexedAt.toISOString() : undefined;
+
+    return {
+      lists: listResults,
+      cursor: nextCursor,
+    };
+  }
+
   async createListItem(item: InsertListItem): Promise<ListItem> {
     const [newItem] = await this.db
       .insert(listItems)
@@ -3084,12 +3184,47 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getListItemsWithPagination(
+    listUri: string,
+    limit = 50,
+    cursor?: string
+  ): Promise<{ items: ListItem[]; cursor?: string }> {
+    const conditions = [eq(listItems.listUri, listUri)];
+
+    if (cursor) {
+      conditions.push(sql`${listItems.indexedAt} < ${new Date(cursor)}`);
+    }
+
+    const items = await this.db
+      .select()
+      .from(listItems)
+      .where(and(...conditions))
+      .orderBy(desc(listItems.indexedAt))
+      .limit(limit + 1);
+
+    const hasMore = items.length > limit;
+    const resultItems = hasMore ? items.slice(0, limit) : items;
+    const nextCursor = hasMore ? resultItems[resultItems.length - 1]?.indexedAt.toISOString() : undefined;
+
+    return {
+      items: resultItems,
+      cursor: nextCursor,
+    };
+  }
+
   async getListFeed(
     listUri: string,
     limit = 50,
     cursor?: string
   ): Promise<Post[]> {
-    const items = await this.getListItems(listUri, 500);
+    // Fetch all list members (no hardcoded limit)
+    // For very large lists, consider adding pagination or caching
+    const items = await this.db
+      .select()
+      .from(listItems)
+      .where(eq(listItems.listUri, listUri))
+      .orderBy(desc(listItems.indexedAt));
+
     const memberDids = items.map((item) => item.subjectDid);
 
     if (memberDids.length === 0) {
@@ -3102,12 +3237,16 @@ export class DatabaseStorage implements IStorage {
       conditions.push(sql`${posts.indexedAt} < ${new Date(cursor)}`);
     }
 
-    return await this.db
+    // Fetch limit + 1 to determine if more results exist
+    const results = await this.db
       .select()
       .from(posts)
       .where(and(...conditions))
       .orderBy(desc(posts.indexedAt))
-      .limit(limit);
+      .limit(limit + 1);
+
+    // Return only requested limit (endpoint will use length to determine cursor)
+    return results.slice(0, limit);
   }
 
   // Feed generator operations
@@ -3467,6 +3606,24 @@ export class DatabaseStorage implements IStorage {
     await this.db
       .delete(pushSubscriptions)
       .where(eq(pushSubscriptions.token, token));
+  }
+
+  async deletePushSubscriptionByDetails(
+    userDid: string,
+    token: string,
+    platform: string,
+    appId: string
+  ): Promise<void> {
+    await this.db
+      .delete(pushSubscriptions)
+      .where(
+        and(
+          eq(pushSubscriptions.userDid, userDid),
+          eq(pushSubscriptions.token, token),
+          eq(pushSubscriptions.platform, platform),
+          eq(pushSubscriptions.appId, appId)
+        )
+      );
   }
 
   async getUserPushSubscriptions(userDid: string): Promise<PushSubscription[]> {

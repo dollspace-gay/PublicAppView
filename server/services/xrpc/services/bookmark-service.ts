@@ -1,39 +1,29 @@
 /**
  * Bookmark Service
- * Handles bookmark creation, deletion, and retrieval
+ *
+ * NOTE: Bookmark endpoints are not part of the official ATProto specification.
+ * Per ATProto architecture, if/when bookmarks are officially implemented, they will be:
+ * - Stored as private records on the PDS (in a "personal" namespace)
+ * - Not broadcast to the public firehose
+ * - Not accessible to AppView services
+ * - Similar to mutes and preferences (private user data)
+ *
+ * AppView aggregates public data and should not store or serve private user bookmarks.
+ * These endpoints return 501 to maintain proper architectural boundaries.
  */
 
 import type { Request, Response } from 'express';
-import { storage } from '../../../storage';
-import { requireAuthDid, getAuthenticatedDid } from '../utils/auth-helpers';
+import { requireAuthDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
-import { serializePostsEnhanced } from '../utils/serializers';
-import type { PostModel, PostView } from '../types';
-
-/**
- * Serialize posts with optional enhanced hydration
- * Uses environment flag to determine which serialization method to use
- */
-async function serializePosts(
-  posts: PostModel[],
-  viewerDid?: string,
-  req?: Request
-): Promise<PostView[]> {
-  const useEnhancedHydration =
-    process.env.ENHANCED_HYDRATION_ENABLED === 'true';
-
-  if (useEnhancedHydration) {
-    return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
-  }
-
-  // For now, we'll use enhanced serialization as the default
-  // The legacy serialization is complex and will be extracted later
-  return serializePostsEnhanced(posts, viewerDid, req) as Promise<PostView[]>;
-}
+import { getUserPdsEndpoint } from '../utils/pds-helpers';
 
 /**
  * Create a new bookmark
  * POST /xrpc/app.bsky.bookmark.create
+ *
+ * NOTE: Not part of official ATProto specification. Bookmarks are private user data
+ * that should be stored on the PDS, not on AppView. This is similar to mutes and
+ * preferences - private metadata that belongs on the user's Personal Data Server.
  */
 export async function createBookmark(
   req: Request,
@@ -43,44 +33,18 @@ export async function createBookmark(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const body = req.body as {
-      subject?: { uri?: string; cid?: string };
-      postUri?: string;
-      postCid?: string;
-    };
-    const postUri: string | undefined = body?.subject?.uri || body?.postUri;
-    const postCid: string | undefined = body?.subject?.cid || body?.postCid;
+    const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    if (!postUri) {
-      res.status(400).json({
-        error: 'InvalidRequest',
-        message: 'subject.uri is required',
-      });
-      return;
-    }
-
-    const rkey = `bmk_${Date.now()}`;
-    const uri = `at://${userDid}/app.bsky.bookmark.bookmark/${rkey}`;
-
-    // Ensure post exists locally; if not, try to fetch via PDS data fetcher
-    const post = await storage.getPost(postUri);
-    if (!post) {
-      try {
-        const { pdsDataFetcher } = await import('../../pds-data-fetcher');
-        pdsDataFetcher.markIncomplete('post', userDid, postUri);
-      } catch {
-        // Ignore errors if pdsDataFetcher is unavailable
-      }
-    }
-
-    await storage.createBookmark({
-      uri,
-      userDid,
-      postUri,
-      createdAt: new Date(),
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+               'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
+               'Unlike likes (which are public records), bookmarks are private metadata similar to mutes. ' +
+               (pdsEndpoint
+                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.create`
+                 : 'Please check if your PDS supports bookmark functionality.'),
+      pdsEndpoint: pdsEndpoint || undefined,
     });
-
-    res.json({ uri, cid: postCid });
   } catch (error) {
     handleError(res, error, 'createBookmark');
   }
@@ -89,6 +53,9 @@ export async function createBookmark(
 /**
  * Delete a bookmark
  * POST /xrpc/app.bsky.bookmark.delete
+ *
+ * NOTE: Not part of official ATProto specification. Bookmarks are private user data
+ * that should be stored on the PDS, not on AppView.
  */
 export async function deleteBookmark(
   req: Request,
@@ -98,18 +65,17 @@ export async function deleteBookmark(
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const body = req.body as { uri?: string };
-    const uri: string | undefined = body?.uri;
+    const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    if (!uri) {
-      res
-        .status(400)
-        .json({ error: 'InvalidRequest', message: 'uri is required' });
-      return;
-    }
-
-    await storage.deleteBookmark(uri);
-    res.json({ success: true });
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+               'Per ATProto architecture, bookmarks are private user data that should be stored on the PDS. ' +
+               (pdsEndpoint
+                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.delete`
+                 : 'Please check if your PDS supports bookmark functionality.'),
+      pdsEndpoint: pdsEndpoint || undefined,
+    });
   } catch (error) {
     handleError(res, error, 'deleteBookmark');
   }
@@ -118,44 +84,26 @@ export async function deleteBookmark(
 /**
  * Get user's bookmarks
  * GET /xrpc/app.bsky.bookmark.list
+ *
+ * NOTE: Not part of official ATProto specification. Bookmarks are private user data
+ * that should be stored on the PDS, not on AppView.
  */
 export async function getBookmarks(req: Request, res: Response): Promise<void> {
   try {
     const userDid = await requireAuthDid(req, res);
     if (!userDid) return;
 
-    const limit = Math.min(100, Number(req.query.limit) || 50);
-    const cursor =
-      typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+    const pdsEndpoint = await getUserPdsEndpoint(userDid);
 
-    const { bookmarks, cursor: nextCursor } = await storage.getBookmarks(
-      userDid,
-      limit,
-      cursor
-    );
-
-    type BookmarkRecord = {
-      uri: string;
-      postUri: string;
-      createdAt: Date;
-    };
-
-    const bookmarkRecords = bookmarks as BookmarkRecord[];
-    const postUris = bookmarkRecords.map((b) => b.postUri);
-    const viewerDid = (await getAuthenticatedDid(req)) || undefined;
-    const posts: PostModel[] = await storage.getPosts(postUris);
-    const serialized = await serializePosts(posts, viewerDid, req);
-    const byUri = new Map(serialized.map((p) => [p.uri, p]));
-
-    res.json({
-      cursor: nextCursor,
-      bookmarks: bookmarkRecords
-        .map((b) => ({
-          uri: b.uri,
-          createdAt: b.createdAt.toISOString(),
-          post: byUri.get(b.postUri),
-        }))
-        .filter((b) => !!b.post),
+    res.status(501).json({
+      error: 'NotImplemented',
+      message: 'Bookmarks are not part of the official ATProto specification and should not be stored on AppView. ' +
+               'Per ATProto architecture, bookmarks are private user data that should be fetched from the PDS. ' +
+               'Unlike public data (posts, likes), bookmarks are private metadata similar to mutes. ' +
+               (pdsEndpoint
+                 ? `If your PDS supports bookmarks, please use: ${pdsEndpoint}/xrpc/app.bsky.bookmark.list`
+                 : 'Please check if your PDS supports bookmark functionality.'),
+      pdsEndpoint: pdsEndpoint || undefined,
     });
   } catch (error) {
     handleError(res, error, 'getBookmarks');

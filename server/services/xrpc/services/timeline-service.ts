@@ -362,7 +362,10 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
     // Get feed generator info
     const feedGen = await storage.getFeedGenerator(params.feed);
     if (!feedGen) {
-      res.status(404).json({ error: 'Feed generator not found' });
+      res.status(404).json({
+        error: 'UnknownFeed',
+        message: 'Feed generator not found'
+      });
       return;
     }
 
@@ -371,7 +374,6 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
     );
 
     // Call external feed generator service to get skeleton
-    // Then hydrate with full post data from our database
     const { feed: hydratedFeed, cursor } = await feedGeneratorClient.getFeed(
       feedGen.did,
       {
@@ -388,71 +390,44 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
       `[XRPC] Hydrated ${hydratedFeed.length} posts from feed generator`
     );
 
-    // Build post views with author information
-    const feed = await Promise.all(
-      hydratedFeed.map(async ({ post, reason }) => {
-        const author = await storage.getUser(post.authorDid);
+    if (hydratedFeed.length === 0) {
+      return res.json({ feed: [], cursor });
+    }
 
-        // Skip posts from authors without valid handles
-        if (!author || !author.handle) {
-          console.warn(
-            `[XRPC] Skipping post ${post.uri} - author ${post.authorDid} has no handle`
-          );
-          return null;
-        }
+    // Extract post URIs for batch fetching
+    const postUris = hydratedFeed.map(({ post }) => post.uri);
+    const posts = await storage.getPosts(postUris);
 
-        const postView: any = {
-          uri: post.uri,
-          cid: post.cid,
-          author: {
-            $type: 'app.bsky.actor.defs#profileViewBasic',
-            did: post.authorDid,
-            handle: author.handle,
-            displayName: author.displayName ?? author.handle,
-            pronouns: author?.pronouns,
-            ...maybeAvatar(author?.avatarUrl, author?.did, req),
-            associated: {
-              $type: 'app.bsky.actor.defs#profileAssociated',
-              lists: 0,
-              feedgens: 0,
-              starterPacks: 0,
-              labeler: false,
-              chat: undefined,
-              activitySubscription: undefined,
-            },
-            viewer: undefined,
-            labels: [],
-            createdAt: author?.createdAt?.toISOString(),
-            verification: undefined,
-            status: undefined,
-          },
-          record: {
-            text: post.text,
-            createdAt: post.createdAt.toISOString(),
-          },
-          replyCount: 0,
-          repostCount: 0,
-          likeCount: 0,
-          indexedAt: post.indexedAt.toISOString(),
-        };
+    // Get viewer DID for proper serialization
+    const viewerDid = await getAuthenticatedDid(req);
 
-        const feedView: any = { post: postView };
+    // Use existing serializePosts infrastructure for complete post objects
+    const serializedPosts = await (xrpcApi as any).serializePosts(
+      posts,
+      viewerDid || undefined,
+      req
+    );
 
-        // Include reason if present (e.g., repost context)
-        if (reason) {
-          feedView.reason = reason;
-        }
+    // Create map for quick lookup
+    const postsByUri = new Map(serializedPosts.map((p: any) => [p.uri, p]));
+
+    // Build feed with reasons and optional feedContext/reqId
+    const feed = hydratedFeed
+      .map(({ post, reason, feedContext, reqId }) => {
+        const serializedPost = postsByUri.get(post.uri);
+        if (!serializedPost) return null;
+
+        const feedView: any = { post: serializedPost };
+        if (reason) feedView.reason = reason;
+        if (feedContext) feedView.feedContext = feedContext;
+        if (reqId) feedView.reqId = reqId;
 
         return feedView;
       })
-    );
+      .filter(Boolean);
 
-    // Filter out null entries (posts from authors without handles)
-    const validFeed = feed.filter((item) => item !== null);
-
-    res.json({ feed: validFeed, cursor });
+    res.json({ feed, cursor });
   } catch (error) {
-    // If feed generator is unavailable, provide a helpful error
     handleError(res, error, 'getFeed');
   }
 }
@@ -460,6 +435,14 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
 /**
  * Get post thread (V2 - unspecced)
  * GET /xrpc/app.bsky.unspecced.getPostThreadV2
+ *
+ * IMPORTANT: This endpoint is experimental and marked as "unspecced" in the ATProto specification.
+ * Per the official lexicon: "this endpoint is under development and WILL change without notice."
+ *
+ * Returns a flat array of thread items with depth indicators for building threaded UIs.
+ * - depth 0: anchor post
+ * - depth < 0: parent posts (ancestors)
+ * - depth > 0: reply posts (descendants)
  */
 export async function getPostThreadV2(
   req: Request,
@@ -467,41 +450,150 @@ export async function getPostThreadV2(
 ): Promise<void> {
   try {
     const params = getPostThreadV2Schema.parse(req.query);
-    const posts = await storage.getPostThread(params.anchor);
     const viewerDid = await getAuthenticatedDid(req);
 
+    // Get the anchor post
+    const anchorPost = await storage.getPost(params.anchor);
+    if (!anchorPost) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const threadItems: Array<{ post: any; depth: number }> = [];
+    const depthLimit = Math.min(params.below || 6, 20);
+    const includeAbove = params.above !== false;
+    const branchingFactor = Math.min(params.branchingFactor || 10, 100);
+    const sort = params.sort || 'oldest';
+
+    // 1. Collect parent chain if above=true (depth will be negative)
+    if (includeAbove && anchorPost.parentUri) {
+      let currentUri = anchorPost.parentUri;
+      let depth = -1;
+      const parentChain: Array<{ post: any; depth: number }> = [];
+
+      while (currentUri && depth >= -20) {
+        const parent = await storage.getPost(currentUri);
+        if (!parent) break;
+
+        parentChain.unshift({ post: parent, depth });
+        currentUri = parent.parentUri || null;
+        depth--;
+      }
+
+      threadItems.push(...parentChain);
+    }
+
+    // 2. Add anchor post at depth 0
+    threadItems.push({ post: anchorPost, depth: 0 });
+
+    // 3. Collect replies below anchor (depth will be positive)
+    if (depthLimit > 0) {
+      // Get all posts in the thread
+      const rootUri = anchorPost.rootUri || anchorPost.uri;
+      const allThreadPosts = await storage.db
+        .select()
+        .from(storage.schema.posts)
+        .where(storage.sql.eq(storage.schema.posts.rootUri, rootUri));
+
+      // Build parent-to-children map
+      const replyMap = new Map<string, any[]>();
+      for (const post of allThreadPosts) {
+        if (post.parentUri) {
+          const siblings = replyMap.get(post.parentUri) || [];
+          siblings.push(post);
+          replyMap.set(post.parentUri, siblings);
+        }
+      }
+
+      // Apply sorting to reply arrays
+      const sortReplies = (replies: any[]) => {
+        if (sort === 'newest') {
+          return replies.sort(
+            (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+          );
+        } else if (sort === 'top') {
+          // TODO: Implement top sorting with engagement metrics
+          return replies.sort(
+            (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+          );
+        } else {
+          // oldest (default)
+          return replies.sort(
+            (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+          );
+        }
+      };
+
+      // Traverse reply tree with depth limits
+      const collectReplies = (postUri: string, currentDepth: number) => {
+        if (currentDepth >= depthLimit) return;
+
+        const children = replyMap.get(postUri) || [];
+        const sortedChildren = sortReplies([...children]);
+        const limitedChildren = sortedChildren.slice(0, branchingFactor);
+
+        for (const child of limitedChildren) {
+          threadItems.push({ post: child, depth: currentDepth + 1 });
+          collectReplies(child.uri, currentDepth + 1);
+        }
+      };
+
+      collectReplies(anchorPost.uri, 0);
+    }
+
+    // 4. Serialize all posts
+    const allPosts = threadItems.map((item) => item.post);
     const serialized = await (xrpcApi as any).serializePosts(
-      posts,
+      allPosts,
       viewerDid || undefined,
       req
     );
 
-    res.json({
-      hasOtherReplies: false,
-      thread: serialized.length
-        ? {
+    const postsByUri = new Map(serialized.map((p: any) => [p.uri, p]));
+
+    // 5. Build response items with depth
+    const items = threadItems
+      .map((item) => {
+        const serializedPost = postsByUri.get(item.post.uri);
+        if (!serializedPost) return null;
+
+        return {
+          uri: item.post.uri,
+          depth: item.depth,
+          value: {
             $type: 'app.bsky.unspecced.defs#threadItemPost',
-            post: serialized[0],
-          }
-        : null,
-      threadgate: null,
-    });
+            post: serializedPost,
+          },
+          hasOtherReplies: false, // TODO: Implement pagination detection
+        };
+      })
+      .filter(Boolean);
+
+    res.json({ items });
   } catch (error) {
     handleError(res, error, 'getPostThreadV2');
   }
 }
 
 /**
- * Get other thread replies (V2 - unspecced stub)
+ * Get other thread replies (V2 - unspecced)
  * GET /xrpc/app.bsky.unspecced.getPostThreadOtherV2
+ *
+ * IMPORTANT: This endpoint is experimental and marked as "unspecced" in the ATProto specification.
+ * Per the official lexicon: "this endpoint is under development and WILL change without notice."
+ *
+ * Returns additional replies that may be hidden by threadgate restrictions or pagination.
+ * Currently returns an empty array as pagination is not yet implemented.
  */
 export async function getPostThreadOtherV2(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    getPostThreadOtherV2Schema.parse(req.query);
-    res.json({ hasOtherReplies: false, items: [] });
+    const params = getPostThreadOtherV2Schema.parse(req.query);
+
+    // TODO: Implement actual functionality for paginated/hidden replies
+    // For now, return empty array indicating no additional replies
+    res.json({ items: [] });
   } catch (error) {
     handleError(res, error, 'getPostThreadOtherV2');
   }
