@@ -342,6 +342,7 @@ export interface IStorage {
   isThreadMuted(muterDid: string, threadRootUri: string): Promise<boolean>;
 
   // User preferences operations
+  getUserPreferences(userDid: string): Promise<UserPreferences | undefined>;
   createUserPreferences(prefs: InsertUserPreferences): Promise<UserPreferences>;
   updateUserPreferences(
     userDid: string,
@@ -2117,6 +2118,17 @@ export class DatabaseStorage implements IStorage {
       )
       .limit(1);
     return !!result;
+  }
+
+  async getUserPreferences(
+    userDid: string
+  ): Promise<UserPreferences | undefined> {
+    const [prefs] = await this.db
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userDid, userDid))
+      .limit(1);
+    return prefs || undefined;
   }
 
   async createUserPreferences(
