@@ -1101,7 +1101,10 @@ export class XRPCApi {
           ...(avatarCdn &&
             typeof avatarCdn === 'string' &&
             avatarCdn.trim() !== '' && { avatar: avatarCdn }),
-          viewer: actorViewerState || {},
+          viewer: actorViewerState || {
+            muted: false,
+            blockedBy: false,
+          },
           labels: authorLabels,
           createdAt: author?.createdAt?.toISOString(),
         },
@@ -2253,6 +2256,7 @@ export class XRPCApi {
               viewer: {
                 blocking: b.uri,
                 muted: false, // You can't block someone you don't mute
+                blockedBy: false,
               },
             };
           })
@@ -2292,6 +2296,7 @@ export class XRPCApi {
               ...this.maybeAvatar(user.avatarUrl, user.did, req),
               viewer: {
                 muted: true,
+                blockedBy: false,
               },
             };
           })
