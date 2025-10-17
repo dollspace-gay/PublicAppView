@@ -129,7 +129,6 @@ export class FeedGeneratorClient {
     // Fetch missing posts from their PDSs
     if (missingUris.length > 0) {
       console.log(`[FeedGenClient] Fetching ${missingUris.length} missing posts from PDSs`);
-      const { eventProcessor } = await import('./event-processor');
 
       let fetchedCount = 0;
       for (const uri of missingUris) {
@@ -142,6 +141,12 @@ export class FeedGeneratorClient {
           }
 
           const [, did, collection, rkey] = match;
+
+          // Only support post fetching for now
+          if (collection !== 'app.bsky.feed.post') {
+            console.warn(`[FeedGenClient] Skipping non-post collection: ${collection}`);
+            continue;
+          }
 
           // Resolve DID to PDS
           const pdsUrl = await didResolver.resolveDIDToPDS(did);
@@ -163,26 +168,12 @@ export class FeedGeneratorClient {
 
           const { value, cid } = await response.json();
 
-          // Process through event processor to index it
-          await eventProcessor.handleRepoCommit({
-            repo: did,
-            ops: [{
-              action: 'create',
-              path: `${collection}/${rkey}`,
-              cid,
-            }],
-            blocks: new Uint8Array(), // Not needed for our indexing
-            commit: { cid: '', rev: '' },
-            rebase: false,
-            tooBig: false,
-            seq: 0,
-            since: '',
-            time: new Date().toISOString(),
-          }, { value, cid, uri });
-
+          // Process the post through the event processor for proper indexing
+          const { eventProcessor } = await import('./event-processor');
+          await eventProcessor.processRecord(uri, cid, did, value);
           fetchedCount++;
 
-          // Refresh post in map after indexing
+          // Add to map after processing
           const fetchedPost = await storage.getPost(uri);
           if (fetchedPost) {
             postMap.set(uri, fetchedPost);
