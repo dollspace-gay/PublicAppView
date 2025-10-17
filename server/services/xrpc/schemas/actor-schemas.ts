@@ -11,8 +11,23 @@ export const getProfileSchema = z.object({
 
 export const getProfilesSchema = z.object({
   actors: z
-    .union([z.string(), z.array(z.string())])
-    .transform((val) => (Array.isArray(val) ? val : [val]))
+    .union([
+      z.string(), // Single actor or comma-separated
+      z.array(z.string()), // Array of actors (from repeated query params)
+    ])
+    .transform((val) => {
+      // Handle array (from repeated params like ?actors=a&actors=b)
+      if (Array.isArray(val)) {
+        return val.filter((v) => v && v.trim() !== '');
+      }
+      // Handle single string (could be comma-separated)
+      if (typeof val === 'string') {
+        // Split by comma and filter empty values
+        const items = val.split(',').map((s) => s.trim()).filter((s) => s !== '');
+        return items.length > 0 ? items : [val.trim()];
+      }
+      return [];
+    })
     .pipe(
       z
         .array(z.string())
