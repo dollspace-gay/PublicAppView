@@ -1064,11 +1064,21 @@ export class XRPCApi {
       }
 
       const avatarUrl = author?.avatarUrl;
-      const avatarCdn = avatarUrl
-        ? avatarUrl.startsWith('http')
-          ? avatarUrl
-          : this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req)
-        : undefined;
+      let avatarCdn = undefined;
+      if (avatarUrl) {
+        if (avatarUrl.startsWith('http')) {
+          // Validate HTTP URLs - must be valid URI format
+          try {
+            new URL(avatarUrl);
+            avatarCdn = avatarUrl;
+          } catch {
+            // Invalid URL, skip it
+            avatarCdn = undefined;
+          }
+        } else {
+          avatarCdn = this.transformBlobToCdnUrl(avatarUrl, author.did, 'avatar', req);
+        }
+      }
 
       // Ensure displayName is always a string
       const displayName =
@@ -1410,14 +1420,25 @@ export class XRPCApi {
           uri: post.uri,
           cid: post.cid,
           author: (() => {
-            const avatarUrl = author?.avatarUrl
-              ? this.transformBlobToCdnUrl(
+            let avatarUrl = undefined;
+            if (author?.avatarUrl) {
+              if (author.avatarUrl.startsWith('http')) {
+                // Validate HTTP URLs
+                try {
+                  new URL(author.avatarUrl);
+                  avatarUrl = author.avatarUrl;
+                } catch {
+                  avatarUrl = undefined;
+                }
+              } else {
+                avatarUrl = this.transformBlobToCdnUrl(
                   author.avatarUrl,
                   author.did,
                   'avatar',
                   req
-                )
-              : undefined;
+                );
+              }
+            }
             // Ensure displayName is always a string
             const displayName =
               author?.displayName && typeof author.displayName === 'string'
