@@ -17,7 +17,8 @@
       "Bash(findstr:*)",
       "Bash(yarn install)",
       "Bash(node --version:*)",
-      "Bash(npm:*)"
+      "Bash(npm:*)",
+      "Bash(docker-compose restart:*)"
     ],
     "deny": [],
     "ask": []
