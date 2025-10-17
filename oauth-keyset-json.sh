@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # A pure Bash script to generate a standalone oauth-keyset.json file
-# using a secp256k1 key, suitable for an AT Protocol AppView's internal OAuth.
+# using a P-256 (prime256v1) key for ES256, suitable for AT Protocol OAuth client authentication.
+#
+# NOTE: ES256 (P-256) is required for private_key_jwt client authentication in ATProto OAuth.
+# ES256K (secp256k1) is used for other ATProto operations, but NOT for OAuth client auth.
 #
 # Dependencies: openssl, jq, xxd
 
@@ -20,11 +23,10 @@ for cmd in openssl jq xxd; do
 done
 
 # --- Key Generation ---
-echo "🔑 Generating secp256k1 key pair..."
-# 1. Generate a secp256k1 private key in the legacy format
-openssl ecparam -name secp256k1 -genkey -noout -out private-legacy.pem
+echo "🔑 Generating P-256 (ES256) key pair for OAuth client authentication..."
+# 1. Generate a P-256 (prime256v1) private key in the legacy format
+openssl ecparam -name prime256v1 -genkey -noout -out private-legacy.pem
 
-# --- FIX APPLIED HERE ---
 # 2. Convert the legacy key to the required PKCS#8 format
 openssl pkcs8 -topk8 -nocrypt -in private-legacy.pem -out private-pkcs8.pem
 
@@ -69,8 +71,8 @@ jq -n \
     jwk: {
       kid: $kid,
       kty: "EC",
-      crv: "secp256k1",
-      alg: "ES256K",
+      crv: "P-256",
+      alg: "ES256",
       use: "sig",
       d: $d,
       x: $x,
@@ -82,5 +84,5 @@ jq -n \
 rm private-legacy.pem private-pkcs8.pem public.pem
 
 echo ""
-echo "✅ Success! oauth-keyset.json generated with correct PKCS#8 format."
+echo "✅ Success! oauth-keyset.json generated with ES256 (P-256) key for OAuth client authentication."
 echo ""

@@ -228,7 +228,7 @@ export class OAuthService {
           response_types: ['code'],
           application_type: 'web',
           token_endpoint_auth_method: 'private_key_jwt',
-          token_endpoint_auth_signing_alg: 'ES256K',
+          token_endpoint_auth_signing_alg: 'ES256',
           dpop_bound_access_tokens: true,
           jwks_uri: `${BASE_URL}/jwks.json`,
         },
