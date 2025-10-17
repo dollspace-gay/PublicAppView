@@ -28,14 +28,68 @@ export async function getList(req: Request, res: Response): Promise<void> {
     const viewerDid = await getAuthenticatedDid(req);
 
     // Get list metadata
-    const list = await storage.getList(params.list);
+    let list = await storage.getList(params.list);
 
     if (!list) {
-      res.status(404).json({
-        error: 'NotFound',
-        message: 'List not found',
-      });
-      return;
+      // Try to discover the list from PDS
+      console.log(`[XRPC] List not found in database, attempting discovery: ${params.list}`);
+
+      try {
+        // Parse the URI to get the creator DID
+        const parts = params.list.split('/');
+        const creatorDid = parts[2];
+        const rkey = parts[4];
+
+        // Ensure the creator user exists first
+        const creator = await storage.getUser(creatorDid);
+        if (!creator) {
+          console.log(`[XRPC] Creator ${creatorDid} not found, creating placeholder`);
+          await storage.createUser({
+            did: creatorDid,
+            handle: 'handle.invalid', // Will be updated by PDS fetcher
+          });
+        }
+
+        // Fetch list from creator's PDS
+        const { didResolver } = await import('../../../did-resolver');
+        const pdsUrl = await didResolver.resolveDIDToPDS(creatorDid);
+
+        if (pdsUrl) {
+          const recordUrl = `${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(creatorDid)}&collection=app.bsky.graph.list&rkey=${encodeURIComponent(rkey)}`;
+          const response = await fetch(recordUrl, {
+            signal: AbortSignal.timeout(5000),
+          });
+
+          if (response.ok) {
+            const { value, cid } = await response.json();
+            console.log(`[XRPC] List discovered, indexing: ${value.name}`);
+
+            // Process through event processor to index it
+            const { eventProcessor } = await import('../../../event-processor');
+            await eventProcessor.processRecord(params.list, cid, creatorDid, {
+              $type: 'app.bsky.graph.list',
+              name: value.name,
+              purpose: value.purpose,
+              description: value.description,
+              avatar: value.avatar,
+              createdAt: value.createdAt,
+            });
+
+            // Try fetching again after indexing
+            list = await storage.getList(params.list);
+          }
+        }
+      } catch (error) {
+        console.warn(`[XRPC] Failed to discover list:`, error);
+      }
+
+      if (!list) {
+        res.status(404).json({
+          error: 'NotFound',
+          message: 'List not found',
+        });
+        return;
+      }
     }
 
     // Get list items with pagination
@@ -251,13 +305,68 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
     const params = getListFeedSchema.parse(req.query);
 
     // Check if list exists (ATProto spec requires UnknownList error)
-    const list = await storage.getList(params.list);
+    let list = await storage.getList(params.list);
+
     if (!list) {
-      res.status(400).json({
-        error: 'UnknownList',
-        message: 'List not found',
-      });
-      return;
+      // Try to discover the list from PDS
+      console.log(`[XRPC] List not found for feed, attempting discovery: ${params.list}`);
+
+      try {
+        // Parse the URI to get the creator DID
+        const parts = params.list.split('/');
+        const creatorDid = parts[2];
+        const rkey = parts[4];
+
+        // Ensure the creator user exists first
+        const creator = await storage.getUser(creatorDid);
+        if (!creator) {
+          console.log(`[XRPC] Creator ${creatorDid} not found, creating placeholder`);
+          await storage.createUser({
+            did: creatorDid,
+            handle: 'handle.invalid', // Will be updated by PDS fetcher
+          });
+        }
+
+        // Fetch list from creator's PDS
+        const { didResolver } = await import('../../../did-resolver');
+        const pdsUrl = await didResolver.resolveDIDToPDS(creatorDid);
+
+        if (pdsUrl) {
+          const recordUrl = `${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(creatorDid)}&collection=app.bsky.graph.list&rkey=${encodeURIComponent(rkey)}`;
+          const response = await fetch(recordUrl, {
+            signal: AbortSignal.timeout(5000),
+          });
+
+          if (response.ok) {
+            const { value, cid } = await response.json();
+            console.log(`[XRPC] List discovered, indexing: ${value.name}`);
+
+            // Process through event processor to index it
+            const { eventProcessor } = await import('../../../event-processor');
+            await eventProcessor.processRecord(params.list, cid, creatorDid, {
+              $type: 'app.bsky.graph.list',
+              name: value.name,
+              purpose: value.purpose,
+              description: value.description,
+              avatar: value.avatar,
+              createdAt: value.createdAt,
+            });
+
+            // Try fetching again after indexing
+            list = await storage.getList(params.list);
+          }
+        }
+      } catch (error) {
+        console.warn(`[XRPC] Failed to discover list:`, error);
+      }
+
+      if (!list) {
+        res.status(400).json({
+          error: 'UnknownList',
+          message: 'List not found',
+        });
+        return;
+      }
     }
 
     // Fetch posts from list members with limit+1 for pagination
