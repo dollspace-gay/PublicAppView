@@ -3593,15 +3593,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ preferences: [] });
   });
   app.post('/xrpc/app.bsky.actor.putPreferences', (req, res) => {
-    console.log('[PREFERENCES] POST preferences - accepting without persist');
-    // Accept but don't persist (preferences live on PDS)
-    // Return empty object (successful no-op)
-    res.status(200).json({});
+    try {
+      console.log('[PREFERENCES] POST preferences - accepting without persist');
+      console.log('[PREFERENCES] Body:', JSON.stringify(req.body).substring(0, 200));
+      // Accept but don't persist (preferences live on PDS)
+      // Return empty object (successful no-op)
+      res.status(200).json({});
+    } catch (error) {
+      console.error('[PREFERENCES] POST error:', error);
+      res.status(500).json({ error: 'InternalServerError', message: String(error) });
+    }
   });
   app.put('/xrpc/app.bsky.actor.putPreferences', (req, res) => {
-    console.log('[PREFERENCES] PUT preferences - accepting without persist');
-    // Accept but don't persist (preferences live on PDS)
-    res.status(200).json({});
+    try {
+      console.log('[PREFERENCES] PUT preferences - accepting without persist');
+      console.log('[PREFERENCES] Body:', JSON.stringify(req.body).substring(0, 200));
+      // Accept but don't persist (preferences live on PDS)
+      res.status(200).json({});
+    } catch (error) {
+      console.error('[PREFERENCES] PUT error:', error);
+      res.status(500).json({ error: 'InternalServerError', message: String(error) });
+    }
   });
 
   // Graph endpoints
