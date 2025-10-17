@@ -15,7 +15,7 @@
 import type { Request, Response } from 'express';
 import { requireAuthDid } from '../utils/auth-helpers';
 import { handleError } from '../utils/error-handler';
-import { getUserPdsEndpoint } from '../utils/pds-helpers';
+import { getUserPdsEndpoint } from '../utils/resolvers';
 
 /**
  * Create a new bookmark
