@@ -2618,9 +2618,21 @@ export class XRPCApi {
       const params = getFeedSchema.parse(req.query);
 
       // Get feed generator info
-      const feedGen = await storage.getFeedGenerator(params.feed);
+      let feedGen = await storage.getFeedGenerator(params.feed);
       if (!feedGen) {
-        return res.status(404).json({ error: 'Feed generator not found' });
+        // Try to discover the feed from PDS
+        console.log(`[XRPC] Feed generator not found in database, attempting discovery: ${params.feed}`);
+        const { feedGeneratorDiscovery } = await import('./feed-generator-discovery');
+        const discovered = await feedGeneratorDiscovery.fetchFeedGeneratorByUri(params.feed);
+
+        if (discovered) {
+          // Try fetching again after discovery
+          feedGen = await storage.getFeedGenerator(params.feed);
+        }
+
+        if (!feedGen) {
+          return res.status(404).json({ error: 'Feed generator not found' });
+        }
       }
 
       console.log(
@@ -2731,9 +2743,21 @@ export class XRPCApi {
     try {
       const params = getFeedGeneratorSchema.parse(req.query);
 
-      const generator = await storage.getFeedGenerator(params.feed);
+      let generator = await storage.getFeedGenerator(params.feed);
       if (!generator) {
-        return res.status(404).json({ error: 'Feed generator not found' });
+        // Try to discover the feed from PDS
+        console.log(`[XRPC] Feed generator not found in database, attempting discovery: ${params.feed}`);
+        const { feedGeneratorDiscovery } = await import('./feed-generator-discovery');
+        const discovered = await feedGeneratorDiscovery.fetchFeedGeneratorByUri(params.feed);
+
+        if (discovered) {
+          // Try fetching again after discovery
+          generator = await storage.getFeedGenerator(params.feed);
+        }
+
+        if (!generator) {
+          return res.status(404).json({ error: 'Feed generator not found' });
+        }
       }
 
       // Creator profile should be available from firehose events
