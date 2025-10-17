@@ -2629,7 +2629,25 @@ export class XRPCApi {
         const discovered = await feedGeneratorDiscovery.fetchFeedGeneratorByUri(params.feed);
 
         if (discovered) {
-          // Try fetching again after discovery
+          // Index the discovered feed generator
+          console.log(`[XRPC] Feed discovered, indexing: ${discovered.displayName}`);
+
+          // Parse the URI to get the creator DID
+          const parts = params.feed.split('/');
+          const creatorDid = parts[2];
+
+          // Process through event processor to index it
+          const { eventProcessor } = await import('./event-processor');
+          await eventProcessor.processRecord(params.feed, discovered.cid, creatorDid, {
+            $type: 'app.bsky.feed.generator',
+            did: discovered.did,
+            displayName: discovered.displayName,
+            description: discovered.description,
+            avatar: discovered.avatar,
+            createdAt: discovered.createdAt,
+          });
+
+          // Try fetching again after indexing
           feedGen = await storage.getFeedGenerator(params.feed);
         }
 
@@ -2755,7 +2773,25 @@ export class XRPCApi {
         const discovered = await feedGeneratorDiscovery.fetchFeedGeneratorByUri(params.feed);
 
         if (discovered) {
-          // Try fetching again after discovery
+          // Index the discovered feed generator
+          console.log(`[XRPC] Feed discovered, indexing: ${discovered.displayName}`);
+
+          // Parse the URI to get the creator DID
+          const parts = params.feed.split('/');
+          const creatorDid = parts[2];
+
+          // Process through event processor to index it
+          const { eventProcessor } = await import('./event-processor');
+          await eventProcessor.processRecord(params.feed, discovered.cid, creatorDid, {
+            $type: 'app.bsky.feed.generator',
+            did: discovered.did,
+            displayName: discovered.displayName,
+            description: discovered.description,
+            avatar: discovered.avatar,
+            createdAt: discovered.createdAt,
+          });
+
+          // Try fetching again after indexing
           generator = await storage.getFeedGenerator(params.feed);
         }
 
