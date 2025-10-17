@@ -19,3 +19,8 @@ oauth-keyset.json
 oauth-private.pem
 oauth-public.pem
 oauth-private-pkcs8.pem
+
+# Bluesky web client for testing (forked/modified)
+social-app/
+bluesky-web/
+bsky-client/

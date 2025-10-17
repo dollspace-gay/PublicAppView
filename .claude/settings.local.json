@@ -14,7 +14,10 @@
       "Bash(npm install)",
       "Bash(curl:*)",
       "Bash(npx tsc:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(yarn install)",
+      "Bash(node --version:*)",
+      "Bash(npm:*)"
     ],
     "deny": [],
     "ask": []
