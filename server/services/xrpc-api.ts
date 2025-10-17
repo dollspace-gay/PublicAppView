@@ -581,10 +581,12 @@ export class XRPCApi {
           ? req.path.slice('/xrpc/'.length)
           : undefined;
 
-        // Skip aud check for app password tokens (scope=com.atproto.appPassPrivileged)
-        const isAppPassword =
-          anyPayload.scope === 'com.atproto.appPassPrivileged';
-        if (!isAppPassword && anyPayload.aud) {
+        // Skip aud check for PDS-issued tokens (com.atproto.access and com.atproto.appPassPrivileged)
+        // PDS tokens have aud=PDS_DID, not aud=AppView_DID
+        const isPdsToken =
+          anyPayload.scope === 'com.atproto.appPassPrivileged' ||
+          anyPayload.scope === 'com.atproto.access';
+        if (!isPdsToken && anyPayload.aud) {
           // Accept both base AppView DID and service-specific DID (with #bsky_appview fragment)
           const isBaseAppViewDid = anyPayload.aud === appviewDid;
           const isServiceAppViewDid =
