@@ -118,6 +118,83 @@ export class FeedGeneratorClient {
 
     const postMap = new Map(posts.map((p) => [p.uri, p]));
 
+    // Collect missing post URIs for on-demand fetching
+    const missingUris: string[] = [];
+    for (const item of skeleton) {
+      if (!postMap.has(item.post)) {
+        missingUris.push(item.post);
+      }
+    }
+
+    // Fetch missing posts from their PDSs
+    if (missingUris.length > 0) {
+      console.log(`[FeedGenClient] Fetching ${missingUris.length} missing posts from PDSs`);
+      const { eventProcessor } = await import('./event-processor');
+
+      let fetchedCount = 0;
+      for (const uri of missingUris) {
+        try {
+          // Parse AT URI: at://did:plc:xxx/app.bsky.feed.post/rkey
+          const match = uri.match(/^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/);
+          if (!match) {
+            console.warn(`[FeedGenClient] Invalid AT URI: ${uri}`);
+            continue;
+          }
+
+          const [, did, collection, rkey] = match;
+
+          // Resolve DID to PDS
+          const pdsUrl = await didResolver.resolveDIDToPDS(did);
+          if (!pdsUrl) {
+            console.warn(`[FeedGenClient] Could not resolve PDS for ${did}`);
+            continue;
+          }
+
+          // Fetch record from PDS
+          const recordUrl = `${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`;
+          const response = await fetch(recordUrl, {
+            signal: AbortSignal.timeout(5000),
+          });
+
+          if (!response.ok) {
+            console.warn(`[FeedGenClient] Failed to fetch ${uri}: ${response.status}`);
+            continue;
+          }
+
+          const { value, cid } = await response.json();
+
+          // Process through event processor to index it
+          await eventProcessor.handleRepoCommit({
+            repo: did,
+            ops: [{
+              action: 'create',
+              path: `${collection}/${rkey}`,
+              cid,
+            }],
+            blocks: new Uint8Array(), // Not needed for our indexing
+            commit: { cid: '', rev: '' },
+            rebase: false,
+            tooBig: false,
+            seq: 0,
+            since: '',
+            time: new Date().toISOString(),
+          }, { value, cid, uri });
+
+          fetchedCount++;
+
+          // Refresh post in map after indexing
+          const fetchedPost = await storage.getPost(uri);
+          if (fetchedPost) {
+            postMap.set(uri, fetchedPost);
+          }
+        } catch (error) {
+          console.warn(`[FeedGenClient] Error fetching post ${uri}:`, error instanceof Error ? error.message : error);
+        }
+      }
+
+      console.log(`[FeedGenClient] Successfully fetched ${fetchedCount}/${missingUris.length} missing posts`);
+    }
+
     const hydrated: HydratedFeedPost[] = [];
     for (const item of skeleton) {
       const post = postMap.get(item.post);
@@ -128,7 +205,7 @@ export class FeedGeneratorClient {
         });
       } else {
         console.warn(
-          `[FeedGenClient] Post not found in database: ${item.post}`
+          `[FeedGenClient] Post still not found after fetch attempt: ${item.post}`
         );
       }
     }

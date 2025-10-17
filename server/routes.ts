@@ -3676,6 +3676,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     xrpcOrchestrator.getActorFeeds.bind(xrpcOrchestrator)
   );
   app.get(
+    '/xrpc/app.bsky.feed.getListFeed',
+    xrpcOrchestrator.getListFeed.bind(xrpcOrchestrator)
+  );
+  app.get(
     '/xrpc/app.bsky.feed.getSuggestedFeeds',
     xrpcOrchestrator.getSuggestedFeeds.bind(xrpcOrchestrator)
   );
