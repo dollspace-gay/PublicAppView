@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PublicAppView - AT Protocol AppView Implementation</title>
+  <meta name="description" content="A production-ready AT Protocol AppView implementation with Aurora Stack theme">
+  <link rel="stylesheet" href="css/aurora.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="aurora-wave"></div>
+
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-brand">
+        <span class="heading-aurora">PublicAppView</span>
+      </div>
+      <div class="nav-links">
+        <a href="#features" class="link-aurora">Features</a>
+        <a href="#setup" class="link-aurora">Setup</a>
+        <a href="#docs" class="link-aurora">Documentation</a>
+        <a href="https://github.com/yourusername/PublicAppView" class="link-aurora" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <h1 class="hero-title heading-aurora">PublicAppView</h1>
+      <p class="hero-subtitle">A production-ready AT Protocol AppView implementation</p>
+      <p class="hero-description">
+        Built with Express, PostgreSQL, and the Aurora Stack theme.
+        Designed for performance, scalability, and ATProto compliance.
+      </p>
+      <div class="hero-buttons">
+        <a href="#setup" class="btn btn-primary">Get Started</a>
+        <a href="https://github.com/yourusername/PublicAppView" class="btn btn-secondary" target="_blank">View on GitHub</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat-card">
+          <div class="stat-number">50+</div>
+          <div class="stat-label">ATProto Endpoints</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">OAuth 2.0</div>
+          <div class="stat-label">Authentication</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">Real-time</div>
+          <div class="stat-label">Firehose Integration</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section id="features" class="section">
+    <div class="container">
+      <h2 class="section-title heading-aurora">Features</h2>
+
+      <div class="features-grid">
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">🚀</div>
+          <h3>Production Ready</h3>
+          <p>Battle-tested implementation with rate limiting, security middleware, and comprehensive error handling.</p>
+        </div>
+
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">🔒</div>
+          <h3>OAuth 2.0 Authentication</h3>
+          <p>Full OAuth implementation with ES256 signing, DPoP token binding, and secure session management.</p>
+        </div>
+
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">⚡</div>
+          <h3>Real-time Firehose</h3>
+          <p>Live processing of AT Protocol events with automatic reconnection and backfill support.</p>
+        </div>
+
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">📊</div>
+          <h3>Analytics Dashboard</h3>
+          <p>Beautiful Aurora-themed admin interface with metrics, charts, and instance monitoring.</p>
+        </div>
+
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">🎯</div>
+          <h3>ATProto Compliant</h3>
+          <p>Fully compliant with AT Protocol specifications, properly separating AppView and PDS concerns.</p>
+        </div>
+
+        <div class="feature-card card-aurora">
+          <div class="feature-icon">🛠️</div>
+          <h3>Developer Friendly</h3>
+          <p>TypeScript, Drizzle ORM, comprehensive documentation, and helpful error messages.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup" class="section section-alt">
+    <div class="container">
+      <h2 class="section-title heading-aurora">Quick Setup</h2>
+
+      <div class="setup-steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h3>Clone the Repository</h3>
+            <pre><code>git clone https://github.com/yourusername/PublicAppView.git
+cd PublicAppView</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h3>Configure Environment</h3>
+            <pre><code>cp .env.example .env
+# Edit .env with your settings:
+# - DATABASE_URL
+# - APPVIEW_DID (your did:web: identifier)
+# - ENCRYPTION_KEY (generate with: openssl rand -base64 32)</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h3>Generate OAuth Keys</h3>
+            <pre><code>bash oauth-keyset-json.sh
+# This creates oauth-keyset.json with ES256 keys</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h3>Start with Docker</h3>
+            <pre><code>docker-compose up -d
+# Your AppView will be available at http://localhost:5000</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <h4>📖 Full Documentation</h4>
+        <p>For detailed setup instructions, configuration options, and deployment guides, see the <a href="https://github.com/yourusername/PublicAppView/blob/main/README.md" class="link-aurora">README</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="docs" class="section">
+    <div class="container">
+      <h2 class="section-title heading-aurora">Documentation</h2>
+
+      <div class="docs-grid">
+        <a href="https://github.com/yourusername/PublicAppView/blob/main/README.md" class="doc-card card-aurora">
+          <h3>📚 Main README</h3>
+          <p>Complete setup guide, architecture overview, and deployment instructions.</p>
+        </a>
+
+        <a href="https://github.com/yourusername/PublicAppView/blob/main/WEBDID_SETUP.md" class="doc-card card-aurora">
+          <h3>🌐 Web DID Setup</h3>
+          <p>Configure your did:web: identifier for OAuth and federation.</p>
+        </a>
+
+        <a href="https://github.com/yourusername/PublicAppView/blob/main/server/config/INSTANCE_MODERATION_GUIDE.md" class="doc-card card-aurora">
+          <h3>🛡️ Moderation Guide</h3>
+          <p>Instance-level moderation, labeling, and content filtering.</p>
+        </a>
+
+        <a href="https://github.com/yourusername/PublicAppView/blob/main/docs/FEED_GENERATOR_DISCOVERY.md" class="doc-card card-aurora">
+          <h3>📡 Feed Generators</h3>
+          <p>Custom feed algorithm development and discovery.</p>
+        </a>
+
+        <a href="https://atproto.com/" class="doc-card card-aurora" target="_blank">
+          <h3>🔗 AT Protocol Docs</h3>
+          <p>Official AT Protocol specification and lexicons.</p>
+        </a>
+
+        <a href="https://github.com/yourusername/PublicAppView/issues" class="doc-card card-aurora">
+          <h3>💬 Get Help</h3>
+          <p>Report issues, ask questions, or contribute to the project.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <h2 class="section-title heading-aurora">Tech Stack</h2>
+
+      <div class="tech-stack">
+        <div class="tech-category">
+          <h3>Backend</h3>
+          <div class="tech-tags">
+            <span class="badge-aurora">Node.js</span>
+            <span class="badge-aurora">Express</span>
+            <span class="badge-aurora">TypeScript</span>
+            <span class="badge-aurora">PostgreSQL</span>
+            <span class="badge-aurora">Drizzle ORM</span>
+          </div>
+        </div>
+
+        <div class="tech-category">
+          <h3>Frontend</h3>
+          <div class="tech-tags">
+            <span class="badge-aurora">React</span>
+            <span class="badge-aurora">Vite</span>
+            <span class="badge-aurora">TailwindCSS</span>
+            <span class="badge-aurora">Recharts</span>
+          </div>
+        </div>
+
+        <div class="tech-category">
+          <h3>Infrastructure</h3>
+          <div class="tech-tags">
+            <span class="badge-aurora">Docker</span>
+            <span class="badge-aurora">Caddy</span>
+            <span class="badge-aurora">WebSockets</span>
+            <span class="badge-aurora">Redis (optional)</span>
+          </div>
+        </div>
+
+        <div class="tech-category">
+          <h3>AT Protocol</h3>
+          <div class="tech-tags">
+            <span class="badge-aurora">OAuth 2.0</span>
+            <span class="badge-aurora">DID Resolution</span>
+            <span class="badge-aurora">Firehose</span>
+            <span class="badge-aurora">XRPC</span>
+            <span class="badge-aurora">Lexicons</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-section">
+          <h4 class="heading-aurora">PublicAppView</h4>
+          <p>A production-ready AT Protocol AppView with the Aurora Stack theme.</p>
+        </div>
+
+        <div class="footer-section">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="https://github.com/yourusername/PublicAppView" class="link-aurora">GitHub Repository</a></li>
+            <li><a href="https://atproto.com/" class="link-aurora" target="_blank">AT Protocol</a></li>
+            <li><a href="https://docs.bsky.app/" class="link-aurora" target="_blank">Bluesky Docs</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-section">
+          <h4>Community</h4>
+          <ul>
+            <li><a href="https://github.com/yourusername/PublicAppView/issues" class="link-aurora">Report Issues</a></li>
+            <li><a href="https://github.com/yourusername/PublicAppView/discussions" class="link-aurora">Discussions</a></li>
+            <li><a href="https://github.com/yourusername/PublicAppView/blob/main/CONTRIBUTING.md" class="link-aurora">Contributing</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <p>Built with <span class="pulse-aurora">💙</span> for the ATmosphere</p>
+        <p>Licensed under MIT</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

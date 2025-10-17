@@ -1,0 +1,22 @@
+# GitHub Pages Configuration for PublicAppView
+
+# Theme
+theme: null
+
+# Site settings
+title: PublicAppView
+description: A production-ready AT Protocol AppView implementation with Aurora Stack theme
+author: Your Name
+email: your.email@example.com
+
+# Build settings
+markdown: kramdown
+
+# Exclude from processing
+exclude:
+  - README.md
+  - .gitignore
+
+# Include files
+include:
+  - _config.yml
