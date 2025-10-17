@@ -1153,9 +1153,11 @@ export class DatabaseStorage implements IStorage {
       );
     } else if (feedType === 'posts_and_author_threads') {
       conditions.push(
-        eq(feedItems.type, 'repost')
-          .or(eq(feedItems.type, 'post').and(isNull(posts.parentUri)))
-          .or(sql`${posts.rootUri} LIKE ${`at://${actorDid}/%`}`)
+        or(
+          eq(feedItems.type, 'repost'),
+          and(eq(feedItems.type, 'post'), isNull(posts.parentUri)),
+          sql`${posts.rootUri} LIKE ${`at://${actorDid}/%`}`
+        )
       );
     }
 
