@@ -51,7 +51,7 @@ export async function getList(req: Request, res: Response): Promise<void> {
         }
 
         // Fetch list from creator's PDS
-        const { didResolver } = await import('../../../did-resolver');
+        const { didResolver } = await import('../../did-resolver');
         const pdsUrl = await didResolver.resolveDIDToPDS(creatorDid);
 
         if (pdsUrl) {
@@ -65,7 +65,7 @@ export async function getList(req: Request, res: Response): Promise<void> {
             console.log(`[XRPC] List discovered, indexing: ${value.name}`);
 
             // Process through event processor to index it
-            const { eventProcessor } = await import('../../../event-processor');
+            const { eventProcessor } = await import('../../event-processor');
             await eventProcessor.processRecord(params.list, cid, creatorDid, {
               $type: 'app.bsky.graph.list',
               name: value.name,
@@ -328,7 +328,7 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
         }
 
         // Fetch list from creator's PDS
-        const { didResolver } = await import('../../../did-resolver');
+        const { didResolver } = await import('../../did-resolver');
         const pdsUrl = await didResolver.resolveDIDToPDS(creatorDid);
 
         if (pdsUrl) {
@@ -342,7 +342,7 @@ export async function getListFeed(req: Request, res: Response): Promise<void> {
             console.log(`[XRPC] List discovered, indexing: ${value.name}`);
 
             // Process through event processor to index it
-            const { eventProcessor } = await import('../../../event-processor');
+            const { eventProcessor } = await import('../../event-processor');
             await eventProcessor.processRecord(params.list, cid, creatorDid, {
               $type: 'app.bsky.graph.list',
               name: value.name,
