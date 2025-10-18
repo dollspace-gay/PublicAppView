@@ -16,7 +16,7 @@ export class CacheService {
   private isInitialized = false;
   private readonly config: CacheConfig;
 
-  constructor(config: CacheConfig = { ttl: 300, keyPrefix: 'atproto:cache:' }) {
+  constructor(config: CacheConfig = { ttl: 3600, keyPrefix: 'atproto:cache:' }) {
     this.config = config;
   }
 

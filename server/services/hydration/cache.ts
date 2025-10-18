@@ -1,7 +1,7 @@
 import { CacheService } from '../cache';
 
 export class HydrationCache {
-  private readonly TTL = 300; // 5 minutes
+  private readonly TTL = 1800; // 30 minutes (increased for small userbase)
   private cache: CacheService;
 
   constructor() {
@@ -23,15 +23,48 @@ export class HydrationCache {
   }
 
   /**
-   * Get multiple cached values (not supported by current cache, fetch individually)
+   * Get multiple cached values using Redis pipeline for performance
    */
   async mget<T>(keys: string[]): Promise<Map<string, T>> {
+    if (keys.length === 0) return new Map();
+
     const result = new Map<string, T>();
 
-    for (const key of keys) {
-      const value = await this.get<T>(key);
-      if (value) {
-        result.set(key, value);
+    // Use cache service's internal connection
+    const cacheService = this.cache as any;
+    if (!cacheService.redis || !cacheService.isInitialized) {
+      // Fallback to sequential if Redis not available
+      for (const key of keys) {
+        const value = await this.get<T>(key);
+        if (value) {
+          result.set(key, value);
+        }
+      }
+      return result;
+    }
+
+    // Batch fetch with Redis mget
+    try {
+      const prefixedKeys = keys.map(k => `hydration:${k}`);
+      const values = await cacheService.redis.mget(...prefixedKeys);
+
+      values.forEach((value: string | null, index: number) => {
+        if (value) {
+          try {
+            result.set(keys[index], JSON.parse(value) as T);
+          } catch (e) {
+            console.error(`[HYDRATION_CACHE] Failed to parse cached value for ${keys[index]}`);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[HYDRATION_CACHE] Error in batch mget:', error);
+      // Fallback to sequential on error
+      for (const key of keys) {
+        const value = await this.get<T>(key);
+        if (value) {
+          result.set(key, value);
+        }
       }
     }
 
@@ -39,11 +72,37 @@ export class HydrationCache {
   }
 
   /**
-   * Set multiple cached values
+   * Set multiple cached values using Redis pipeline for performance
    */
   async mset(entries: Map<string, any>, ttl: number = this.TTL): Promise<void> {
-    for (const [key, value] of Array.from(entries.entries())) {
-      await this.set(key, value, ttl);
+    if (entries.size === 0) return;
+
+    const cacheService = this.cache as any;
+    if (!cacheService.redis || !cacheService.isInitialized) {
+      // Fallback to sequential if Redis not available
+      for (const [key, value] of Array.from(entries.entries())) {
+        await this.set(key, value, ttl);
+      }
+      return;
+    }
+
+    // Batch set with Redis pipeline
+    try {
+      const pipeline = cacheService.redis.pipeline();
+
+      for (const [key, value] of Array.from(entries.entries())) {
+        const prefixedKey = `hydration:${key}`;
+        const serialized = JSON.stringify(value);
+        pipeline.setex(prefixedKey, ttl, serialized);
+      }
+
+      await pipeline.exec();
+    } catch (error) {
+      console.error('[HYDRATION_CACHE] Error in batch mset:', error);
+      // Fallback to sequential on error
+      for (const [key, value] of Array.from(entries.entries())) {
+        await this.set(key, value, ttl);
+      }
     }
   }
 
@@ -55,11 +114,32 @@ export class HydrationCache {
   }
 
   /**
-   * Invalidate multiple keys
+   * Invalidate multiple keys using Redis pipeline for performance
    */
   async invalidateMany(keys: string[]): Promise<void> {
-    for (const key of keys) {
-      await this.invalidate(key);
+    if (keys.length === 0) return;
+
+    const cacheService = this.cache as any;
+    if (!cacheService.redis || !cacheService.isInitialized) {
+      // Fallback to sequential if Redis not available
+      for (const key of keys) {
+        await this.invalidate(key);
+      }
+      return;
+    }
+
+    // Batch delete with Redis pipeline
+    try {
+      const prefixedKeys = keys.map(k => `hydration:${k}`);
+      if (prefixedKeys.length > 0) {
+        await cacheService.redis.del(...prefixedKeys);
+      }
+    } catch (error) {
+      console.error('[HYDRATION_CACHE] Error in batch invalidate:', error);
+      // Fallback to sequential on error
+      for (const key of keys) {
+        await this.invalidate(key);
+      }
     }
   }
 
