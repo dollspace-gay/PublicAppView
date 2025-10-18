@@ -3864,6 +3864,12 @@ export class DatabaseStorage implements IStorage {
       });
   }
 
+  clearStatsCache() {
+    console.log('[STORAGE] Clearing stats cache');
+    this.statsCache = null;
+    this.statsQueryInProgress = false;
+  }
+
   private async refreshStatsInBackground() {
     // Skip if query is already in progress
     if (this.statsQueryInProgress) {
@@ -3907,12 +3913,15 @@ export class DatabaseStorage implements IStorage {
       ) {
         this.refreshStatsInBackground();
       }
+      console.log('[STORAGE] Returning cached stats:', this.statsCache.data);
       return this.statsCache.data;
     }
 
     // No cache yet - try Redis counters first (fast)
     const { redisQueue } = await import('./services/redis-queue');
     const redisCounts = await redisQueue.getRecordCounts();
+
+    console.log('[STORAGE] Redis counts:', redisCounts);
 
     if (Object.keys(redisCounts).length > 0) {
       const data = {
@@ -3925,8 +3934,11 @@ export class DatabaseStorage implements IStorage {
       };
       // Cache it
       this.statsCache = { data, timestamp: Date.now() };
+      console.log('[STORAGE] Using Redis counts:', data);
       return data;
     }
+
+    console.log('[STORAGE] No Redis counts, falling back to PostgreSQL COUNT queries');
 
     // No Redis counts - fallback to PostgreSQL query (only on first load)
     if (this.statsQueryInProgress) {
@@ -3944,46 +3956,67 @@ export class DatabaseStorage implements IStorage {
     this.statsQueryInProgress = true;
 
     try {
-      // Add 5 second timeout to prevent blocking
+      // Use accurate COUNT(*) queries instead of pg_stat_user_tables estimates
+      // Run all counts in a single query for better performance
       const statsPromise = this.db.execute<{
-        schemaname: string;
-        relname: string;
-        count: number;
+        users: string;
+        posts: string;
+        likes: string;
+        reposts: string;
+        follows: string;
+        blocks: string;
       }>(sql`
-        SELECT 
-          schemaname,
-          relname,
-          n_live_tup as count
-        FROM pg_stat_user_tables
-        WHERE schemaname = 'public'
-          AND relname IN ('users', 'posts', 'likes', 'reposts', 'follows', 'blocks')
+        SELECT
+          (SELECT COUNT(*)::text FROM users) as users,
+          (SELECT COUNT(*)::text FROM posts) as posts,
+          (SELECT COUNT(*)::text FROM likes) as likes,
+          (SELECT COUNT(*)::text FROM reposts) as reposts,
+          (SELECT COUNT(*)::text FROM follows) as follows,
+          (SELECT COUNT(*)::text FROM blocks) as blocks
       `);
 
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Stats query timeout')), 5000);
+        setTimeout(() => reject(new Error('Stats query timeout')), 10000);
       });
 
       const result = await Promise.race([statsPromise, timeoutPromise]);
 
-      const stats: Record<string, number> = {};
-      result.rows.forEach(
-        (row: { relname: string; count: string | number }) => {
-          stats[row.relname] = Number(row.count || 0);
-        }
-      );
+      const row = result.rows[0] as {
+        users?: string;
+        posts?: string;
+        likes?: string;
+        reposts?: string;
+        follows?: string;
+        blocks?: string;
+      };
 
       const data = {
-        totalUsers: stats.users || 0,
-        totalPosts: stats.posts || 0,
-        totalLikes: stats.likes || 0,
-        totalReposts: stats.reposts || 0,
-        totalFollows: stats.follows || 0,
-        totalBlocks: stats.blocks || 0,
+        totalUsers: parseInt(row.users || '0'),
+        totalPosts: parseInt(row.posts || '0'),
+        totalLikes: parseInt(row.likes || '0'),
+        totalReposts: parseInt(row.reposts || '0'),
+        totalFollows: parseInt(row.follows || '0'),
+        totalBlocks: parseInt(row.blocks || '0'),
       };
+
+      console.log('[STORAGE] PostgreSQL COUNT query result:', data);
 
       // Cache the result
       this.statsCache = { data, timestamp: Date.now() };
       this.statsQueryInProgress = false;
+
+      // Update Redis counters with accurate counts
+      const { redisQueue: redisQueueUpdate } = await import('./services/redis-queue');
+      await Promise.all([
+        redisQueueUpdate.setRecordCount('users', data.totalUsers),
+        redisQueueUpdate.setRecordCount('posts', data.totalPosts),
+        redisQueueUpdate.setRecordCount('likes', data.totalLikes),
+        redisQueueUpdate.setRecordCount('reposts', data.totalReposts),
+        redisQueueUpdate.setRecordCount('follows', data.totalFollows),
+        redisQueueUpdate.setRecordCount('blocks', data.totalBlocks),
+      ]).catch((err) => {
+        console.error('[STORAGE] Failed to update Redis counters:', err);
+      });
 
       return data;
     } catch (error) {

@@ -4323,6 +4323,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Force stats refresh endpoint - clears cache and recalculates from database
+  app.post('/api/metrics/refresh', async (_req, res) => {
+    try {
+      // Clear the stats cache to force a fresh calculation
+      storage.clearStatsCache();
+
+      // Get fresh stats (will query database)
+      const stats = await storage.getStats();
+
+      res.json({
+        success: true,
+        message: 'Stats refreshed successfully',
+        stats
+      });
+    } catch (err) {
+      console.error('[METRICS] Error refreshing stats:', err);
+      res.status(500).json({ error: 'InternalServerError', message: 'Failed to refresh stats' });
+    }
+  });
+
   // Minimal dead-letter inspection endpoint (admin only in production)
   app.get('/api/redis/dead-letters', async (_req, res) => {
     try {

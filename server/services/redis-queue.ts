@@ -760,6 +760,18 @@ class RedisQueue {
     }
   }
 
+  async setRecordCount(table: string, value: number) {
+    if (!this.redis || !this.isInitialized) {
+      return;
+    }
+
+    try {
+      await this.redis.hset('db:record_counts', table, value.toString());
+    } catch (error) {
+      console.error('[REDIS] Error setting record count:', error);
+    }
+  }
+
   async getRecordCounts(): Promise<Record<string, number>> {
     if (!this.redis || !this.isInitialized) {
       return {};
