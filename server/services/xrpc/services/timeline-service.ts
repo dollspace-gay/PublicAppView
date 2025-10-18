@@ -419,15 +419,17 @@ export async function getFeed(req: Request, res: Response): Promise<void> {
     const viewerDid = await getAuthenticatedDid(req);
 
     // Call external feed generator service to get skeleton
+    // Don't forward viewer's Authorization - it was issued for THIS AppView, not external services
+    // Instead, let the client create a proper service token with feedGeneratorDid
     const { feed: hydratedFeed, cursor } = await feedGeneratorClient.getFeed(
       feedGen.did,
       {
         feed: params.feed,
         limit: params.limit,
         cursor: params.cursor,
+        feedGeneratorDid: feedGen.did, // Pass DID for service token creation
       },
       {
-        viewerAuthorization: req.headers['authorization'] as string | undefined,
         viewerDid: viewerDid || undefined,
       }
     );
