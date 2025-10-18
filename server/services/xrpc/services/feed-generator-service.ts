@@ -375,6 +375,7 @@ export async function getPopularFeedGenerators(
       generators = (searchResults as { feedGenerators: typeof generators })
         .feedGenerators;
       cursor = (searchResults as { cursor?: string }).cursor;
+      console.log(`[FEED_GEN] Search for "${params.query}" returned ${generators.length} generators`);
     } else {
       const suggestedResults = await storage.getSuggestedFeeds(
         params.limit,
@@ -383,9 +384,11 @@ export async function getPopularFeedGenerators(
       generators = (suggestedResults as { generators: typeof generators })
         .generators;
       cursor = (suggestedResults as { cursor?: string }).cursor;
+      console.log(`[FEED_GEN] getSuggestedFeeds returned ${generators.length} generators`);
     }
 
     if (generators.length === 0) {
+      console.log(`[FEED_GEN] No generators found, returning empty array`);
       return res.json({ cursor, feeds: [] });
     }
 
