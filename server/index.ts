@@ -122,7 +122,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, Accept, atproto-accept-labelers, X-CSRF-Token'
+    'Content-Type, Authorization, Accept, atproto-accept-labelers, X-CSRF-Token, x-bsky-topics'
   );
   res.setHeader(
     'Access-Control-Expose-Headers',
