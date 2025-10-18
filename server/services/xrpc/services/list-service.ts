@@ -19,6 +19,30 @@ import {
 import { xrpcApi } from '../../xrpc-api';
 
 /**
+ * Convert list avatar CID to CDN URL
+ * Returns undefined if avatar is missing or invalid
+ * Matches the official Bluesky AppView behavior
+ */
+function getListAvatarUrl(
+  avatarCid: string | null | undefined,
+  creatorDid: string,
+  req?: Request
+): string | undefined {
+  if (!avatarCid || typeof avatarCid !== 'string') return undefined;
+  const trimmed = avatarCid.trim();
+  if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return undefined;
+
+  // If already a full URL, return as-is
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  // Transform CID to CDN URL using the same helper as feed generators
+  const { transformBlobToCdnUrl } = require('../utils/serializers');
+  return transformBlobToCdnUrl(avatarCid, creatorDid, 'avatar', req);
+}
+
+/**
  * Get a specific list by URI with items
  * GET /xrpc/app.bsky.graph.getList
  */
@@ -171,6 +195,8 @@ export async function getList(req: Request, res: Response): Promise<void> {
     }
 
     // Build ATProto-compliant response
+    const avatarUrl = getListAvatarUrl(list.avatarUrl, list.creatorDid, req);
+
     res.json({
       cursor: nextCursor,
       list: {
@@ -180,7 +206,7 @@ export async function getList(req: Request, res: Response): Promise<void> {
         name: list.name,
         purpose: list.purpose,
         description: list.description || undefined,
-        ...(list.avatarUrl && typeof list.avatarUrl === 'string' && list.avatarUrl.trim() !== '' && { avatar: list.avatarUrl }),
+        ...(avatarUrl && { avatar: avatarUrl }),
         listItemCount,
         indexedAt: list.indexedAt.toISOString(),
         ...(viewer && { viewer }),
@@ -284,7 +310,7 @@ export async function getLists(req: Request, res: Response): Promise<void> {
         name: list.name,
         purpose: list.purpose,
         description: list.description || undefined,
-        ...(list.avatarUrl && typeof list.avatarUrl === 'string' && list.avatarUrl.trim() !== '' && { avatar: list.avatarUrl }),
+        ...(getListAvatarUrl(list.avatarUrl, list.creatorDid, req) && { avatar: getListAvatarUrl(list.avatarUrl, list.creatorDid, req) }),
         listItemCount,
         indexedAt: list.indexedAt.toISOString(),
         ...(viewer && { viewer }),
@@ -539,7 +565,7 @@ export async function getListsWithMembership(
         name: list.name,
         purpose: list.purpose,
         description: list.description || undefined,
-        ...(list.avatarUrl && typeof list.avatarUrl === 'string' && list.avatarUrl.trim() !== '' && { avatar: list.avatarUrl }),
+        ...(getListAvatarUrl(list.avatarUrl, list.creatorDid, req) && { avatar: getListAvatarUrl(list.avatarUrl, list.creatorDid, req) }),
         listItemCount,
         indexedAt: list.indexedAt.toISOString(),
         ...(viewer && { viewer }),
