@@ -21,6 +21,7 @@ oauth-public.pem
 oauth-private-pkcs8.pem
 
 # Bluesky web client for testing (forked/modified)
+social-app/*
 social-app/
 bluesky-web/
 bsky-client/

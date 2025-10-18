@@ -186,7 +186,7 @@ app.use((req, res, next) => {
   app.use(
     (
       err: Error & { status?: number; statusCode?: number },
-      _req: Request,
+      req: Request,
       res: Response,
       _next: NextFunction
     ) => {
@@ -200,6 +200,15 @@ app.use((req, res, next) => {
         status,
         stack: err.stack,
       });
+
+      // Ensure CORS headers are present on error responses
+      const origin = req.headers.origin;
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
 
       res.status(status).json({ message });
       // DO NOT throw after sending response - this would crash the server
