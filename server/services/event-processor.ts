@@ -1953,14 +1953,31 @@ export class EventProcessor {
       return;
     }
 
+    // If displayName is missing, try to fetch it from the creator's PDS
+    let displayName = sanitizeRequiredText(record.displayName);
+    let description = sanitizeText(record.description);
+    let avatarUrl = extractBlobCid(record.avatar);
+
+    if (!displayName || displayName.trim() === '') {
+      smartConsole.log(
+        `[EVENT_PROCESSOR] Feed generator ${uri} has no displayName, attempting to fetch from PDS...`
+      );
+
+      // Fetch complete metadata from PDS in the background
+      this.fetchAndUpdateFeedGeneratorMetadata(uri, cid, creatorDid, record.did);
+
+      // Use a temporary name while we fetch the real one
+      displayName = 'Loading...';
+    }
+
     const feedGenerator: InsertFeedGenerator = {
       uri,
       cid,
       creatorDid,
       did: record.did,
-      displayName: sanitizeRequiredText(record.displayName),
-      description: sanitizeText(record.description),
-      avatarUrl: extractBlobCid(record.avatar),
+      displayName,
+      description,
+      avatarUrl,
       createdAt: this.safeDate(record.createdAt),
     };
 
@@ -1985,6 +2002,62 @@ export class EventProcessor {
           .catch((error) => {
             smartConsole.error(
               `[EVENT_PROCESSOR] Failed to auto-discover feeds from ${creatorDid}:`,
+              error
+            );
+          });
+      })
+      .catch((error) => {
+        smartConsole.error(
+          `[EVENT_PROCESSOR] Failed to import feed generator discovery:`,
+          error
+        );
+      });
+  }
+
+  /**
+   * Fetch complete feed generator metadata from PDS and update database
+   * Runs asynchronously without blocking the firehose
+   */
+  private fetchAndUpdateFeedGeneratorMetadata(
+    uri: string,
+    cid: string,
+    creatorDid: string,
+    feedDid: string
+  ): void {
+    // Import and trigger fetch asynchronously
+    // Don't await - let it run in the background
+    import('./feed-generator-discovery')
+      .then(({ feedGeneratorDiscovery }) => {
+        feedGeneratorDiscovery
+          .fetchFeedGeneratorByUri(uri)
+          .then(async (feedGen) => {
+            if (feedGen && feedGen.displayName && feedGen.displayName.trim()) {
+              // Update the feed generator with the fetched metadata
+              const updatedFeedGen: InsertFeedGenerator = {
+                uri,
+                cid,
+                creatorDid,
+                did: feedDid,
+                displayName: sanitizeRequiredText(feedGen.displayName),
+                description: sanitizeText(feedGen.description),
+                avatarUrl: extractBlobCid(feedGen.avatar),
+                createdAt: this.safeDate(feedGen.createdAt),
+              };
+
+              await this.storage.updateFeedGenerator(uri, updatedFeedGen);
+
+              smartConsole.log(
+                `[EVENT_PROCESSOR] Updated feed generator ${uri} with displayName: ${feedGen.displayName}`
+              );
+            } else {
+              smartConsole.warn(
+                `[EVENT_PROCESSOR] Failed to fetch metadata for feed generator ${uri} from PDS`
+              );
+            }
+          })
+          .catch((error) => {
+            smartConsole.error(
+              `[EVENT_PROCESSOR] Failed to fetch feed generator metadata for ${uri}:`,
               error
             );
           });

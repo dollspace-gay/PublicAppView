@@ -543,6 +543,7 @@ export interface IStorage {
   getFeedGenerator(uri: string): Promise<FeedGenerator | undefined>;
   getDistinctFeedGeneratorCreators(): Promise<string[]>;
   getFeedGenerators(uris: string[]): Promise<FeedGenerator[]>;
+  getAllFeedGenerators(): Promise<FeedGenerator[]>;
   getActorFeeds(
     actorDid: string,
     limit?: number,
@@ -3374,6 +3375,10 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(feedGenerators)
       .where(inArray(feedGenerators.uri, uris));
+  }
+
+  async getAllFeedGenerators(): Promise<FeedGenerator[]> {
+    return await this.db.select().from(feedGenerators);
   }
 
   async getActorFeeds(

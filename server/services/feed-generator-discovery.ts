@@ -421,6 +421,99 @@ export class FeedGeneratorDiscovery {
   clearAllScanCooldowns(): void {
     this.lastScanned.clear();
   }
+
+  /**
+   * Refresh all feed generators that have empty or missing displayNames
+   * This is useful for fixing "Unnamed Feed" issues in the database
+   */
+  async refreshUnnamedFeeds(): Promise<{
+    total: number;
+    updated: number;
+    failed: number;
+  }> {
+    try {
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Searching for feed generators with empty displayNames...`
+      );
+
+      // Get all feed generators from storage
+      const allGenerators = await storage.getAllFeedGenerators();
+
+      // Filter for ones with empty/missing displayNames
+      const unnamedGenerators = allGenerators.filter(
+        (gen: any) =>
+          !gen.displayName ||
+          gen.displayName.trim() === '' ||
+          gen.displayName === 'Unnamed Feed' ||
+          gen.displayName === 'Loading...'
+      );
+
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Found ${unnamedGenerators.length} feed generators needing refresh out of ${allGenerators.length} total`
+      );
+
+      let updated = 0;
+      let failed = 0;
+
+      // Refresh each unnamed feed by fetching from PDS
+      for (const gen of unnamedGenerators) {
+        try {
+          smartConsole.log(
+            `[FEEDGEN_DISCOVERY] Refreshing metadata for ${gen.uri}...`
+          );
+
+          const feedGen = await this.fetchFeedGeneratorByUri(gen.uri);
+
+          if (feedGen && feedGen.displayName && feedGen.displayName.trim()) {
+            // Update the feed generator in the database
+            await storage.updateFeedGenerator(gen.uri, {
+              displayName: feedGen.displayName,
+              description: feedGen.description,
+              avatar: feedGen.avatar,
+            } as any);
+
+            smartConsole.log(
+              `[FEEDGEN_DISCOVERY] Updated ${gen.uri} with displayName: "${feedGen.displayName}"`
+            );
+            updated++;
+          } else {
+            smartConsole.warn(
+              `[FEEDGEN_DISCOVERY] Could not fetch metadata for ${gen.uri}`
+            );
+            failed++;
+          }
+        } catch (error) {
+          smartConsole.error(
+            `[FEEDGEN_DISCOVERY] Error refreshing ${gen.uri}:`,
+            error
+          );
+          failed++;
+        }
+
+        // Add a small delay to avoid overwhelming PDSes
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      const result = {
+        total: unnamedGenerators.length,
+        updated,
+        failed,
+      };
+
+      smartConsole.log(
+        `[FEEDGEN_DISCOVERY] Refresh complete:`,
+        result
+      );
+
+      return result;
+    } catch (error) {
+      smartConsole.error(
+        `[FEEDGEN_DISCOVERY] Error during unnamed feeds refresh:`,
+        error
+      );
+      throw error;
+    }
+  }
 }
 
 export const feedGeneratorDiscovery = new FeedGeneratorDiscovery();

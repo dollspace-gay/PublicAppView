@@ -17,7 +17,8 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "db:push": "drizzle-kit push",
-    "check-avatars": "tsx check-avatar-db.ts"
+    "check-avatars": "tsx check-avatar-db.ts",
+    "refresh-unnamed-feeds": "tsx scripts/refresh-unnamed-feeds.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.17.0",
